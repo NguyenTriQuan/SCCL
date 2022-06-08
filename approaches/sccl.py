@@ -148,16 +148,16 @@ class Appr(object):
         self.train_phase(t, train_loader, valid_loader, False)
 
         self.check_point = None
-        self.model.get_params(t-1)
-        for m in self.model.DM:
-            weight = torch.cat([torch.cat([m.old_weight, m.fwt_weight[t]], dim=0), torch.cat([m.bwt_weight[t], m.weight[t]], dim=0)], dim=1)
-            norm = weight.norm(2).detach()
-            m.weight[t].data /= norm
-            if m.bias:
-                m.bias[t].data /= norm
+        # self.model.get_params(t-1)
+        # for m in self.model.DM:
+        #     weight = torch.cat([torch.cat([m.old_weight, m.fwt_weight[t]], dim=0), torch.cat([m.bwt_weight[t], m.weight[t]], dim=0)], dim=1)
+        #     norm = weight.norm(2).detach()
+        #     m.weight[t].data /= norm
+        #     if m.bias:
+        #         m.bias[t].data /= norm
 
-        s_H = self.model.s_H()
-        print('s_H={:.1e}'.format(s_H), end='')
+        # s_H = self.model.s_H()
+        # print('s_H={:.1e}'.format(s_H), end='')
         
 
     def train_phase(self, t, train_loader, valid_loader, squeeze):
@@ -396,7 +396,7 @@ class Appr(object):
                     m.mask = (norm>values[high])
 
                 # remove neurons 
-                m.squeeze()
+                # m.squeeze()
 
                 if m.mask is None:
                     prune_ratio[i] = 0.0
@@ -406,8 +406,10 @@ class Appr(object):
                     prune_ratio[i] = 1.0 - mask_count/total_count
 
                 print('{:.3f}'.format(prune_ratio[i]), end=' ')
-                m.mask = None
+                # m.mask = None
 
+            for m in self.model.DM[:-1]:
+                m.squeeze()
             print('| Time={:5.1f}ms'.format((time.time()-t1)*1000))
             fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
             # plt.show()

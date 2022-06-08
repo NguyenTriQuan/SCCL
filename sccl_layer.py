@@ -597,7 +597,7 @@ class DynamicNorm(nn.Module):
     def forward(self, input, t=-1, dropout=0.0):
 
         # input = self.L2_norm(input)
-        output = self.batch_norm(input, t) + self.L2_norm(input)
+        output = self.batch_norm(input, t) + self.layer_norm(input)
 
         if self.affine:
             weight = torch.cat([self.old_weight, self.weight[t]])

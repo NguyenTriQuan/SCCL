@@ -8,7 +8,7 @@ import copy
 import utils
 from utils import *
 from arguments import get_args
-from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer, DynamicBatchNorm
+from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 import importlib
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

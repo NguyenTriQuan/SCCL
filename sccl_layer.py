@@ -1,4 +1,5 @@
 
+from tkinter.tix import InputOnly
 from traceback import print_tb
 from sqlalchemy import false
 import torch
@@ -585,22 +586,18 @@ class DynamicNorm(nn.Module):
 
         return (input - mean.view(shape)) / (torch.sqrt(var.view(shape) + self.eps))
 
+    def L2_norm(self, input):
+        if len(input.shape) == 4:
+            norm = input.norm(2, dim=(1,2,3)).view(-1,1,1,1)
+        else:
+            norm = input.norm(2, dim=(1)).view(-1,1)
+
+        return input / norm
+
     def forward(self, input, t=-1, dropout=0.0):
 
-        # output = self.batch_norm(input, t) * self.layer_norm(input)
-        if len(input.shape) == 4:
-            input /= input.norm(2, dim=(1,2,3)).view(-1, 1, 1, 1)
-        else:
-            input /= input.norm(2, dim=(1)).view(-1, 1)
-
-        output = self.batch_norm(input, t) + input
-
-        # if len(input.shape) == 4:
-        #     input /= input.norm(2, dim=(1,2,3)).view(-1, 1, 1, 1)
-        # else:
-        #     input /= input.norm(2, dim=(1)).view(-1, 1)
-
-        output += input
+        # input = self.L2_norm(input)
+        output = self.batch_norm(input, t) + self.L2_norm(input)
 
         if self.affine:
             weight = torch.cat([self.old_weight, self.weight[t]])

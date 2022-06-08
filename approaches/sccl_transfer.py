@@ -148,6 +148,16 @@ class Appr(object):
         self.train_phase(t, train_loader, valid_loader, False)
 
         self.check_point = None
+        self.model.get_params(t-1)
+        for m in self.model.DM:
+            weight = torch.cat([torch.cat([m.old_weight, m.fwt_weight[t]], dim=0), torch.cat([m.bwt_weight[t], m.weight[t]], dim=0)], dim=1)
+            norm = weight.norm(2).detach()
+            m.weight[t].data /= norm
+            if m.bias:
+                m.bias[t].data /= norm
+
+        s_H = self.model.s_H()
+        print('s_H={:.1e}'.format(s_H), end='')
         
 
     def train_phase(self, t, train_loader, valid_loader, squeeze):
@@ -297,6 +307,7 @@ class Appr(object):
         total_acc=0
         total_num=0
         self.model.eval()
+
         for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
@@ -311,14 +322,16 @@ class Appr(object):
 
     def prune(self, t, data_loader, thres=0.0):
 
-        fig, axs = plt.subplots(2, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 5))
+        fig, axs = plt.subplots(3, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 10))
         for i, m in enumerate(self.model.DM[:-1]):
+            axs[0][i].hist(m.norm_in().detach().cpu().numpy(), bins=100)
+            axs[0][i].set_title(f'layer {i+1}')
 
-          axs[0][i].hist(m.norm_in().detach().cpu().numpy(), bins=100)
-          axs[0][i].set_title(f'layer {i+1}')
+            axs[1][i].hist(m.norm_out().detach().cpu().numpy(), bins=100)
+            axs[1][i].set_title(f'layer {i+1}')
 
-          axs[1][i].hist(m.norm_out().detach().cpu().numpy(), bins=100)
-          axs[1][i].set_title(f'layer {i+1}')
+            axs[2][i].hist((m.norm_in()*m.norm_out()).detach().cpu().numpy(), bins=100)
+            axs[2][i].set_title(f'layer {i+1}')
 
         plt.show()
 

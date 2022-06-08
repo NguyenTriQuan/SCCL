@@ -5,7 +5,7 @@ import math
 from torch.distributions import Bernoulli, LogNormal
 import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
-from torch import Tensor
+from torch import Tensor, dropout
 from sccl_transfer_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -159,15 +159,10 @@ class _DynamicModel(nn.Module):
         s_H = 1
         for m in self.DM:
             weight = torch.cat([torch.cat([m.old_weight, m.fwt_weight[t]], dim=0), torch.cat([m.bwt_weight[t], m.weight[t]], dim=0)], dim=1)
-            if m.bias is not None:
-                bias = torch.cat([m.old_bias, m.bias[t]])
-                # W = torch.cat([weight, bias], dim=0)
-            else:
-                bias = None
-                # W = weight
             # s_H *= weight.norm(p='fro')
-            s_H *= weight.abs().max()
-        return s_H.detach().item()
+            # s_H *= weight.abs().max()
+            s_H *= weight.norm(p=2).detach().item()
+        return s_H
             
 
 
@@ -181,14 +176,14 @@ class MLP(_DynamicModel):
 
         self.layers = nn.ModuleList([
             nn.Flatten(),
-            nn.Dropout(0.25),
-            DynamicLinear(np.prod(input_size), 400, first_layer=True),
+            # nn.Dropout(0.25),
+            DynamicLinear(np.prod(input_size), 400, first_layer=True, dropout=0.25, bias=True),
             nn.ReLU(),
             # nn.Dropout(0.25),
-            DynamicLinear(400, 400),
+            DynamicLinear(400, 400, dropout=0.25, bias=True),
             nn.ReLU(),
             # nn.Dropout(0.25),
-            DynamicLinear(400, 0),
+            DynamicLinear(400, 0, bias=True),
             ])
         
         self.DM = [m for m in self.layers if isinstance(m, _DynamicLayer)]
@@ -198,7 +193,7 @@ class MLP(_DynamicModel):
 
 class VGG8(_DynamicModel):
 
-    def __init__(self, input_size, mul=1, norm_layer=True):
+    def __init__(self, input_size, mul=1, norm_layer=True, bias=True):
         super(VGG8, self).__init__()
 
         nchannels, size, _ = input_size
@@ -206,23 +201,23 @@ class VGG8(_DynamicModel):
         self.input_size = input_size
 
         self.layers = nn.ModuleList([
-            DynamicConv2D(nchannels, 32, kernel_size=3, padding=1, norm_layer=norm_layer, first_layer=True),
+            DynamicConv2D(nchannels, 32, kernel_size=3, padding=1, norm_layer=norm_layer, first_layer=True, bias=bias),
             nn.ReLU(),
-            DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_layer=norm_layer),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Dropout(0.25),
-
-            DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_layer=norm_layer),
-            nn.ReLU(),
-            DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_layer=norm_layer),
+            DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_layer=norm_layer, dropout=0.25, bias=bias),
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(0.25),
 
-            DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_layer=norm_layer),
+            DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_layer=norm_layer, bias=bias),
             nn.ReLU(),
-            DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_layer=norm_layer),
+            DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_layer=norm_layer, dropout=0.25, bias=bias),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Dropout(0.25),
+
+            DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_layer=norm_layer, bias=bias),
+            nn.ReLU(),
+            DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_layer=norm_layer, dropout=0.5, bias=bias),
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(0.5),
@@ -238,7 +233,7 @@ class VGG8(_DynamicModel):
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(128*self.smid*self.smid, 256, smid=self.smid, norm_layer=norm_layer),
+            DynamicLinear(128*self.smid*self.smid, 256, smid=self.smid, norm_layer=norm_layer, dropout=0.0),
             nn.ReLU(),
             DynamicLinear(256, 0)
             ])
@@ -280,16 +275,16 @@ class VGG(_DynamicModel):
             m.next_layer = self.DM[i+1]
 
 
-def make_layers(cfg, nchannels, norm_layer=False):
+def make_layers(cfg, nchannels, norm_layer=False, bias=True):
     layers = []
     in_channels = nchannels
-    layers += DynamicConv2D(in_channels, cfg[0], kernel_size=3, padding=1, norm_layer=norm_layer, bias=False, first_layer=True), nn.ReLU(inplace=True)
+    layers += DynamicConv2D(in_channels, cfg[0], kernel_size=3, padding=1, norm_layer=norm_layer, bias=bias, first_layer=True), nn.ReLU(inplace=True)
     in_channels = cfg[0]
     for v in cfg[1:]:
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            layers += [DynamicConv2D(in_channels, v, kernel_size=3, padding=1, norm_layer=norm_layer, bias=False), nn.ReLU(inplace=True)]
+            layers += [DynamicConv2D(in_channels, v, kernel_size=3, padding=1, norm_layer=norm_layer, bias=bias), nn.ReLU(inplace=True)]
             in_channels = v
 
     return nn.ModuleList(layers)

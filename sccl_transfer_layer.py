@@ -29,12 +29,13 @@ else:
     
 class _DynamicLayer(nn.Module):
 
-    def __init__(self, in_features, out_features, next_layer=None, bias=True, norm_layer=False, smid=1, first_layer=False):
+    def __init__(self, in_features, out_features, next_layer=None, bias=True, norm_layer=False, smid=1, first_layer=False, dropout=0.0):
         super(_DynamicLayer, self).__init__()
 
         self.base_in_features = in_features
         self.base_out_features = out_features
         self.first_layer = first_layer
+        self.dropout = dropout
         if first_layer:
             self.in_features = in_features
         else:
@@ -295,8 +296,8 @@ class _DynamicLayer(nn.Module):
 
 class DynamicLinear(_DynamicLayer):
 
-    def __init__(self, in_features, out_features, next_layer=None, bias=True, norm_layer=False, smid=1, first_layer=False):
-        super(DynamicLinear, self).__init__(in_features, out_features, next_layer, bias, norm_layer, smid, first_layer)
+    def __init__(self, in_features, out_features, next_layer=None, bias=True, norm_layer=False, smid=1, first_layer=False, dropout=0.0):
+        super(DynamicLinear, self).__init__(in_features, out_features, next_layer, bias, norm_layer, smid, first_layer, dropout)
         
         self.weight = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features, self.in_features))])
         self.fwt_weight = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features, 0))])
@@ -311,10 +312,14 @@ class DynamicLinear(_DynamicLayer):
         else:
             bias = None
 
+        # if self.training:
+        #     weight = F.dropout(weight, p=self.dropout)
+        #     bias = F.dropout(bias, p=self.dropout)
+
         output = F.linear(x, weight, bias)
 
         if self.norm_layer is not None:
-            output = self.norm_layer(output, t)
+            output = self.norm_layer(output, t, self.dropout)
             # output = self.norm_layer(output)
 
         if self.mask is not None:
@@ -356,8 +361,8 @@ class DynamicLinear(_DynamicLayer):
         
 class _DynamicConvNd(_DynamicLayer):
     def __init__(self, in_features, out_features, kernel_size, 
-                stride, padding, dilation, transposed, output_padding, groups, next_layer, bias, norm_layer, smid, first_layer):
-        super(_DynamicConvNd, self).__init__(in_features, out_features, next_layer, bias, norm_layer, smid, first_layer)
+                stride, padding, dilation, transposed, output_padding, groups, next_layer, bias, norm_layer, smid, first_layer, dropout):
+        super(_DynamicConvNd, self).__init__(in_features, out_features, next_layer, bias, norm_layer, smid, first_layer, dropout)
         if in_features % groups != 0:
             raise ValueError('in_channels must be divisible by groups')
         if out_features % groups != 0:
@@ -378,13 +383,13 @@ class _DynamicConvNd(_DynamicLayer):
 
 class DynamicConv2D(_DynamicConvNd):
     def __init__(self, in_features, out_features, kernel_size, 
-                stride=1, padding=0, dilation=1, groups=1, next_layer=None, bias=True, norm_layer=False, smid=1, first_layer=False):
+                stride=1, padding=0, dilation=1, groups=1, next_layer=None, bias=True, norm_layer=False, smid=1, first_layer=False, dropout=0.0):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
         super(DynamicConv2D, self).__init__(in_features, out_features, kernel_size, 
-                                            stride, padding, dilation, False, _pair(0), groups, next_layer, bias, norm_layer, smid, first_layer)
+                                            stride, padding, dilation, False, _pair(0), groups, next_layer, bias, norm_layer, smid, first_layer, dropout)
     
     def forward(self, x, t):
 
@@ -393,11 +398,14 @@ class DynamicConv2D(_DynamicConvNd):
             bias = torch.cat([self.old_bias, self.bias[t]])
         else:
             bias = None
+        # if self.training:
+        #     weight = F.dropout(weight, p=self.dropout)
+        #     bias = F.dropout(bias, p=self.dropout)
 
         output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
 
         if self.norm_layer is not None:
-            output = self.norm_layer(output, t)
+            output = self.norm_layer(output, t, self.dropout)
             # output = self.norm_layer(output)
 
         if self.mask is not None:
@@ -517,6 +525,29 @@ class DynamicNorm(nn.Module):
 
     def batch_norm(self, input, t=-1):
 
+        if self.momentum is None:
+            exponential_average_factor = 0.0
+        else:
+            exponential_average_factor = self.momentum
+
+        if self.training and self.track_running_stats:
+            # TODO: if statement only here to tell the jit to skip emitting this when it is None
+            if self.num_batches_tracked is not None:  # type: ignore[has-type]
+                self.num_batches_tracked += 1  # type: ignore[has-type]
+                if self.momentum is None:  # use cumulative moving average
+                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
+                else:  # use exponential moving average
+                    exponential_average_factor = self.momentum
+
+        r"""
+        Decide whether the mini-batch stats should be used for normalization rather than the buffers.
+        Mini-batch stats are used in training mode, and in eval mode when buffers are None.
+        """
+        if self.training:
+            bn_training = True
+        else:
+            bn_training = (self.running_mean is None) and (self.running_var is None)
+
         if len(input.shape) == 4:
             mean = input.mean([0, 2, 3])
             var = input.var([0, 2, 3], unbiased=False)
@@ -526,28 +557,9 @@ class DynamicNorm(nn.Module):
             var = input.var([0], unbiased=False)
             shape = (1, -1)
 
-        # mean = input.mean([0])
-        # var = input.var([0], unbiased=False)
-        # if len(input.shape) == 4:
-        #     shape = (1, mean.shape[0], mean.shape[1], mean.shape[2])
-        # else:
-        #     shape = (1, mean.shape[0])
-
-        if self.training:
-            bn_training = True
-        else:
-            bn_training = (self.running_mean is None) and (self.running_var is None)
-
         # calculate running estimates
         if bn_training:
             if self.track_running_stats:
-                exponential_average_factor = 0.0
-                self.num_batches_tracked += 1
-                if self.momentum is None:  # use cumulative moving average
-                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
-                else:  # use exponential moving average
-                    exponential_average_factor = self.momentum
-
                 n = input.numel() / input.size(1)
                 with torch.no_grad():
                     self.running_mean[t] = exponential_average_factor * mean\
@@ -571,25 +583,25 @@ class DynamicNorm(nn.Module):
             var = input.var([1], unbiased=False)
             shape = (-1, 1)
 
-        # mean = input.mean([1])
-        # var = input.var([1], unbiased=False)
-        # if len(input.shape) == 4:
-        #     shape = (mean.shape[0], 1, mean.shape[1], mean.shape[2])
-        # else:
-        #     shape = (mean.shape[0], 1)
-
         return (input - mean.view(shape)) / (torch.sqrt(var.view(shape) + self.eps))
 
-    def forward(self, input, t=-1):
+    def forward(self, input, t=-1, dropout=0.0):
 
-        # output = self.batch_norm(input, t) + self.layer_norm(input)
-        # output = self.batch_norm(input, t) + input
+        # output = self.batch_norm(input, t) * self.layer_norm(input)
         if len(input.shape) == 4:
-            output = input / input.norm(2).view((1, -1, 1, 1))
+            input /= input.norm(2, dim=(1,2,3)).view(-1, 1, 1, 1)
         else:
-            output = input / input.norm(2).view((1, -1))
+            input /= input.norm(2, dim=(1)).view(-1, 1)
 
-        output = self.batch_norm(input, t) + output
+        output = self.batch_norm(input, t) + input
+
+        # if len(input.shape) == 4:
+        #     input /= input.norm(2, dim=(1,2,3)).view(-1, 1, 1, 1)
+        # else:
+        #     input /= input.norm(2, dim=(1)).view(-1, 1)
+
+        output += input
+
         if self.affine:
             weight = torch.cat([self.old_weight, self.weight[t]])
             bias = torch.cat([self.old_bias, self.bias[t]])

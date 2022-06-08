@@ -342,15 +342,15 @@ class Appr(object):
         pre_prune_loss = loss
         prune_ratio = np.ones(len(self.model.DM)-1)
         step = 0
-
+        pre_sum = 0
         # Dynamic expansion
-        while sum(prune_ratio) > 0.0:
+        while True:
             t1 = time.time()
             fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))
             print('Pruning ratio:', end=' ')
             for i in range(0, len(self.model.DM)-1):
                 m = self.model.DM[i]
-
+                mask_temp = m.mask
                 norm = m.norm_in() * m.norm_out()
                 if m.norm_layer:
                     if m.norm_layer.affine:
@@ -390,7 +390,7 @@ class Appr(object):
 
                 if high == norm.shape[0]:
                     # not found any k satisfy, keep all neurons
-                    m.mask = None
+                    m.mask = mask_temp
                 else:
                     # found k = high is the smallest k satisfy
                     m.mask = (norm>values[high])
@@ -412,7 +412,9 @@ class Appr(object):
             fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
             # plt.show()
             step += 1
-            # break
+            if sum(prune_ratio) == pre_sum:
+                break
+            pre_sum = sum(prune_ratio)
 
         for m in self.model.DM[:-1]:
             m.squeeze()

@@ -12,7 +12,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 import time
 import csv
 from utils import *
-from sccl_transfer_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 # import pygame

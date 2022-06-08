@@ -408,17 +408,15 @@ class Appr(object):
                 print('{:.3f}'.format(prune_ratio[i]), end=' ')
                 # m.mask = None
 
-            for m in self.model.DM[:-1]:
-                m.squeeze()
             print('| Time={:5.1f}ms'.format((time.time()-t1)*1000))
             fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
             # plt.show()
             step += 1
             # break
 
-        # for m in self.model.DM[:-1]:
-        #   m.squeeze()
-        #   m.mask = None
+        for m in self.model.DM[:-1]:
+            m.squeeze()
+            m.mask = None
         loss,acc=self.eval(t,data_loader)
         print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
 

@@ -1,3 +1,6 @@
+
+from traceback import print_tb
+from sqlalchemy import false
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,155 +8,245 @@ import math
 from torch.distributions import Bernoulli, LogNormal, Normal
 import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
-from torch import Tensor
+from torch import Tensor, device, isin, seed
 from typing import Optional, Any
 from torch.nn import init
 from torch.nn.parameter import Parameter
 import matplotlib.pyplot as plt
-
+from utils import *
 from typing import Optional, List, Tuple, Union
 
-
-normal = Normal(0, 1)
-
+import sys
+from arguments import get_args
+args = get_args()
+# Seed
+np.random.seed(args.seed)
+torch.manual_seed(args.seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(args.seed)
+else:
+    print('[CUDA unavailable]'); sys.exit()
+    
 class _DynamicLayer(nn.Module):
 
-    def __init__(self, in_features, out_features, bias=True, batch_norm=False, dropout=0.0):
+    def __init__(self, in_features, out_features, next_layer=None, bias=True, norm_layer=False, smid=1, first_layer=False, dropout=0.0):
         super(_DynamicLayer, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
 
+        self.base_in_features = in_features
+        self.base_out_features = out_features
+        self.first_layer = first_layer
+        self.dropout = dropout
+        if first_layer:
+            self.in_features = in_features
+        else:
+            self.in_features = 0
+        self.out_features = 0
         if bias:
-            self.bias = nn.Parameter(torch.Tensor(out_features).uniform_(0,0))
+            self.bias = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features))])
         else:
             self.register_parameter("bias", None)
 
-        self.shape_in = [in_features]
-        self.shape_out = [out_features]
+        self.shape_in = [0]
+        self.shape_out = [0]
 
 
-        if batch_norm:
-            self.batch_norm = nn.ModuleList([DynamicBatchNorm(self.out_features)])
+        if norm_layer:
+            self.norm_layer = DynamicNorm(self.out_features, affine=False, track_running_stats=True)
+            # self.norm_layer = DynamicLayerNorm()
+            # self.norm_layer = nn.BatchNorm2d(out_features, affine=False)
+            # self.norm_layer = nn.LayerNorm(self.out_features, elementwise_affine=False)
         else:
-            self.batch_norm = None
+            self.norm_layer = None
 
-        self.weight_pre = [None]
-        self.bias_pre = [None]
-        self.mask_pre = [None]
-        self.grad_in = 0
-        self.grad_out = 0
+        # self.mask_pre_out = [None]
+        # self.mask_pre_in = [None]
+        # self.grad_in = 0
+        # self.grad_out = 0
 
-        self.norm = [0]
-
-    def restrict_gradients(self):
-        self.weight.grad.data[:self.shape_out[-2]][:, :self.shape_in[-2]] = 0
+        self.old_weight = nn.Parameter(torch.Tensor(self.in_features, self.out_features), requires_grad=False)
         if self.bias is not None:
-            self.bias.grad.data[:self.shape_out[-2]] = 0
+            self.old_bias = nn.Parameter(torch.Tensor(self.out_features), requires_grad=False)
+        else:
+            self.old_bias = None
 
-        # self.weight.grad.data[:self.shape_out[-2]][:, self.shape_in[-2]:] = 0
+        self.next_layer = next_layer
+        self.smid = smid
+        self.mask = None
+        
+
+    def restrict_gradients(self, t, requires_grad):
+        for i in range(0, t+1):
+            self.weight[i].requires_grad = requires_grad
+            self.fwt_weight[i].requires_grad = requires_grad
+            self.bwt_weight[i].requires_grad = requires_grad
+            if self.bias:
+                self.bias[i].requires_grad = requires_grad
+            # if self.norm_layer is not None:
+            #     if self.norm_layer.affine:
+            #         self.norm_layer.weight[i].requires_grad = requires_grad
+            #         self.norm_layer.bias[i].requires_grad = requires_grad
+
+    def get_optim_params(self):
+        params = [self.weight[-1], self.fwt_weight[-1], self.bwt_weight[-1]]
+        if self.bias:
+            params += [self.bias[-1]]
+        if self.norm_layer:
+            if self.norm_layer.affine:
+                params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
+        return params
 
 
-    def squeeze(self, mask_in, mask_out):
-        self.weight.data = self.weight.data[mask_out][:,mask_in].clone()
-        # self.weight_pre[-1] = self.weight_pre[-1][mask_out][:,mask_in].clone()
-        self.weight.grad = None
+    def squeeze(self):
 
-        if self.bias is not None:
-            self.bias.data = self.bias.data[mask_out].clone()
-            # self.bias_pre[-1] = self.bias_pre[-1][mask_out].clone()
-            self.bias.grad = None
+        if self.mask is not None:
+            mask_out = self.mask
+            self.weight[-1].data = self.weight[-1].data[mask_out].clone()
+            self.weight[-1].grad = None
+            self.fwt_weight[-1].data = self.fwt_weight[-1].data[mask_out].clone()
+            self.fwt_weight[-1].grad = None 
 
-        self.in_features, self.out_features = self.weight.shape[1], self.weight.shape[0]
-        self.shape_in[-1] = self.in_features
-        self.shape_out[-1] = self.out_features
+            if self.bias:
+                self.bias[-1].data = self.bias[-1].data[mask_out].clone()
 
-        if self.batch_norm is not None:
-            self.batch_norm[-1].squeeze(mask_out)
+            if self.norm_layer:
+                self.norm_layer.squeeze(mask_out)
 
-    # def forget(self, mask_in, mask_out):
-    #   # print(self.shape_out, self.shape_in)
-    #   for t in range(1, len(self.shape_out)):
-    #       self.shape_out[t] = mask_out[:self.shape_out[t]].sum().item()
-    #       self.shape_in[t] = mask_in[:self.shape_in[t]].sum().item()
+            self.out_features -= (mask_out.numel() - mask_out.sum()).item()
+            self.shape_out[-1] = self.out_features
 
-    #   # print(self.shape_out, self.shape_in)
-    #   self.squeeze(mask_in, mask_out)
+            if self.next_layer:
+                if isinstance(self.next_layer, DynamicLinear) and isinstance(self, DynamicConv2D):
+                    mask_in = self.mask.view(-1,1,1).expand(self.mask.size(0),self.next_layer.smid,self.next_layer.smid).contiguous().view(-1)
+                else:
+                    mask_in = self.mask
 
-    def expand(self, add_in=0, add_out=0):
+                self.next_layer.weight[-1].data = self.next_layer.weight[-1].data[:, mask_in].clone()
+                self.next_layer.weight[-1].grad = None
+                self.next_layer.bwt_weight[-1].data = self.next_layer.bwt_weight[-1].data[:, mask_in].clone()
+                self.next_layer.bwt_weight[-1].grad = None
+                self.next_layer.in_features -= (mask_in.numel() - mask_in.sum()).item()
+                self.next_layer.shape_in[-1] = self.next_layer.in_features
+
+
+    # def squeeze_previous(self, mask_in=None, mask_out=None):
+    #     if mask_in is not None:
+    #         self.fwt_weight[-1].data = self.fwt_weight[-1].data[:, self.mask_pre_in[-1]].clone()
+    #         self.fwt_weight[-1].grad = None
+    #         self.mask_pre_in[-1] = mask_in.clone()
+
+    #     if mask_out is not None:
+    #         self.bwt_weight[-1].data = self.bwt_weight[-1].data[self.mask_pre_out[-1]].clone()  
+    #         self.bwt_weight[-1].grad = None
+    #         self.mask_pre_out[-1] = mask_out.clone()
+
+
+    def get_params(self, t):
+        self.old_weight.data = self.weight[0].data
+        if self.bias:
+            self.old_bias.data = self.bias[0].data
+        else:
+            self.old_bias = None
+
+        # for i in range(1, t+1):
+        #   if self.mask_pre_in[i] is not None:
+        #       if isinstance(self, DynamicLinear):
+        #           fwt_weight = torch.zeros(self.weight[i].shape[0], self.old_weight.shape[1]).cuda()
+        #           fwt_weight[:, self.mask_pre_in[i]] = self.fwt_weight[i].data
+        #       else:
+        #           fwt_weight = torch.zeros(self.weight[i].shape[0], self.old_weight.shape[1] // self.groups, *self.kernel_size).cuda()
+        #           fwt_weight[:, self.mask_pre_in[i]] = self.fwt_weight[i].data
+        #   else:
+        #       fwt_weight = self.fwt_weight[i].data
+
+        #   if self.mask_pre_out[i] is not None:
+        #       if isinstance(self, DynamicLinear):
+        #           bwt_weight = torch.zeros(self.old_weight.shape[0], self.weight[i].shape[1]).cuda()
+        #           bwt_weight[self.mask_pre_out[i]] = self.bwt_weight[i].data
+        #       else:
+        #           bwt_weight = torch.zeros(self.old_weight.shape[0], self.weight[i].shape[1] // self.groups, *self.kernel_size).cuda()
+        #           bwt_weight[self.mask_pre_out[i]] = self.bwt_weight[i].data
+        #   else:
+        #       bwt_weight = self.bwt_weight[i].data
+
+        #   self.old_weight.data = torch.cat([torch.cat([self.old_weight.data, fwt_weight], dim=0), 
+        #                                   torch.cat([bwt_weight, self.weight[i].data], dim=0)], dim=1)
+        #   if self.bias is not None:
+        #       self.old_bias.data = torch.cat([self.old_bias.data, self.bias[i].data])
+
+        # if self.mask_pre_out[t+1] is not None:
+        #   self.old_weight.data = self.old_weight.data[self.mask_pre_out[t+1]]
+        #   if self.bias is not None:
+        #       self.old_bias.data = self.old_bias.data[self.mask_pre_out[t+1]]
+
+        # if self.mask_pre_in[t+1] is not None:
+        #   self.old_weight.data = self.old_weight.data[:, self.mask_pre_in[t+1]]
+
+        for i in range(1, t+1):
+            fwt_weight = self.fwt_weight[i].data
+            bwt_weight = self.bwt_weight[i].data
+
+            self.old_weight.data = torch.cat([torch.cat([self.old_weight.data, fwt_weight], dim=0), 
+                                            torch.cat([bwt_weight, self.weight[i].data], dim=0)], dim=1)
+            if self.bias:
+                self.old_bias.data = torch.cat([self.old_bias.data, self.bias[i].data])
+
+        if self.norm_layer:
+            self.norm_layer.get_params(t)
+
+
+    def expand(self, add_in=None, add_out=None):
+        if not add_in:
+            if self.first_layer:
+                # not expand input
+                add_in = 0
+            else:
+                add_in = self.base_in_features
+        if not add_out:
+            add_out = self.base_out_features
 
         if isinstance(self, DynamicLinear):
-            weight = torch.Tensor(self.out_features+add_out, self.in_features+add_in).cuda()
+            # new neurons to new neurons
+            self.weight.append(nn.Parameter(torch.Tensor(add_out, add_in).cuda()))
+            # old neurons to new neurons
+            self.fwt_weight.append(nn.Parameter(torch.Tensor(add_out, self.in_features).cuda()))
+            # new neurons to old neurons
+            self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in).cuda()))
+            fan_in = self.in_features + add_in
         else:
-            weight = torch.Tensor(self.out_features+add_out, (self.in_features+add_in) // self.groups, *self.kernel_size).cuda()
+            self.weight.append(nn.Parameter(torch.Tensor(add_out, add_in // self.groups, *self.kernel_size).cuda()))
+            self.fwt_weight.append(nn.Parameter(torch.Tensor(add_out, self.in_features // self.groups, *self.kernel_size).cuda()))
+            self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in // self.groups, *self.kernel_size).cuda()))
+            fan_in = (self.in_features + add_in) * np.prod(self.kernel_size)
 
-        # init weight
-        nn.init.kaiming_uniform_(weight, a=math.sqrt(5))
+        gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        bound = gain * math.sqrt(3.0/fan_in)
+        nn.init.uniform_(self.weight[-1], -bound, bound)
+        nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
+        nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
 
-        # print(self.out_features, self.in_features, add_out, add_in)
-        if add_out != 0 and self.in_features != 0:
-            nn.init.kaiming_uniform_(weight[self.out_features:self.out_features+add_out][:, :self.in_features], a=math.sqrt(5))
-
-        if add_in != 0 and self.out_features != 0:
-            nn.init.kaiming_uniform_(weight[:self.out_features][:, self.in_features:self.in_features+add_in], a=math.sqrt(5))
-        
-        if add_in != 0 and add_out != 0:
-            nn.init.kaiming_uniform_(weight[self.out_features:self.out_features+add_out][:, self.in_features:self.in_features+add_in], a=math.sqrt(5))
-
-        # nn.init.normal_(weight, 0, 0.1)
-        weight[:self.out_features][:, :self.in_features] = self.weight.data.clone()
-        # weight[:self.out_features][:, self.in_features:] = 0
-        self.weight = nn.Parameter(weight)
-        # self.weight_pre.append(torch.ones(self.weight.shape).cuda().bool())
-
-        if self.bias is not None:
-            bias = torch.Tensor(self.out_features+add_out).uniform_(0,0).cuda()
-            bias[:self.out_features] = self.bias.data.clone()
-            self.bias = nn.Parameter(bias)
-            # self.bias_pre.append(torch.ones(self.bias.shape).cuda().bool())
+        if self.bias:
+            self.bias.append(nn.Parameter(torch.Tensor(add_out).cuda().uniform_(0, 0)))
         
         self.in_features += add_in
         self.out_features += add_out
 
-        self.shape_in[-1] = self.in_features
-        self.shape_out[-1] = self.out_features
-
-        if self.batch_norm is not None:
-            self.batch_norm.append(DynamicBatchNorm(self.out_features))
-
-        self.strength_in = np.prod(self.weight[self.shape_out[-2]:].shape)
-        self.strength_out = np.prod(self.weight[:, self.shape_in[-2]:].shape)
-
-        self.mask_pre.append(torch.ones(self.shape_out[-2]).cuda().bool())
-
-        # if self.weight_pre[-1].numel() == 0:
-        #   self.weight_pre[-1] = 1
-        #   self.bias_pre[-1] = 1
-
-        # print(self.weight_pre)
-
-
-    def new_task(self):
         self.shape_in.append(self.in_features)
         self.shape_out.append(self.out_features)
-        self.grad_in = 0
-        self.grad_out = 0
-        self.grad_weight = 0
-        self.grad_bias = 0
 
-    # def set_cur_task(self, t):
-    #   self.cur_weight = self.weight[]
-    #   self.cur_bias = self.bias
+        if self.norm_layer:
+            # if isinstance(self, DynamicLinear):
+            #     self.norm_layer = nn.BatchNorm1d(self.out_features, affine=False).cuda()
+            # else:
+            #     self.norm_layer = nn.BatchNorm2d(self.out_features, affine=False).cuda()
+            self.norm_layer.expand(add_out)
 
-    def bn_norm(self):
-        if self.batch_norm is not None:
-            return (self.batch_norm[-1].weight[self.shape_out[-2]:]**2 + 
-                self.batch_norm[-1].bias[self.shape_out[-2]:]**2) ** (1/2)
-        else: 
-            return 1
+        self.strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
+        self.strength_out = self.weight[-1].data.numel() + self.bwt_weight[-1].data.numel()
+        
+        self.mask = None
+        # self.mask_pre_in.append(None)
+        # self.mask_pre_out.append(None)
 
-    def backward_reg(self, t):
-        backward_weights = self.weight[:self.shape_out[t]][:, self.shape_in[t]:]
-        return backward_weights.norm(2)
 
     def num_add(self, add_in, add_out, t=-1):
         if isinstance(self, DynamicLinear):
@@ -203,104 +296,73 @@ class _DynamicLayer(nn.Module):
 
 class DynamicLinear(_DynamicLayer):
 
-    def __init__(self, in_features, out_features, bias=True, batch_norm=False, dropout=0.0):
-        super(DynamicLinear, self).__init__(in_features, out_features, bias, batch_norm, dropout)
+    def __init__(self, in_features, out_features, next_layer=None, bias=True, norm_layer=False, smid=1, first_layer=False, dropout=0.0):
+        super(DynamicLinear, self).__init__(in_features, out_features, next_layer, bias, norm_layer, smid, first_layer, dropout)
         
-        self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
-        if out_features != 0 and in_features != 0:
-            nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        self.weight = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features, self.in_features))])
+        self.fwt_weight = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features, 0))])
+        self.bwt_weight = nn.ParameterList([nn.Parameter(torch.Tensor(0, self.in_features))])
 
         
-    def forward(self, x, t):
-        weight = self.weight[:self.shape_out[t]][:, :self.shape_in[t]] #* self.weight_pre[t]
-        bias = (self.bias[:self.shape_out[t]] if self.bias is not None else None) #* self.bias_pre[t]
+    def forward(self, x, t, all=True):
 
-        # try:
-        #   weight = (weight /  self.norm[t].view(-1, 1)).clone()
-        #   bias = (bias / self.norm[t]).clone()
-        # except:
-        #   pass
-
-        # if self.shape_in[t-1] == self.shape_in[t]:
-        #   weight = self.weight[self.shape_out[t-1]:self.shape_out[t]][:, :self.shape_in[t]]
-        # else:
-        #   weight = self.weight[self.shape_out[t-1]:self.shape_out[t]][:, self.shape_in[t-1]:self.shape_in[t]]
-        # bias = self.bias[self.shape_out[t-1]:self.shape_out[t]] if self.bias is not None else None
-        # print(weight.shape)
-        # if weight.numel() == 0:
-        #   return 0
-
-        output = F.linear(x, weight, bias)
-        # output = F.linear(x, self.cur_weight, self.cur_bias)
-
-        if self.batch_norm is not None:
-            output = self.batch_norm[t](output)
-
-        output[:, :self.shape_out[t-1]] = output[:, :self.shape_out[t-1]] * self.mask_pre[t]
-        
-        return output
-
-    def norm_in(self):
-        norm = self.weight[self.shape_out[-2]:].norm(2, dim=1)
+        weight = torch.cat([torch.cat([self.old_weight, self.fwt_weight[t]], dim=0), torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
         if self.bias is not None:
-            norm = (norm**2 + self.bias[self.shape_out[-2]:]**2)**(1/2)
-
-        # norm = self.weight.norm(2, dim=1)
-        # if self.bias is not None:
-        #   norm = (norm**2 + self.bias**2)**(1/2)
-
-        return norm
-
-    def norm_out(self, size=None):
-        if size is None:
-            norm = self.weight[:, self.shape_in[-2]:].norm(2, dim=0)
+            bias = torch.cat([self.old_bias, self.bias[t]])
         else:
-            norm = self.weight[:, self.shape_in[-2]:].view(size).norm(2, dim=(0,2,3))
+            bias = None
 
-        # if size is None:
-        #   norm = self.weight.norm(2, dim=0)
-        # else:
-        #   norm = self.weight.view(size).norm(2, dim=(0,2,3))
+        # if self.training:
+        #     weight = F.dropout(weight, p=self.dropout)
+        #     bias = F.dropout(bias, p=self.dropout)
 
-        return norm
-
-    def norm_in_grad(self):
-        S = (self.weight.data*self.weight.grad.data).sum(dim=1) + self.bias.data*self.bias.grad.data
-        return S
-
-    def norm_out_grad(self, size=None):
-        if size is None:
-            S = (self.weight.data*self.weight.grad.data).sum(dim=0)
-        else:
-            S = (self.weight.data.view(size)*self.weight.grad.data.view(size)).sum(dim=(0,2,3))
-        return S
-
-class DynamicClassifier(DynamicLinear):
-    """docstring for DynamicClassifier"""
-    def __init__(self, in_features, out_features, bias=True):
-        super(DynamicClassifier, self).__init__(in_features, out_features, bias,)
-
-        
-    def forward(self, x, t):
-        weight = self.weight[:self.shape_out[t]][:, :self.shape_in[t]]
-        # weight = self.weight[:self.shape_out[t]][:, self.shape_in[t-1]:self.shape_in[t]]
-
-        bias = self.bias[:self.shape_out[t]] if self.bias is not None else None
-        # print(weight.shape)
         output = F.linear(x, weight, bias)
 
-        if self.batch_norm is not None:
-            output = self.batch_norm[t](output)
+        if self.norm_layer is not None:
+            output = self.norm_layer(output, t, self.dropout)
+            # output = self.norm_layer(output)
 
-        output[:, :self.shape_out[t-1]] = output[:, :self.shape_out[t-1]] * self.mask_pre[t]
+        if self.mask is not None:
+            output[:, self.shape_out[-2]:] = output[:, self.shape_out[-2]:] * self.mask.view(1, -1)
+
         return output
+
+    def norm_in(self, t=-1):
+        weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
+        norm = weight.norm(2, dim=1)
+        if self.bias:
+            norm = (norm**2 + self.bias[t]**2)**(1/2)
+
+        return norm
+
+    def norm_out(self, t=-1):
+        weight = torch.cat([self.next_layer.weight[t], self.next_layer.bwt_weight[t]], dim=0)
+        norm = weight.norm(2, dim=0)
+        return norm
+
+    # def sum_grad_in(self):
+    #     weight = torch.cat([self.old_weight.data, self.bwt_weight[-1].data], dim=1)
+    #     weight_grad = torch.cat([self.old_weight.grad.data, self.bwt_weight[-1].grad.data], dim=1)
+    #     S = (weight*weight_grad).sum(dim=1)
+    #     if self.bias is not None:
+    #         S += self.old_bias.data*self.old_bias.grad.data
+    #     return S
+
+    # def sum_grad_out(self, size=None):
+    #     weight = torch.cat([self.old_weight.data, self.fwt_weight[-1].data], dim=0)
+    #     weight_grad = torch.cat([self.old_weight.grad.data, self.fwt_weight[-1].grad.data], dim=0)
+    #     if size is None:
+    #         S = (weight*weight_grad).sum(dim=0)
+    #     else:
+    #         S = (weight.view(size)*weight_grad.view(size)).sum(dim=(0,2,3))
+    #     return S
         
             
         
 class _DynamicConvNd(_DynamicLayer):
     def __init__(self, in_features, out_features, kernel_size, 
-                stride, padding, dilation, transposed, output_padding, groups, bias, batch_norm):
-        super(_DynamicConvNd, self).__init__(in_features, out_features, bias, batch_norm)
+                stride, padding, dilation, transposed, output_padding, groups, next_layer, bias, norm_layer, smid, first_layer, dropout):
+        super(_DynamicConvNd, self).__init__(in_features, out_features, next_layer, bias, norm_layer, smid, first_layer, dropout)
         if in_features % groups != 0:
             raise ValueError('in_channels must be divisible by groups')
         if out_features % groups != 0:
@@ -314,403 +376,250 @@ class _DynamicConvNd(_DynamicLayer):
         self.output_padding = output_padding
         self.groups = groups
         
-        self.weight = nn.Parameter(torch.Tensor(out_features, in_features // groups, *kernel_size))
-        if out_features != 0 and in_features != 0:
-            nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        self.weight = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features, self.in_features // groups, *kernel_size))])
+        self.fwt_weight = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features, 0 // groups, *kernel_size))])
+        self.bwt_weight = nn.ParameterList([nn.Parameter(torch.Tensor(0, self.in_features // groups, *kernel_size))])
 
 
 class DynamicConv2D(_DynamicConvNd):
     def __init__(self, in_features, out_features, kernel_size, 
-                stride=1, padding=0, dilation=1, groups=1, bias=True, batch_norm=False):
+                stride=1, padding=0, dilation=1, groups=1, next_layer=None, bias=True, norm_layer=False, smid=1, first_layer=False, dropout=0.0):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
         super(DynamicConv2D, self).__init__(in_features, out_features, kernel_size, 
-                                            stride, padding, dilation, False, _pair(0), groups, bias, batch_norm)
+                                            stride, padding, dilation, False, _pair(0), groups, next_layer, bias, norm_layer, smid, first_layer, dropout)
     
     def forward(self, x, t):
 
-        weight = self.weight[:self.shape_out[t]][:, :self.shape_in[t]] #* self.weight_pre[t]
-        bias = (self.bias[:self.shape_out[t]] if self.bias is not None else None) #* self.bias_pre[t]
-
-        # if self.shape_in[t-1] == self.shape_in[t]:
-        #   weight = self.weight[self.shape_out[t-1]:self.shape_out[t]][:, :self.shape_in[t]]
-        # else:
-        #   weight = self.weight[self.shape_out[t-1]:self.shape_out[t]][:, self.shape_in[t-1]:self.shape_in[t]]
-
-        # bias = self.bias[self.shape_out[t-1]:self.shape_out[t]] if self.bias is not None else None
+        weight = torch.cat([torch.cat([self.old_weight, self.fwt_weight[t]], dim=0), torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
+        if self.bias is not None:
+            bias = torch.cat([self.old_bias, self.bias[t]])
+        else:
+            bias = None
+        # if self.training:
+        #     weight = F.dropout(weight, p=self.dropout)
+        #     bias = F.dropout(bias, p=self.dropout)
 
         output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
-        # output = F.conv2d(x, self.cur_weight, self.cur_bias, self.stride, self.padding, self.dilation, self.groups)
-        if self.batch_norm is not None:
-            output = self.batch_norm[t](output)
 
-        output[:, :self.shape_out[t-1]] = output[:, :self.shape_out[t-1]] * self.mask_pre[t].view(1,-1,1,1)
+        if self.norm_layer is not None:
+            output = self.norm_layer(output, t, self.dropout)
+            # output = self.norm_layer(output)
+
+        if self.mask is not None:
+            output[:, self.shape_out[-2]:] = output[:, self.shape_out[-2]:] * self.mask.view(1, -1, 1, 1)
+
         return output
 
 
-    def norm_in(self):
-        norm = self.weight[self.shape_out[-2]:].norm(2, dim=(1,2,3))
+    def norm_in(self, t=-1):
+        weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
+        norm = weight.norm(2, dim=(1,2,3))
         if self.bias is not None:
-            norm = (norm**2 + self.bias[self.shape_out[-2]:]**2)**(1/2)
-
-        # norm = self.weight.norm(2, dim=(1,2,3))
-        # if self.bias is not None:
-        #   norm = (norm**2 + self.bias**2)**(1/2)
+            norm = (norm**2 + self.bias[t]**2)**(1/2)
 
         return norm
 
-    def norm_out(self):
-        norm = self.weight[:, self.shape_in[-2]:].norm(2, dim=(0,2,3))
+    def norm_out(self, t=-1):
+        weight = torch.cat([self.next_layer.weight[t], self.next_layer.bwt_weight[t]], dim=0)
+        if isinstance(self.next_layer, DynamicLinear):
+            weight = weight.view(self.next_layer.weight[t].shape[0] + self.next_layer.bwt_weight[t].shape[0], 
+                                self.weight[t].shape[0], 
+                                self.next_layer.smid, self.next_layer.smid)
 
-        # norm = self.weight.norm(2, dim=(0,2,3))
-
+        norm = weight.norm(2, dim=(0,2,3))
         return norm
 
-    def norm_in_grad(self):
-        S = (self.weight.data*self.weight.grad.data).sum(dim=(1,2,3)) + self.bias.data*self.bias.grad.data
-        return S
+    # def sum_grad_in(self):
+    #     weight = torch.cat([self.old_weight.data, self.bwt_weight[-1].data], dim=1)
+    #     weight_grad = torch.cat([self.old_weight.grad.data, self.bwt_weight[-1].grad.data], dim=1)
 
-    def norm_out_grad(self):
-        S = (self.weight.data*self.weight.grad.data).sum(dim=(0,2,3))
-        return S
+    #     S = (weight*weight_grad).sum(dim=(1,2,3))
+    #     if self.bias is not None:
+    #         S += self.old_bias.data*self.old_bias.grad.data
+    #     return S
 
-
-class _DynamicConvTransposeNd(_DynamicConvNd):
-    def __init__(self, in_features, out_features, kernel_size, stride,
-                 padding, dilation, transposed, output_padding,
-                 groups, bias, batch_norm) -> None:
-        if padding_mode != 'zeros':
-            raise ValueError('Only "zeros" padding mode is supported for {}'.format(self.__class__.__name__))
-
-        super(_DynamicConvNd, self).__init__(
-            in_features, out_features, kernel_size, stride,
-            padding, dilation, transposed, output_padding,
-            groups, bias, batch_norm)
-
-    # dilation being an optional parameter is for backwards
-    # compatibility
-    def _output_padding(self, input, output_size,
-                        stride, padding, kernel_size,
-                        dilation):
-        if output_size is None:
-            ret = _single(self.output_padding)  # converting to list if was not already
-        else:
-            k = input.dim() - 2
-            if len(output_size) == k + 2:
-                output_size = output_size[2:]
-            if len(output_size) != k:
-                raise ValueError(
-                    "output_size must have {} or {} elements (got {})"
-                    .format(k, k + 2, len(output_size)))
-
-            min_sizes = torch.jit.annotate(List[int], [])
-            max_sizes = torch.jit.annotate(List[int], [])
-            for d in range(k):
-                dim_size = ((input.size(d + 2) - 1) * stride[d] -
-                            2 * padding[d] +
-                            (dilation[d] if dilation is not None else 1) * (kernel_size[d] - 1) + 1)
-                min_sizes.append(dim_size)
-                max_sizes.append(min_sizes[d] + stride[d] - 1)
-
-            for i in range(len(output_size)):
-                size = output_size[i]
-                min_size = min_sizes[i]
-                max_size = max_sizes[i]
-                if size < min_size or size > max_size:
-                    raise ValueError((
-                        "requested an output size of {}, but valid sizes range "
-                        "from {} to {} (for an input of {})").format(
-                            output_size, min_sizes, max_sizes, input.size()[2:]))
-
-            res = torch.jit.annotate(List[int], [])
-            for d in range(k):
-                res.append(output_size[d] - min_sizes[d])
-
-            ret = res
-        return ret
+    # def sum_grad_out(self):
+    #     weight = torch.cat([self.old_weight.data, self.fwt_weight[-1].data], dim=0)
+    #     weight_grad = torch.cat([self.old_weight.grad.data, self.fwt_weight[-1].grad.data], dim=0)
+    #     S = (weight*weight_grad).sum(dim=(0,2,3))
+    #     return S
 
 
-class DynamicConvTranspose2D(_DynamicConvTransposeNd):
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        kernel_size,
-        stride = 1,
-        padding = 0,
-        output_padding = 0,
-        groups: int = 1,
-        bias: bool = True,
-        dilation: int = 1,
-        batch_norm = None
-    ):
-        kernel_size = _pair(kernel_size)
-        stride = _pair(stride)
-        padding = _pair(padding)
-        dilation = _pair(dilation)
-        output_padding = _pair(output_padding)
-        super(_DynamicConvTransposeNd, self).__init__(
-            in_features, out_features, kernel_size, stride, padding, dilation,
-            True, output_padding, groups, bias, batch_norm)
 
-    def forward(self, input, t, output_size = None):
+class DynamicNorm(nn.Module):
+    def __init__(self, num_features, eps=1e-5, momentum=0.1,
+                 affine=False, track_running_stats=True):
+        super(DynamicNorm, self).__init__()
+        self.eps = eps
+        self.momentum = momentum
+        self.affine = affine
+        self.track_running_stats = track_running_stats
 
-        # One cannot replace List by Tuple or Sequence in "_output_padding" because
-        # TorchScript does not support `Sequence[T]` or `Tuple[T, ...]`.
-        weight = self.weight[:self.shape_out[t]][:, :self.shape_in[t]]
-        bias = self.bias[:self.shape_out[t]] if self.bias is not None else None
+        self.base_num_features = num_features
+        self.num_features = 0
+        self.shape = [0]
 
-        output_padding = self._output_padding(
-            input, output_size, self.stride, self.padding, self.kernel_size, self.dilation)  # type: ignore[arg-type]
-
-        output = F.conv_transpose2d(
-            input,weight, bias, self.stride, self.padding,
-            output_padding, self.groups, self.dilation)
-
-        if self.batch_norm is not None:
-            output = self.batch_norm[t](output)
-
-        return output
-
-
-class DynamicBatchNorm(nn.BatchNorm2d):
-    """docstring for DynamicBatchNorm"""
-
-    def squeeze(self, mask):
-
-        self.weight.data = self.weight.data[mask].clone()
-        self.bias.data = self.bias.data[mask].clone()
-
-        self.weight.grad = None
-        self.bias.grad = None
+        if self.affine:
+            self.weight = nn.ParameterList([nn.Parameter(torch.Tensor(0).uniform_(1,1))])
+            self.bias = nn.ParameterList([nn.Parameter(torch.Tensor(0).uniform_(0,0))])
+            self.old_weight = nn.Parameter(torch.Tensor(0), requires_grad=False)
+            self.old_bias = nn.Parameter(torch.Tensor(0), requires_grad=False)
 
         if self.track_running_stats:
-            self.running_mean = self.running_mean[mask].clone()
-            self.running_var = self.running_var[mask].clone()
+            self.running_mean = [torch.zeros(0).cuda()]
+            self.running_var = [torch.ones(0).cuda()]
+            self.num_batches_tracked = 0
+        else:
+            self.running_mean = None
+            self.running_var = None
+            self.num_batches_tracked = None
 
-        self.num_features = self.weight.shape[0]
+    def expand(self, add_num=None):
+        if add_num is None:
+            add_num = self.base_num_features
 
-    def _check_input_dim(self, input):
-        return
+        if self.affine:
+            self.weight.append(nn.Parameter(torch.Tensor(add_num).cuda().uniform_(1,1)))
+            self.bias.append(nn.Parameter(torch.Tensor(add_num).cuda().uniform_(0,0)))
 
+        self.num_features += add_num
+        self.shape.append(self.num_features)
 
-# class _DynamicNormBase(nn.Module):
+        if self.track_running_stats:
+            self.running_mean.append(torch.zeros(self.num_features).cuda())
+            self.running_var.append(torch.ones(self.num_features).cuda())
+            self.num_batches_tracked = 0
+            
 
-#   _version = 2
-#   __constants__ = ["track_running_stats", "momentum", "eps", "num_features", "affine"]
-#   num_features: int
-#   eps: float
-#   momentum: float
-#   affine: bool
-#   track_running_stats: bool
-#   # WARNING: weight and bias purposely not defined here.
-#   # See https://github.com/pytorch/pytorch/issues/39670
+    def squeeze(self, mask=None):
+        if mask is not None:
+            if self.affine:
+                self.weight[-1].data = self.weight[-1].data[mask].clone()
+                self.bias[-1].data = self.bias[-1].data[mask].clone()
 
-#   def __init__(
-#       self,
-#       num_features: int,
-#       eps: float = 1e-5,
-#       momentum: float = 0.1,
-#       affine: bool = True,
-#       track_running_stats: bool = True,
-#       device=None,
-#       dtype=None
-#   ) -> None:
-#       factory_kwargs = {'device': device, 'dtype': dtype}
-#       super(_DynamicNormBase, self).__init__()
-#       self.num_features = num_features
-#       self.eps = eps
-#       self.momentum = momentum
-#       self.affine = affine
-#       self.track_running_stats = track_running_stats
-#       if self.affine:
-#           self.weight = Parameter(torch.empty(num_features, **factory_kwargs))
-#           self.bias = Parameter(torch.empty(num_features, **factory_kwargs))
-#       else:
-#           self.register_parameter("weight", None)
-#           self.register_parameter("bias", None)
-#       if self.track_running_stats:
-#           self.register_buffer('running_mean', torch.zeros(num_features, **factory_kwargs))
-#           self.register_buffer('running_var', torch.ones(num_features, **factory_kwargs))
-#           self.running_mean: Optional[Tensor]
-#           self.running_var: Optional[Tensor]
-#           self.register_buffer('num_batches_tracked', torch.tensor(0, dtype=torch.long,**{k: v for k, v in factory_kwargs.items() if k != 'dtype'}))
-#       else:
-#           self.register_buffer("running_mean", None)
-#           self.register_buffer("running_var", None)
-#           self.register_buffer("num_batches_tracked", None)
-#       self.reset_parameters()
+            self.num_features -= (mask.numel() - mask.sum()).item()
+            self.shape[-1] = self.num_features
 
-#       self.shape = [0]
+            if self.track_running_stats:
+                mask_temp = torch.ones(self.shape[-2]).bool().cuda()
+                mask = torch.cat([mask_temp, mask])
+                self.running_mean[-1] = self.running_mean[-1][mask]
+                self.running_var[-1] = self.running_var[-1][mask]
+    
+    def reg(self):
+        return (self.weight[-1]**2 + self.bias[-1]**2) ** 1/2
 
-#   def reset_running_stats(self) -> None:
-#       if self.track_running_stats:
-#           # running_mean/running_var/num_batches... are registered at runtime depending
-#           # if self.track_running_stats is on
-#           self.running_mean.zero_()  # type: ignore[union-attr]
-#           self.running_var.fill_(1)  # type: ignore[union-attr]
-#           self.num_batches_tracked.zero_()  # type: ignore[union-attr,operator]
+    def get_params(self, t):
+        if not self.affine:
+            return
 
-#   def reset_parameters(self) -> None:
-#       self.reset_running_stats()
-#       if self.affine:
-#           init.ones_(self.weight)
-#           init.zeros_(self.bias)
+        self.old_weight.data = self.weight[0].data
+        self.old_bias.data = self.bias[0].data
 
-#   def _check_input_dim(self, input):
-#       raise NotImplementedError
+        for i in range(1, t+1):
+            self.old_weight.data = torch.cat([self.old_weight.data, self.weight[i].data])
+            self.old_bias.data = torch.cat([self.old_bias.data, self.bias[i].data])
 
-#   def extra_repr(self):
-#       return (
-#           "{num_features}, eps={eps}, momentum={momentum}, affine={affine}, "
-#           "track_running_stats={track_running_stats}".format(**self.__dict__)
-#       )
+    def batch_norm(self, input, t=-1):
 
-#   def _load_from_state_dict(
-#       self,
-#       state_dict,
-#       prefix,
-#       local_metadata,
-#       strict,
-#       missing_keys,
-#       unexpected_keys,
-#       error_msgs,
-#   ):
-#       version = local_metadata.get("version", None)
+        if self.momentum is None:
+            exponential_average_factor = 0.0
+        else:
+            exponential_average_factor = self.momentum
 
-#       if (version is None or version < 2) and self.track_running_stats:
-#           # at version 2: added num_batches_tracked buffer
-#           #               this should have a default value of 0
-#           num_batches_tracked_key = prefix + "num_batches_tracked"
-#           if num_batches_tracked_key not in state_dict: 
-#               state_dict[num_batches_tracked_key] = torch.tensor(0, dtype=torch.long)
+        if self.training and self.track_running_stats:
+            # TODO: if statement only here to tell the jit to skip emitting this when it is None
+            if self.num_batches_tracked is not None:  # type: ignore[has-type]
+                self.num_batches_tracked += 1  # type: ignore[has-type]
+                if self.momentum is None:  # use cumulative moving average
+                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
+                else:  # use exponential moving average
+                    exponential_average_factor = self.momentum
 
-#       super(_NormBase, self)._load_from_state_dict(
-#           state_dict,
-#           prefix,
-#           local_metadata,
-#           strict,
-#           missing_keys,
-#           unexpected_keys,
-#           error_msgs,
-#       )
+        r"""
+        Decide whether the mini-batch stats should be used for normalization rather than the buffers.
+        Mini-batch stats are used in training mode, and in eval mode when buffers are None.
+        """
+        if self.training:
+            bn_training = True
+        else:
+            bn_training = (self.running_mean is None) and (self.running_var is None)
 
-#   def restrict_gradients(self):
-#       self.weight.grad.data[:self.shape[-2]] = 0
-#       self.bias.grad.data[:self.shape[-2]] = 0
+        if len(input.shape) == 4:
+            mean = input.mean([0, 2, 3])
+            var = input.var([0, 2, 3], unbiased=False)
+            shape = (1, -1, 1, 1)
+        else:
+            mean = input.mean([0])
+            var = input.var([0], unbiased=False)
+            shape = (1, -1)
 
-#   def squeeze(self, mask):
-#       if len(self.shape) > 1:
-#           mask[:self.shape[-2]] = True
+        # calculate running estimates
+        if bn_training:
+            if self.track_running_stats:
+                n = input.numel() / input.size(1)
+                with torch.no_grad():
+                    self.running_mean[t] = exponential_average_factor * mean\
+                        + (1 - exponential_average_factor) * self.running_mean[t]
+                    # update running_var with unbiased var
+                    self.running_var[t] = exponential_average_factor * var * n / (n - 1)\
+                        + (1 - exponential_average_factor) * self.running_var[t]
+        else:
+            mean = self.running_mean[t]
+            var = self.running_var[t]
 
-#       self.weight.data = self.weight.data[mask].clone()
-#       self.bias.data = self.bias.data[mask].clone()
+        return (input - mean.view(shape)) / (torch.sqrt(var.view(shape) + self.eps))
 
-#       self.weight.grad = None
-#       self.bias.grad = None
+    def layer_norm(self, input):
+        if len(input.shape) == 4:
+            mean = input.mean([1, 2, 3])
+            var = input.var([1, 2, 3], unbiased=False)
+            shape = (-1, 1, 1, 1)
+        else:
+            mean = input.mean([1])
+            var = input.var([1], unbiased=False)
+            shape = (-1, 1)
 
-#       if self.track_running_stats:
-#           self.running_mean = self.running_mean[mask].clone()
-#           self.running_var = self.running_var[mask].clone()
+        return (input - mean.view(shape)) / (torch.sqrt(var.view(shape) + self.eps))
 
-#       self.num_features = self.weight.shape[0]
-#       self.shape[-1] = self.num_features
+    def forward(self, input, t=-1, dropout=0.0):
 
-#   def expand(self, add):
-#       weight = torch.Tensor(self.num_features+add).cuda()
-#       init.ones_(weight)
-#       weight[:self.num_features] = self.weight.data.clone()
-#       self.weight = nn.Parameter(weight)
+        # output = self.batch_norm(input, t) * self.layer_norm(input)
+        if len(input.shape) == 4:
+            input /= input.norm(2, dim=(1,2,3)).view(-1, 1, 1, 1)
+        else:
+            input /= input.norm(2, dim=(1)).view(-1, 1)
 
-#       bias = torch.Tensor(self.num_features+add).cuda()
-#       init.zeros_(bias)
-#       bias[:self.num_features] = self.bias.data.clone()
-#       self.bias = nn.Parameter(bias)
+        output = self.batch_norm(input, t) + input
 
-#       if self.track_running_stats:
-#           running_mean = torch.ones(self.num_features+add).cuda()
-#           running_mean[:self.num_features] = self.running_mean.clone()
-#           self.running_mean = running_mean
+        # if len(input.shape) == 4:
+        #     input /= input.norm(2, dim=(1,2,3)).view(-1, 1, 1, 1)
+        # else:
+        #     input /= input.norm(2, dim=(1)).view(-1, 1)
 
-#           running_var = torch.zeros(self.num_features+add).cuda()
-#           running_var[:self.num_features] = self.running_var.clone()
-#           self.running_var = running_var
+        output += input
 
-#       self.num_features += add
-#       self.shape[-1] = self.num_features
-        
-#   def new_task(self):
-#       self.shape.append(self.num_features)
+        if self.affine:
+            weight = torch.cat([self.old_weight, self.weight[t]])
+            bias = torch.cat([self.old_bias, self.bias[t]])
+            if len(input.shape) == 4:
+                output = output * weight.view(1,-1,1,1) + bias.view(1,-1,1,1)
+            else:
+                output = output * weight.view(1,-1) + bias.view(1,-1)
+
+        return output
 
 
-# class DynamicBatchNorm(_DynamicNormBase):
-#   def __init__(
-#       self,
-#       num_features,
-#       eps=1e-5,
-#       momentum=0.1,
-#       affine=True,
-#       track_running_stats=True,
-#       device=None,
-#       dtype=None
-#   ):
-#       factory_kwargs = {'device': device, 'dtype': dtype}
-#       super(DynamicBatchNorm, self).__init__(
-#           num_features, eps, momentum, affine, track_running_stats, **factory_kwargs
-#       )
+class re_sigma(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, sigma, r):
+        return sigma.clamp(min=r)
 
-#   def forward(self, input: Tensor, t) -> Tensor:
-#       # self._check_input_dim(input)
-
-#       # exponential_average_factor is set to self.momentum
-#       # (when it is available) only so that it gets updated
-#       # in ONNX graph when this node is exported to ONNX.
-#       if self.momentum is None:
-#           exponential_average_factor = 0.0
-#       else:
-#           exponential_average_factor = self.momentum
-
-#       if self.training and self.track_running_stats:
-#           # TODO: if statement only here to tell the jit to skip emitting this when it is None
-#           if self.num_batches_tracked is not None:  # type: ignore[has-type]
-#               self.num_batches_tracked = self.num_batches_tracked + 1  # type: ignore[has-type]
-#               if self.momentum is None:  # use cumulative moving average
-#                   exponential_average_factor = 1.0 / float(self.num_batches_tracked)
-#               else:  # use exponential moving average
-#                   exponential_average_factor = self.momentum
-
-#       r"""
-#       Decide whether the mini-batch stats should be used for normalization rather than the buffers.
-#       Mini-batch stats are used in training mode, and in eval mode when buffers are None.
-#       """
-#       if self.training:
-#           bn_training = True
-#       else:
-#           bn_training = (self.running_mean is None) and (self.running_var is None)
-
-#       r"""
-#       Buffers are only updated if they are to be tracked and we are in training mode. Thus they only need to be
-#       passed when the update should occur (i.e. in training mode when they are tracked), or when buffer stats are
-#       used for normalization (i.e. in eval mode when buffers are not None).
-#       """
-#       running_mean = self.running_mean[:self.shape[t]] if self.running_mean is not None else None
-#       running_var = self.running_var[:self.shape[t]] if self.running_var is not None else None
-#       return F.batch_norm(
-#           input,
-#           # If buffers are not to be tracked, ensure that they won't be updated
-#           running_mean if not self.training or self.track_running_stats else None,
-#           running_var if not self.training or self.track_running_stats else None,
-#           self.weight[:self.shape[t]],
-#           self.bias[:self.shape[t]],
-#           bn_training,
-#           exponential_average_factor,
-#           self.eps,
-#       )
-
-if __name__ == '__main__':
-    m = DynamicConvTranspose2D(1,2,3)
-    m.new_task()
-    m.expand(1,1)
-    print(m.weight.shape)
+    @staticmethod
+    def backward(ctx, g):
+        # send the gradient g straight-through on the backward pass.
+        return g, None
+    

@@ -52,7 +52,7 @@ class _DynamicLayer(nn.Module):
 
 
         if norm_layer:
-            self.norm_layer = DynamicNorm(self.out_features, affine=False, track_running_stats=True)
+            self.norm_layer = DynamicNorm(self.out_features, affine=True, track_running_stats=True)
             # self.norm_layer = DynamicLayerNorm()
             # self.norm_layer = nn.BatchNorm2d(out_features, affine=False)
             # self.norm_layer = nn.LayerNorm(self.out_features, elementwise_affine=False)
@@ -191,8 +191,8 @@ class _DynamicLayer(nn.Module):
             if self.bias:
                 self.old_bias.data = torch.cat([self.old_bias.data, self.bias[i].data])
 
-        if self.norm_layer:
-            self.norm_layer.get_params(t)
+        # if self.norm_layer:
+        #     self.norm_layer.get_params(t)
 
 
     def expand(self, add_in=None, add_out=None):
@@ -235,10 +235,6 @@ class _DynamicLayer(nn.Module):
         self.shape_out.append(self.out_features)
 
         if self.norm_layer:
-            # if isinstance(self, DynamicLinear):
-            #     self.norm_layer = nn.BatchNorm1d(self.out_features, affine=False).cuda()
-            # else:
-            #     self.norm_layer = nn.BatchNorm2d(self.out_features, affine=False).cuda()
             self.norm_layer.expand(add_out)
 
         self.strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
@@ -330,8 +326,8 @@ class DynamicLinear(_DynamicLayer):
 
     def norm_in(self, t=-1):
         weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
-        norm = weight.norm(2, dim=1)
-        if self.bias:
+        norm = weight.norm(2, dim=(1))
+        if self.bias is not None:
             norm = (norm**2 + self.bias[t]**2)**(1/2)
 
         return norm
@@ -482,12 +478,12 @@ class DynamicNorm(nn.Module):
         if add_num is None:
             add_num = self.base_num_features
 
-        if self.affine:
-            self.weight.append(nn.Parameter(torch.Tensor(add_num).cuda().uniform_(1,1)))
-            self.bias.append(nn.Parameter(torch.Tensor(add_num).cuda().uniform_(0,0)))
-
         self.num_features += add_num
         self.shape.append(self.num_features)
+
+        if self.affine:
+            self.weight.append(nn.Parameter(torch.Tensor(self.num_features).cuda().uniform_(1,1)))
+            self.bias.append(nn.Parameter(torch.Tensor(self.num_features).cuda().uniform_(0,0)))
 
         if self.track_running_stats:
             self.running_mean.append(torch.zeros(self.num_features).cuda())
@@ -497,6 +493,8 @@ class DynamicNorm(nn.Module):
 
     def squeeze(self, mask=None):
         if mask is not None:
+            mask_temp = torch.ones(self.shape[-2]).bool().cuda()
+            mask = torch.cat([mask_temp, mask])
             if self.affine:
                 self.weight[-1].data = self.weight[-1].data[mask].clone()
                 self.bias[-1].data = self.bias[-1].data[mask].clone()
@@ -505,8 +503,6 @@ class DynamicNorm(nn.Module):
             self.shape[-1] = self.num_features
 
             if self.track_running_stats:
-                mask_temp = torch.ones(self.shape[-2]).bool().cuda()
-                mask = torch.cat([mask_temp, mask])
                 self.running_mean[-1] = self.running_mean[-1][mask]
                 self.running_var[-1] = self.running_var[-1][mask]
     
@@ -601,8 +597,8 @@ class DynamicNorm(nn.Module):
         output = self.layer_norm(self.batch_norm(input, t) + input)
 
         if self.affine:
-            weight = torch.cat([self.old_weight, self.weight[t]])
-            bias = torch.cat([self.old_bias, self.bias[t]])
+            weight = self.weight[t]
+            bias = self.bias[t]
             if len(input.shape) == 4:
                 output = output * weight.view(1,-1,1,1) + bias.view(1,-1,1,1)
             else:

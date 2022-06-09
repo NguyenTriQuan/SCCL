@@ -322,7 +322,7 @@ class Appr(object):
 
     def prune(self, t, data_loader, thres=0.0):
 
-        fig, axs = plt.subplots(3, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 10))
+        fig, axs = plt.subplots(3, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 9))
         for i, m in enumerate(self.model.DM[:-1]):
             axs[0][i].hist(m.norm_in().detach().cpu().numpy(), bins=100)
             axs[0][i].set_title(f'layer {i+1}')

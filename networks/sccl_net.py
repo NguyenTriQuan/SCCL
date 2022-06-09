@@ -86,7 +86,6 @@ class _DynamicModel(nn.Module):
             reg += m.norm_out().sum() * m.next_layer.strength_out
             # reg += m.norm_in().sum() * (m.strength_in + m.next_layer.strength_out)
             # reg += m.norm_out().sum() * (m.strength_in + m.next_layer.strength_out)
-
             if m.norm_layer:
                 if m.norm_layer.affine:
                     reg += m.norm_layer.reg().sum() * (m.strength_in + m.next_layer.strength_out)

@@ -61,6 +61,7 @@ if 'sccl' in args.approach:
 else:
     net = Net(inputsize, taskcla).cuda()
 
+# print(net.named_modules())
 # print(utils.print_model_report(net))
 
 appr = approach.Appr(net, args=args)
@@ -76,7 +77,6 @@ past_ncla = [ncla for t, ncla in taskcla]
 start_task = args.start_task
 if args.resume:
     start_task = appr.resume()
-
 
 for t, ncla in taskcla[start_task:]:
     if t >= args.tasknum: break

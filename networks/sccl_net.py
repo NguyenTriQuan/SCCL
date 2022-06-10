@@ -60,39 +60,16 @@ class _DynamicModel(nn.Module):
 
         self.DM[-1].expand(add_in=None, add_out=new_class)
 
-    def squeeze(self, masks):
-        mask_in = torch.ones(self.DM[0].in_features).bool().cuda()
-        for i, m in enumerate(self.DM[:-1]):
-            mask_out = masks[i]
-            m.squeeze(mask_in, mask_out)
-            if isinstance(m, DynamicConv2D) and isinstance(self.DM[i+1], DynamicLinear):
-                mask_in = mask_out.view(-1,1,1).expand(mask_out.size(0),self.smid,self.smid).contiguous().view(-1)
-            else:
-                mask_in = mask_out
-
-        mask_out = torch.ones(self.DM[-1].out_features).bool().cuda()
-        self.DM[-1].squeeze(mask_in, mask_out)
-
-    def squeeze_previous(self):
-        for i, m in enumerate(self.DM):
-            m.squeeze_previous()
-
     def group_lasso_reg(self):
-        reg = 0
-        strength = 0
+        total_reg = 0
+        total_strength = 0
         for i, m in enumerate(self.DM[:-1]):
 
-            reg += m.norm_in().sum() * m.strength_in
-            reg += m.norm_out().sum() * m.next_layer.strength_out
-            # reg += m.norm_in().sum() * (m.strength_in + m.next_layer.strength_out)
-            # reg += m.norm_out().sum() * (m.strength_in + m.next_layer.strength_out)
-            if m.norm_layer:
-                if m.norm_layer.affine:
-                    reg += m.norm_layer.reg().sum() * (m.strength_in + m.next_layer.strength_out)
-
-            strength += m.strength_in + m.next_layer.strength_out
+            reg, strength = m.get_reg()
+            total_reg += reg
+            total_strength += strength
                             
-        return reg/strength
+        return total_reg/total_strength
 
     def forward(self, input, t=-1):
         for module in self.layers:
@@ -125,15 +102,15 @@ class _DynamicModel(nn.Module):
                     temp_count += p.numel()
                 temp_count += m.bias[t].numel()
 
-            # if m.norm_layer is not None:
-            #     if m.norm_layer.affine:
-            #         for p in m.norm_layer.weight[:t]:
-            #             temp_count += p.numel()
-            #         temp_count += m.norm_layer.weight[t].numel()
+            if m.norm_layer is not None:
+                if m.norm_layer.affine:
+                    for p in m.norm_layer.weight[:t]:
+                        temp_count += p.numel()
+                    temp_count += m.norm_layer.weight[t].numel()
 
-            #         for p in m.norm_layer.bias[:t]:
-            #             temp_count += p.numel()
-            #         temp_count += m.norm_layer.bias[t].numel()
+                    for p in m.norm_layer.bias[:t]:
+                        temp_count += p.numel()
+                    temp_count += m.norm_layer.bias[t].numel()
 
             model_count += temp_count
             layers_count.append(temp_count)

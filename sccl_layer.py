@@ -53,9 +53,6 @@ class _DynamicLayer(nn.Module):
 
         if norm_layer:
             self.norm_layer = DynamicNorm(self.out_features, affine=True, track_running_stats=True)
-            # self.norm_layer = DynamicLayerNorm()
-            # self.norm_layer = nn.BatchNorm2d(out_features, affine=False)
-            # self.norm_layer = nn.LayerNorm(self.out_features, elementwise_affine=False)
         else:
             self.norm_layer = None
 
@@ -82,10 +79,10 @@ class _DynamicLayer(nn.Module):
             self.bwt_weight[i].requires_grad = requires_grad
             if self.bias:
                 self.bias[i].requires_grad = requires_grad
-            # if self.norm_layer is not None:
-            #     if self.norm_layer.affine:
-            #         self.norm_layer.weight[i].requires_grad = requires_grad
-            #         self.norm_layer.bias[i].requires_grad = requires_grad
+            if self.norm_layer is not None:
+                if self.norm_layer.affine:
+                    self.norm_layer.weight[i].requires_grad = requires_grad
+                    self.norm_layer.bias[i].requires_grad = requires_grad
 
     def get_optim_params(self):
         params = [self.weight[-1], self.fwt_weight[-1], self.bwt_weight[-1]]
@@ -96,9 +93,27 @@ class _DynamicLayer(nn.Module):
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
         return params
 
+    def get_reg(self):
+        reg = 0
+        reg += self.norm_in().sum() * self.strength_in
+        reg += self.norm_out().sum() * self.next_layer.strength_out
+            
+        if self.norm_layer:
+            if self.norm_layer.affine:
+                # reg += self.norm_layer.reg().sum() * (self.strength_in + self.next_layer.strength_out)
+                reg += self.norm_layer.reg().sum() * self.norm_layer.strength
+
+        return reg, (self.strength_in + self.next_layer.strength_out)
+
+    def get_importance(self):
+        norm = self.norm_in() * self.norm_out()
+        if self.norm_layer:
+            if self.norm_layer.affine:
+                norm *= self.norm_layer.reg()
+
+        return norm
 
     def squeeze(self):
-
         if self.mask is not None:
             mask_out = self.mask
             self.weight[-1].data = self.weight[-1].data[mask_out].clone()
@@ -128,18 +143,54 @@ class _DynamicLayer(nn.Module):
                 self.next_layer.in_features -= (mask_in.numel() - mask_in.sum()).item()
                 self.next_layer.shape_in[-1] = self.next_layer.in_features
 
+    def expand(self, add_in=None, add_out=None):
+        if not add_in:
+            if self.first_layer:
+                # not expand input
+                add_in = 0
+            else:
+                add_in = self.base_in_features
+        if not add_out:
+            add_out = self.base_out_features
 
-    # def squeeze_previous(self, mask_in=None, mask_out=None):
-    #     if mask_in is not None:
-    #         self.fwt_weight[-1].data = self.fwt_weight[-1].data[:, self.mask_pre_in[-1]].clone()
-    #         self.fwt_weight[-1].grad = None
-    #         self.mask_pre_in[-1] = mask_in.clone()
+        if isinstance(self, DynamicLinear):
+            # new neurons to new neurons
+            self.weight.append(nn.Parameter(torch.Tensor(add_out, add_in).cuda()))
+            # old neurons to new neurons
+            self.fwt_weight.append(nn.Parameter(torch.Tensor(add_out, self.in_features).cuda()))
+            # new neurons to old neurons
+            self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in).cuda()))
+            fan_in = self.in_features + add_in
+        else:
+            self.weight.append(nn.Parameter(torch.Tensor(add_out, add_in // self.groups, *self.kernel_size).cuda()))
+            self.fwt_weight.append(nn.Parameter(torch.Tensor(add_out, self.in_features // self.groups, *self.kernel_size).cuda()))
+            self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in // self.groups, *self.kernel_size).cuda()))
+            fan_in = (self.in_features + add_in) * np.prod(self.kernel_size)
 
-    #     if mask_out is not None:
-    #         self.bwt_weight[-1].data = self.bwt_weight[-1].data[self.mask_pre_out[-1]].clone()  
-    #         self.bwt_weight[-1].grad = None
-    #         self.mask_pre_out[-1] = mask_out.clone()
+        gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        bound = gain * math.sqrt(3.0/fan_in)
+        nn.init.uniform_(self.weight[-1], -bound, bound)
+        nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
+        nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
 
+        if self.bias:
+            self.bias.append(nn.Parameter(torch.Tensor(add_out).cuda().uniform_(0, 0)))
+        
+        self.in_features += add_in
+        self.out_features += add_out
+
+        self.shape_in.append(self.in_features)
+        self.shape_out.append(self.out_features)
+
+        if self.norm_layer:
+            self.norm_layer.expand(add_out)
+
+        self.strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
+        self.strength_out = self.weight[-1].data.numel() + self.bwt_weight[-1].data.numel()
+        
+        self.mask = None
+        # self.mask_pre_in.append(None)
+        # self.mask_pre_out.append(None)
 
     def get_params(self, t):
         self.old_weight.data = self.weight[0].data
@@ -194,101 +245,16 @@ class _DynamicLayer(nn.Module):
         # if self.norm_layer:
         #     self.norm_layer.get_params(t)
 
+    # def squeeze_previous(self, mask_in=None, mask_out=None):
+    #     if mask_in is not None:
+    #         self.fwt_weight[-1].data = self.fwt_weight[-1].data[:, self.mask_pre_in[-1]].clone()
+    #         self.fwt_weight[-1].grad = None
+    #         self.mask_pre_in[-1] = mask_in.clone()
 
-    def expand(self, add_in=None, add_out=None):
-        if not add_in:
-            if self.first_layer:
-                # not expand input
-                add_in = 0
-            else:
-                add_in = self.base_in_features
-        if not add_out:
-            add_out = self.base_out_features
-
-        if isinstance(self, DynamicLinear):
-            # new neurons to new neurons
-            self.weight.append(nn.Parameter(torch.Tensor(add_out, add_in).cuda()))
-            # old neurons to new neurons
-            self.fwt_weight.append(nn.Parameter(torch.Tensor(add_out, self.in_features).cuda()))
-            # new neurons to old neurons
-            self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in).cuda()))
-            fan_in = self.in_features + add_in
-        else:
-            self.weight.append(nn.Parameter(torch.Tensor(add_out, add_in // self.groups, *self.kernel_size).cuda()))
-            self.fwt_weight.append(nn.Parameter(torch.Tensor(add_out, self.in_features // self.groups, *self.kernel_size).cuda()))
-            self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in // self.groups, *self.kernel_size).cuda()))
-            fan_in = (self.in_features + add_in) * np.prod(self.kernel_size)
-
-        gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-        bound = gain * math.sqrt(3.0/fan_in)
-        nn.init.uniform_(self.weight[-1], -bound, bound)
-        nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
-        nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
-
-        if self.bias:
-            self.bias.append(nn.Parameter(torch.Tensor(add_out).cuda().uniform_(0, 0)))
-        
-        self.in_features += add_in
-        self.out_features += add_out
-
-        self.shape_in.append(self.in_features)
-        self.shape_out.append(self.out_features)
-
-        if self.norm_layer:
-            self.norm_layer.expand(add_out)
-
-        self.strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
-        self.strength_out = self.weight[-1].data.numel() + self.bwt_weight[-1].data.numel()
-        
-        self.mask = None
-        # self.mask_pre_in.append(None)
-        # self.mask_pre_out.append(None)
-
-
-    def num_add(self, add_in, add_out, t=-1):
-        if isinstance(self, DynamicLinear):
-            count = (self.shape_out[t]+add_out) * (self.shape_in[t]+add_in)
-        else:
-            count = (self.shape_out[t]+add_out) * ((self.shape_in[t]+add_in)//self.groups) * np.prod(self.kernel_size)
-
-        count -= np.prod(self.weight[:self.shape_out[t]][:, :self.shape_in[t]].shape)
-        if self.bias is not None:
-            count += add_out
-        if self.batch_norm is not None:
-            count += (self.shape_out[t]+add_out)*2
-
-        return count
-
-    def add_out_factor(self, add_in, t=-1):
-        if isinstance(self, DynamicLinear):
-            in_factor = (self.shape_in[t]+add_in)
-        else:
-            in_factor = (self.shape_in[t]+add_in) * np.prod(self.kernel_size) // self.groups
-
-        bias_factor = 0 if self.bias is None else 1
-        bn_factor = 0 if self.batch_norm is None else 2
-
-        # add_params = add_out*(in_factor+bias_factor+bn_factor) + self.shape_out[t]*(in_factor+bn_factor) - np.prod(self.weight[:self.shape_out[t]][:, :self.shape_in[t]].shape)
-        # add_params = a*add_out + b
-        a = (in_factor+bias_factor+bn_factor)
-        b = self.shape_out[t]*(in_factor+bn_factor) - np.prod(self.weight[:self.shape_out[t]][:, :self.shape_in[t]].shape)
-
-        return a, b
-
-    def add_in_factor(self, add_out, t=-1):
-        if isinstance(self, DynamicLinear):
-            out_factor = (self.shape_out[t]+add_out)
-        else:
-            out_factor = (self.shape_out[t]+add_out) * np.prod(self.kernel_size) // self.groups
-
-        bias_factor = 0 if self.bias is None else 1
-        bn_factor = 0 if self.batch_norm is None else 2
-        # add_params = (self.shape_in[t]+add_in) * out_factor + add_out*(bias_factor+bn_factor) + self.shape_out[t]*bn_factor - np.prod(self.weight[:self.shape_out[t]][:, :self.shape_in[t]].shape)
-        # add_params = a*add_in + b
-        a = out_factor
-        b = self.shape_in[t]*out_factor + add_out*(bias_factor+bn_factor) + self.shape_out[t]*bn_factor - np.prod(self.weight[:self.shape_out[t]][:, :self.shape_in[t]].shape)
-
-        return a, b
+    #     if mask_out is not None:
+    #         self.bwt_weight[-1].data = self.bwt_weight[-1].data[self.mask_pre_out[-1]].clone()  
+    #         self.bwt_weight[-1].grad = None
+    #         self.mask_pre_out[-1] = mask_out.clone()
 
 
 class DynamicLinear(_DynamicLayer):
@@ -309,15 +275,11 @@ class DynamicLinear(_DynamicLayer):
         else:
             bias = None
 
-        # if self.training:
-        #     weight = F.dropout(weight, p=self.dropout)
-        #     bias = F.dropout(bias, p=self.dropout)
 
         output = F.linear(x, weight, bias)
 
         if self.norm_layer is not None:
             output = self.norm_layer(output, t, self.dropout)
-            # output = self.norm_layer(output)
 
         if self.mask is not None:
             output[:, self.shape_out[-2]:] = output[:, self.shape_out[-2]:] * self.mask.view(1, -1)
@@ -395,15 +357,11 @@ class DynamicConv2D(_DynamicConvNd):
             bias = torch.cat([self.old_bias, self.bias[t]])
         else:
             bias = None
-        # if self.training:
-        #     weight = F.dropout(weight, p=self.dropout)
-        #     bias = F.dropout(bias, p=self.dropout)
 
         output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
 
         if self.norm_layer is not None:
             output = self.norm_layer(output, t, self.dropout)
-            # output = self.norm_layer(output)
 
         if self.mask is not None:
             output[:, self.shape_out[-2]:] = output[:, self.shape_out[-2]:] * self.mask.view(1, -1, 1, 1)
@@ -489,6 +447,8 @@ class DynamicNorm(nn.Module):
             self.running_mean.append(torch.zeros(self.num_features).cuda())
             self.running_var.append(torch.ones(self.num_features).cuda())
             self.num_batches_tracked = 0
+
+        self.strength = 2*add_num
             
 
     def squeeze(self, mask=None):
@@ -592,7 +552,6 @@ class DynamicNorm(nn.Module):
 
     def forward(self, input, t=-1, dropout=0.0):
 
-        # input = self.L2_norm(input)
         # output = self.batch_norm(input, t) + self.layer_norm(input)
         output = self.layer_norm(self.batch_norm(input, t) + input)
 

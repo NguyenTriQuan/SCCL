@@ -351,10 +351,7 @@ class Appr(object):
             for i in range(0, len(self.model.DM)-1):
                 m = self.model.DM[i]
                 mask_temp = m.mask
-                norm = m.norm_in() * m.norm_out()
-                if m.norm_layer:
-                    if m.norm_layer.affine:
-                        norm *= m.norm_layer.reg()
+                norm = m.get_importance()
 
                 low, high = 0, norm.shape[0]
 

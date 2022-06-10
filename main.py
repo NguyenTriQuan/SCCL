@@ -12,7 +12,7 @@ from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 import importlib
 # import comet_ml at the top of your file
-from comet_ml import Experiment
+# from comet_ml import Experiment
 import json
 
 # Create an experiment with your api key

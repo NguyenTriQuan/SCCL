@@ -11,6 +11,12 @@ from arguments import get_args
 from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 import importlib
+# import comet_ml at the top of your file
+from comet_ml import Experiment
+import json
+
+# Create an experiment with your api key
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 args = get_args()
@@ -63,8 +69,22 @@ else:
 
 # print(net.named_modules())
 # print(utils.print_model_report(net))
-
+print(net)
 appr = approach.Appr(net, args=args)
+
+start_task = args.start_task
+if args.resume:
+    start_task = appr.resume()
+
+# experiment = Experiment(
+#     api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",
+#     project_name="sccl",
+#     workspace="nguyentriquan",
+# )
+# experiment.set_name(appr.log_name)
+# with open(f'{appr.log_name}.json', 'w') as file:
+#     json.dump(experiment.get_key(), file)
+
 
 utils.print_optimizer_config(appr.optimizer)
 print('-' * 100)
@@ -74,9 +94,6 @@ lss = np.zeros((len(taskcla), len(taskcla)), dtype=np.float32)
 
 past_ncla = [ncla for t, ncla in taskcla]
 
-start_task = args.start_task
-if args.resume:
-    start_task = appr.resume()
 
 for t, ncla in taskcla[start_task:]:
     if t >= args.tasknum: break

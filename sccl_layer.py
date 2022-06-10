@@ -507,7 +507,7 @@ class DynamicNorm(nn.Module):
                 self.running_var[-1] = self.running_var[-1][mask]
     
     def reg(self):
-        return (self.weight[-1]**2 + self.bias[-1]**2) ** 1/2
+        return (self.weight[-1][self.shape[-2]:]**2 + self.bias[-1][self.shape[-2]:]**2) ** 1/2
 
     def get_params(self, t):
         if not self.affine:

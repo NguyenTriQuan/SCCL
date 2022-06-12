@@ -353,7 +353,11 @@ class Appr(object):
                 mask_temp = m.mask
                 norm = m.get_importance()
 
-                low, high = 0, norm.shape[0]
+                low = 0 
+                if m.mask is None:
+                    high = norm.shape[0]
+                else:
+                    high = int(sum(m.mask))
 
                 axs[i].hist(norm.detach().cpu().numpy(), bins=100)
                 axs[i].set_title(f'layer {i+1}')

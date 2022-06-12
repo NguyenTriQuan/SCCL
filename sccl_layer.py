@@ -95,15 +95,15 @@ class _DynamicLayer(nn.Module):
 
     def get_reg(self):
         reg = 0
-        reg += self.norm_in().sum() * self.strength_in
-        reg += self.norm_out().sum() * self.next_layer.strength_out
+        strength = self.strength_in + self.next_layer.strength_out
+        reg += self.norm_in().sum() * strength
+        reg += self.norm_out().sum() * strength
             
         if self.norm_layer:
             if self.norm_layer.affine:
-                # reg += self.norm_layer.reg().sum() * (self.strength_in + self.next_layer.strength_out)
-                reg += self.norm_layer.reg().sum() * self.norm_layer.strength
+                reg += self.norm_layer.reg().sum() * strength
 
-        return reg, (self.strength_in + self.next_layer.strength_out)
+        return reg, strength
 
     def get_importance(self):
         norm = self.norm_in() * self.norm_out()

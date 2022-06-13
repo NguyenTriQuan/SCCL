@@ -4,20 +4,20 @@ import torch
 import torch.nn as nn
 import math
 import copy
-
 import utils
 from utils import *
 from arguments import get_args
 from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
-
 import importlib
 # import comet_ml at the top of your file
 # from comet_ml import Experiment
 import json
 
 # Create an experiment with your api key
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from accelerate import Accelerator
+accelerator = Accelerator()
+device = accelerator.device
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 args = get_args()
 tstart = time.time()
@@ -63,13 +63,16 @@ print('Input size =', inputsize, '\nTask info =', taskcla)
 Net = getattr(networks, args.arch)
 print(Net)
 if 'sccl' in args.approach:
-    net = Net(inputsize).cuda()
+    net = Net(input_size=inputsize, norm_type=args.norm_type)
 else:
-    net = Net(inputsize, taskcla).cuda()
+    net = Net(inputsize, taskcla)
+
+net = net.to(device)
+net = accelerator.prepare(net)
 
 # print(net.named_modules())
 # print(utils.print_model_report(net))
-print(net)
+# print(net)
 appr = approach.Appr(net, args=args)
 
 start_task = args.start_task

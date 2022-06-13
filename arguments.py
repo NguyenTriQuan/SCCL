@@ -80,7 +80,7 @@ def get_args():
     parser.add_argument('--lr_rho', default=0.001, type=float, required=False, help='(default=%(default)f)')
     parser.add_argument('--ratio', default=1.0, type=float, help='(default=%(default)f)')
     parser.add_argument('--alpha', default=0.01, type=float, help='(default=%(default)f)')
-    parser.add_argument('--beta', default='0.03', type=float, help='(default=%(default)f)')
+    parser.add_argument('--beta', default=0.03, type=float, help='(default=%(default)f)')
     parser.add_argument('--gamma', default=0.75, type=float, help='(default=%(default)f)')
     parser.add_argument('--smax', default=400, type=float, help='(default=%(default)f)')
     parser.add_argument('--lamb', default='0.0', type=str, help='(default=%(default)f)')
@@ -93,7 +93,7 @@ def get_args():
     parser.add_argument('--parameter',type=str,default='',help='(default=%(default)s)')
     parser.add_argument('--sample', type = int, default=1, help='Using sigma max to split_CUB200                                                                                                                                                        port coefficient')
     parser.add_argument('--rho', type = float, default=-2.783, help='initial rho')
-    parser.add_argument('--nu', default='0.1', type=float, help='(default=%(default)f)')
+    parser.add_argument('--nu', default=0.1, type=float, help='(default=%(default)f)')
     parser.add_argument('--mu', default=0, type=float, help='groupsparse parameter')
     parser.add_argument('--eta', default=0.8, type=float, help='(default=%(default)f)')
     parser.add_argument('--resume', action='store_true', default=False, help='Resume from check point')
@@ -102,8 +102,9 @@ def get_args():
     parser.add_argument('--fix', default=False, type=bool, help='(default=%(default)s)')
     parser.add_argument('--shink', default=-1, type=int, help='delete network of recent tasks, shink back to given task')
     parser.add_argument('--max_params', default=0.0, type=float, help='max number of parameters of SCCL')
-    parser.add_argument('--arch', default='None', type=str, help='Architecture')
+    parser.add_argument('--arch', default=None, type=str, help='Architecture')
     parser.add_argument('--min_ratio', default=-1.0, type=float, required=False, help='min prune ratio')
+    parser.add_argument('--norm_type', default=None, type=str, required=False, help='normalization layer type')
 
     args=parser.parse_args()
     return args

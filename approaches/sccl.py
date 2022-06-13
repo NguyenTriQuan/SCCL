@@ -3,11 +3,12 @@ import math
 
 import numpy as np
 from pytest import param
+from sympy import arg
 import torch
 from copy import deepcopy
 import torch.nn.functional as F
 import torch.nn as nn
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
 import time
 import csv
@@ -15,24 +16,29 @@ from utils import *
 from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+
+from accelerate import Accelerator
+accelerator = Accelerator()
+device = accelerator.device
+
 # import pygame
 # from visualize import draw
 
 import sys
-from arguments import get_args
-args = get_args()
-# Seed
-np.random.seed(args.seed)
-torch.manual_seed(args.seed)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(args.seed)
-else:
-    print('[CUDA unavailable]'); sys.exit()
+# from arguments import get_args
+# args = get_args()
+# # Seed
+# np.random.seed(args.seed)
+# torch.manual_seed(args.seed)
+# if torch.cuda.is_available():
+#     torch.cuda.manual_seed(args.seed)
+# else:
+#     print('[CUDA unavailable]'); sys.exit()
 
 class Appr(object):
 
     def __init__(self,model,args=None,thres=1e-3,lamb='0',nepochs=100,sbatch=256,val_sbatch=256,
-                lr=0.001,lr_min=1e-5,lr_factor=3,lr_patience=5,clipgrad=10,optim='Adam',tasknum=1,fix=False):
+                lr=0.001,lr_min=1e-5,lr_factor=3,lr_patience=5,clipgrad=10,optim='Adam',tasknum=1,fix=False,norm_type=None):
         self.model=model
 
         self.nepochs = args.nepochs
@@ -51,6 +57,7 @@ class Appr(object):
         self.approach = args.approach
         self.arch = args.arch
         self.seed = args.seed
+        self.norm_type = args.norm_type
 
         self.args = args
         self.lambs = [float(i) for i in args.lamb.split('_')]
@@ -66,13 +73,17 @@ class Appr(object):
         self.shape_out = self.model.layers[-1].shape_out
         self.cur_task = len(self.shape_out)-1
 
+        self.get_name(self.tasknum+1)
+
+    def get_name(self, t):
+        self.log_name = '{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(self.experiment, self.approach, self.arch, self.seed,
+                                                                                '_'.join([str(lamb) for lamb in self.lambs[:t]]),  
+                                                                                self.lr, self.batch_size, self.nepochs, self.optim, self.fix, self.norm_type)
         
     def resume(self):
         for t in range(1, self.tasknum + 1):
             try:
-                self.log_name = '{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}'.format(self.experiment, self.approach, self.arch, self.seed,
-                                                                                '_'.join([str(lamb) for lamb in self.lambs[:t]]),  
-                                                                                self.lr, self.batch_size, self.nepochs, self.optim, self.fix)
+                self.get_name(t)
 
                 self.check_point = torch.load(f'../result_data/trained_model/{self.log_name}.model')
                 self.model = self.check_point['model']
@@ -89,10 +100,13 @@ class Appr(object):
         params = self.model.get_optim_params()
 
         if self.optim == 'SGD':
-            return torch.optim.SGD(params, lr=lr,
+            optimizer = torch.optim.SGD(params, lr=lr,
                           weight_decay=0.0, momentum=0.9, nesterov=True)
-        if self.optim == 'Adam':
-            return torch.optim.Adam(params, lr=lr)
+        elif self.optim == 'Adam':
+            optimizer = torch.optim.Adam(params, lr=lr)
+
+        optimizer = accelerator.prepare(optimizer)
+        return optimizer
 
     def train(self, t, train_loader, valid_loader, ncla=0):
 
@@ -110,9 +124,7 @@ class Appr(object):
                 os.remove(f'../result_data/trained_model/{self.log_name}.model')
             except:
                 pass
-            self.log_name = '{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}'.format(self.experiment, self.approach, self.arch, self.seed,
-                                                                                '_'.join([str(lamb) for lamb in self.lambs[:t]]),  
-                                                                                self.lr, self.batch_size, self.nepochs, self.optim, self.fix)
+            self.get_name(t)
             torch.save(self.check_point, f'../result_data/trained_model/{self.log_name}.model')
                 
             with open(f'../result_data/csv_data/{self.log_name}.csv', 'w', newline='') as csvfile:
@@ -121,11 +133,8 @@ class Appr(object):
         else: 
             print('Retraining current task')
 
-        self.trans = torch.nn.Sequential(
-                        transforms.RandomHorizontalFlip(),
-                        transforms.RandomRotation(degrees=(-30, 30)),
-                    )
-
+        self.model = self.model.to(device)
+        self.model = accelerator.prepare(self.model)
         self.model.restrict_gradients(t-1, False)
         self.shape_out = self.model.layers[-1].shape_out
         self.cur_task = len(self.shape_out)-1
@@ -133,6 +142,9 @@ class Appr(object):
         self.lamb = self.lambs[self.cur_task-1]
         print('lambda', self.lamb)
         print(self.log_name)
+
+        train_loader = accelerator.prepare(train_loader)
+        valid_loader = accelerator.prepare(valid_loader)
 
         self.train_phase(t, train_loader, valid_loader, True)
         if not self.check_point['squeeze']:
@@ -240,7 +252,6 @@ class Appr(object):
             print('KeyboardInterrupt')
             self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
             self.model = self.check_point['model']
-            self.model.to(device)
 
         self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
         self.model = self.check_point['model']

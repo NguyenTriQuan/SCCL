@@ -13,15 +13,15 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 from utils import *
 
 import sys
-from arguments import get_args
-args = get_args()
-# Seed
-np.random.seed(args.seed)
-torch.manual_seed(args.seed)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(args.seed)
-else:
-    print('[CUDA unavailable]'); sys.exit()
+# from arguments import get_args
+# args = get_args()
+# # Seed
+# np.random.seed(args.seed)
+# torch.manual_seed(args.seed)
+# if torch.cuda.is_available():
+#     torch.cuda.manual_seed(args.seed)
+# else:
+#     print('[CUDA unavailable]'); sys.exit()
 
 class Normalize(nn.Module):
     """Changes view using a nn.Module."""
@@ -145,7 +145,7 @@ class _DynamicModel(nn.Module):
 
 class MLP(_DynamicModel):
 
-    def __init__(self, input_size, mul=1):
+    def __init__(self, input_size, mul=1, norm_type=None):
         super(MLP, self).__init__()
         self.mul = mul
         self.input_size = input_size
@@ -153,10 +153,10 @@ class MLP(_DynamicModel):
         self.layers = nn.ModuleList([
             nn.Flatten(),
             # nn.Dropout(0.25),
-            DynamicLinear(np.prod(input_size), 400, first_layer=True, dropout=0.25, bias=True),
+            DynamicLinear(np.prod(input_size), 400, first_layer=True, dropout=0.25, bias=True, norm_type=norm_type),
             nn.ReLU(),
             # nn.Dropout(0.25),
-            DynamicLinear(400, 400, dropout=0.25, bias=True),
+            DynamicLinear(400, 400, dropout=0.25, bias=True, norm_type=norm_type),
             nn.ReLU(),
             # nn.Dropout(0.25),
             DynamicLinear(400, 0, bias=True),
@@ -169,7 +169,7 @@ class MLP(_DynamicModel):
 
 class VGG8(_DynamicModel):
 
-    def __init__(self, input_size, mul=1, norm_layer=True, bias=True):
+    def __init__(self, input_size, mul=1, norm_type=None, bias=True):
         super(VGG8, self).__init__()
 
         nchannels, size, _ = input_size
@@ -177,23 +177,23 @@ class VGG8(_DynamicModel):
         self.input_size = input_size
 
         self.layers = nn.ModuleList([
-            DynamicConv2D(nchannels, 32, kernel_size=3, padding=1, norm_layer=norm_layer, first_layer=True, bias=bias),
+            DynamicConv2D(nchannels, 32, kernel_size=3, padding=1, norm_type=norm_type, first_layer=True, bias=bias),
             nn.ReLU(),
-            DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_layer=norm_layer, dropout=0.25, bias=bias),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Dropout(0.25),
-
-            DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_layer=norm_layer, bias=bias),
-            nn.ReLU(),
-            DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_layer=norm_layer, dropout=0.25, bias=bias),
+            DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, dropout=0.25, bias=bias),
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(0.25),
 
-            DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_layer=norm_layer, bias=bias),
+            DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
-            DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_layer=norm_layer, dropout=0.5, bias=bias),
+            DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_type=norm_type, dropout=0.25, bias=bias),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Dropout(0.25),
+
+            DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
+            nn.ReLU(),
+            DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, dropout=0.5, bias=bias),
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(0.5),
@@ -209,7 +209,7 @@ class VGG8(_DynamicModel):
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(128*self.smid*self.smid, 256, smid=self.smid, norm_layer=norm_layer, dropout=0.0),
+            DynamicLinear(128*self.smid*self.smid, 256, smid=self.smid, norm_type=norm_type, dropout=0.0),
             nn.ReLU(),
             DynamicLinear(256, 0)
             ])
@@ -222,12 +222,12 @@ class VGG(_DynamicModel):
     '''
     VGG model 
     '''
-    def __init__(self, input_size, cfg, norm_layer=False):
+    def __init__(self, input_size, cfg, norm_type=None):
         super(VGG, self).__init__()
 
         nchannels, size, _ = input_size
 
-        self.layers = make_layers(cfg, nchannels, norm_layer=norm_layer)
+        self.layers = make_layers(cfg, nchannels, norm_type=norm_type)
 
         self.smid = size
         for m in self.layers:
@@ -251,16 +251,16 @@ class VGG(_DynamicModel):
             m.next_layer = self.DM[i+1]
 
 
-def make_layers(cfg, nchannels, norm_layer=False, bias=True):
+def make_layers(cfg, nchannels, norm_type=None, bias=True):
     layers = []
     in_channels = nchannels
-    layers += DynamicConv2D(in_channels, cfg[0], kernel_size=3, padding=1, norm_layer=norm_layer, bias=bias, first_layer=True), nn.ReLU(inplace=True)
+    layers += DynamicConv2D(in_channels, cfg[0], kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)
     in_channels = cfg[0]
     for v in cfg[1:]:
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            layers += [DynamicConv2D(in_channels, v, kernel_size=3, padding=1, norm_layer=norm_layer, bias=bias), nn.ReLU(inplace=True)]
+            layers += [DynamicConv2D(in_channels, v, kernel_size=3, padding=1, norm_type=norm_type, bias=bias), nn.ReLU(inplace=True)]
             in_channels = v
 
     return nn.ModuleList(layers)
@@ -275,49 +275,49 @@ cfg = {
 }
 
 
-def VGG11(input_size):
+def VGG11(input_size, norm_type=None):
     """VGG 11-layer model (configuration "A")"""
-    return VGG(input_size, cfg['A'], norm_layer=False)
+    return VGG(input_size, cfg['A'], norm_type=norm_type)
 
 
-def VGG11_BN(input_size):
+def VGG11_BN(input_size, norm_type):
     """VGG 11-layer model (configuration "A") with batch normalization"""
-    return VGG(input_size, cfg['A'], norm_layer=True)
+    return VGG(input_size, cfg['A'], norm_type=norm_type)
 
 
-def VGG13(input_size):
+def VGG13(input_size, norm_type):
     """VGG 13-layer model (configuration "B")"""
-    return VGG(input_size, cfg['B'], norm_layer=False)
+    return VGG(input_size, cfg['B'], norm_type=norm_type)
 
 
-def VGG13_BN(input_size):
+def VGG13_BN(input_size, norm_type):
     """VGG 13-layer model (configuration "B") with batch normalization"""
-    return VGG(input_size, cfg['B'], batch_norm=True)
+    return VGG(input_size, cfg['B'], norm_type=norm_type)
 
 
-def VGG16(input_size):
+def VGG16(input_size, norm_type):
     """VGG 16-layer model (configuration "D")"""
-    return VGG(input_size, cfg['C'], norm_layer=False)
+    return VGG(input_size, cfg['C'], norm_type=norm_type)
 
 
-def VGG16_BN(input_size):
+def VGG16_BN(input_size, norm_type):
     """VGG 16-layer model (configuration "D") with batch normalization"""
-    return VGG(input_size, cfg['C'], norm_layer=True)
+    return VGG(input_size, cfg['C'], norm_type=norm_type)
 
 
-def VGG19(input_size):
+def VGG19(input_size, norm_type):
     """VGG 19-layer model (configuration "E")"""
-    return VGG(input_size, cfg['D'], norm_layer=False)
+    return VGG(input_size, cfg['D'], norm_type=norm_type)
 
 
-def VGG19_BN(input_size):
+def VGG19_BN(input_size, norm_type):
     """VGG 19-layer model (configuration 'E') with batch normalization"""
-    return VGG(input_size, cfg['D'], norm_layer=True)
+    return VGG(input_size, cfg['D'], norm_type=norm_type)
 
 
 class Alexnet(_DynamicModel):
 
-    def __init__(self, input_size, mul=1):
+    def __init__(self, input_size, mul=1, norm_type=None):
         super(Alexnet,self).__init__()
 
         ncha, size, _ = input_size

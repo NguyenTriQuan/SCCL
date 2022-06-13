@@ -8,7 +8,7 @@ from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
 from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 from utils import *
 

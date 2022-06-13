@@ -8,20 +8,8 @@ from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
 from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 from utils import *
-
 import sys
-# from arguments import get_args
-# args = get_args()
-# # Seed
-# np.random.seed(args.seed)
-# torch.manual_seed(args.seed)
-# if torch.cuda.is_available():
-#     torch.cuda.manual_seed(args.seed)
-# else:
-#     print('[CUDA unavailable]'); sys.exit()
 
 class Normalize(nn.Module):
     """Changes view using a nn.Module."""
@@ -279,39 +267,16 @@ def VGG11(input_size, norm_type=None):
     """VGG 11-layer model (configuration "A")"""
     return VGG(input_size, cfg['A'], norm_type=norm_type)
 
-
-def VGG11_BN(input_size, norm_type):
-    """VGG 11-layer model (configuration "A") with batch normalization"""
-    return VGG(input_size, cfg['A'], norm_type=norm_type)
-
-
 def VGG13(input_size, norm_type):
     """VGG 13-layer model (configuration "B")"""
     return VGG(input_size, cfg['B'], norm_type=norm_type)
-
-
-def VGG13_BN(input_size, norm_type):
-    """VGG 13-layer model (configuration "B") with batch normalization"""
-    return VGG(input_size, cfg['B'], norm_type=norm_type)
-
 
 def VGG16(input_size, norm_type):
     """VGG 16-layer model (configuration "D")"""
     return VGG(input_size, cfg['C'], norm_type=norm_type)
 
-
-def VGG16_BN(input_size, norm_type):
-    """VGG 16-layer model (configuration "D") with batch normalization"""
-    return VGG(input_size, cfg['C'], norm_type=norm_type)
-
-
 def VGG19(input_size, norm_type):
     """VGG 19-layer model (configuration "E")"""
-    return VGG(input_size, cfg['D'], norm_type=norm_type)
-
-
-def VGG19_BN(input_size, norm_type):
-    """VGG 19-layer model (configuration 'E') with batch normalization"""
     return VGG(input_size, cfg['D'], norm_type=norm_type)
 
 

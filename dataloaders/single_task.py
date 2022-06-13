@@ -105,15 +105,15 @@ def get(name, batch_size, val_batch_size, seed=0):
         data[0]['train']['y']=data[0]['train']['y'][itrain].clone()
 
         data[t]['train loader'] = DataLoader(
-                    TensorDataset(data[t]['train']['x'], data[t]['train']['y']) , batch_size=batch_size, shuffle=True
+                    TensorDataset(data[0]['train']['x'], data[0]['train']['y']) , batch_size=batch_size, shuffle=True
                 )
 
         data[t]['valid loader'] = DataLoader(
-                    TensorDataset(data[t]['valid']['x'], data[t]['valid']['y']) , batch_size=val_batch_size, shuffle=False
+                    TensorDataset(data[0]['valid']['x'], data[0]['valid']['y']) , batch_size=val_batch_size, shuffle=False
                 )
 
         data[t]['test loader'] = DataLoader(
-                    TensorDataset(data[t]['test']['x'], data[t]['test']['y']) , batch_size=val_batch_size, shuffle=False
+                    TensorDataset(data[0]['test']['x'], data[0]['test']['y']) , batch_size=val_batch_size, shuffle=False
                 )
 
     

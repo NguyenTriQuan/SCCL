@@ -17,7 +17,7 @@ import json
 from accelerate import Accelerator
 accelerator = Accelerator()
 device = accelerator.device
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
 
 args = get_args()
 tstart = time.time()
@@ -35,10 +35,6 @@ print('=' * 100)
 # Seed
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
-# if torch.cuda.is_available():
-#     torch.cuda.manual_seed(args.seed)
-# else:
-#     print('[CUDA unavailable]'); sys.exit()
 
 approach = importlib.import_module('approaches.{}'.format(args.approach))
 

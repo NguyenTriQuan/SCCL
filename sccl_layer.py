@@ -21,16 +21,6 @@ import sys
 from accelerate import Accelerator
 accelerator = Accelerator()
 device = accelerator.device
-
-# from arguments import get_args
-# args = get_args()
-# # Seed
-# np.random.seed(args.seed)
-# torch.manual_seed(args.seed)
-# if torch.cuda.is_available():
-#     torch.cuda.manual_seed(args.seed)
-# else:
-#     print('[CUDA unavailable]'); sys.exit()
     
 class _DynamicLayer(nn.Module):
 

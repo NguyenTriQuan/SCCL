@@ -8,8 +8,7 @@ import torch
 from copy import deepcopy
 import torch.nn.functional as F
 import torch.nn as nn
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = 'cpu'
+
 import time
 import csv
 from utils import *
@@ -20,20 +19,8 @@ import torchvision.transforms as transforms
 from accelerate import Accelerator
 accelerator = Accelerator()
 device = accelerator.device
-print(device)
-# import pygame
-# from visualize import draw
 
 import sys
-# from arguments import get_args
-# args = get_args()
-# # Seed
-# np.random.seed(args.seed)
-# torch.manual_seed(args.seed)
-# if torch.cuda.is_available():
-#     torch.cuda.manual_seed(args.seed)
-# else:
-#     print('[CUDA unavailable]'); sys.exit()
 
 class Appr(object):
 

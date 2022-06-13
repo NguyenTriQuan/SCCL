@@ -20,7 +20,7 @@ import torchvision.transforms as transforms
 from accelerate import Accelerator
 accelerator = Accelerator()
 device = accelerator.device
-
+print(device)
 # import pygame
 # from visualize import draw
 

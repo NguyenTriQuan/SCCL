@@ -8,7 +8,6 @@ import torch
 from copy import deepcopy
 import torch.nn.functional as F
 import torch.nn as nn
-import kornia as K
 
 import time
 import csv
@@ -257,7 +256,7 @@ class Appr(object):
             loss += self.model.group_lasso_reg() * self.lamb
                 
         self.optimizer.zero_grad()
-        loss.backward() 
+        # loss.backward() 
         accelerator.backward(loss)
         self.optimizer.step()
 

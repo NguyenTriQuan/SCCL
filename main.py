@@ -36,13 +36,6 @@ print('=' * 100)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
-approach = importlib.import_module('approaches.{}'.format(args.approach))
-
-try:
-    networks = importlib.import_module('networks.{}_net'.format(args.approach))
-except:
-    networks = importlib.import_module('networks.net')
-
 
 # dataloader = importlib.import_module('dataloaders.{}'.format(args.experiment))
 # data, taskcla, inputsize = dataloader.get(batch_size=args.batch_size, val_batch_size=args.val_batch_size, seed=args.seed, tasknum=args.tasknum)
@@ -56,20 +49,8 @@ except:
 
 print('Input size =', inputsize, '\nTask info =', taskcla)
 
-Net = getattr(networks, args.arch)
-print(Net)
-if 'sccl' in args.approach:
-    net = Net(input_size=inputsize, norm_type=args.norm_type)
-else:
-    net = Net(inputsize, taskcla)
-
-net = net.to(device)
-net = accelerator.prepare(net)
-
-# print(net.named_modules())
-# print(utils.print_model_report(net))
-# print(net)
-appr = approach.Appr(net, args=args)
+approach = importlib.import_module('approaches.{}'.format(args.approach))
+appr = approach.Appr(inputsize=inputsize, taskcla=taskcla, args=args)
 
 start_task = args.start_task
 if args.resume:

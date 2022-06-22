@@ -8,13 +8,12 @@ import torch
 from copy import deepcopy
 import torch.nn.functional as F
 import torch.nn as nn
-import kornia as K
 
 import time
 import csv
 from utils import *
 from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
-import networks.sccl_net as network
+import networks.sccl_contrastive_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 
@@ -28,9 +27,10 @@ class Appr(object):
 
     def __init__(self,inputsize=None,taskcla=None,args=None,thres=1e-3,lamb='0',nepochs=100,sbatch=256,val_sbatch=256,
                 lr=0.001,lr_min=1e-5,lr_factor=3,lr_patience=5,clipgrad=10,optim='Adam',tasknum=1,fix=False,norm_type=None):
+
         Net = getattr(network, args.arch)
         self.model = Net(input_size=inputsize, norm_type=args.norm_type).to(device)
-        
+
         self.nepochs = args.nepochs
         self.batch_size = args.batch_size
         self.val_batch_size = args.val_batch_size
@@ -150,16 +150,6 @@ class Appr(object):
         self.train_phase(t, train_loader, valid_loader, False)
 
         self.check_point = None
-        # self.model.get_params(t-1)
-        # for m in self.model.DM:
-        #     weight = torch.cat([torch.cat([m.old_weight, m.fwt_weight[t]], dim=0), torch.cat([m.bwt_weight[t], m.weight[t]], dim=0)], dim=1)
-        #     norm = weight.norm(2).detach()
-        #     m.weight[t].data /= norm
-        #     if m.bias:
-        #         m.bias[t].data /= norm
-
-        # s_H = self.model.s_H()
-        # print('s_H={:.1e}'.format(s_H), end='')
         
 
     def train_phase(self, t, train_loader, valid_loader, squeeze):
@@ -435,154 +425,79 @@ class Appr(object):
         print('num params', params)
 
 
-    def prune_previous(self, t, x, y):
-        # for m in self.model.DM[:-1]:
-        #   nn.init.constant_(m.weight[t], 0)
-        #   nn.init.constant_(m.fwt_weight[t], 0)
-        #   nn.init.constant_(m.bwt_weight[t], 0)
+    def SupConLoss(self, features, labels=None, mask=None):
+        """Compute loss for model. If both `labels` and `mask` are None,
+        it degenerates to SimCLR unsupervised loss:
+        https://arxiv.org/pdf/2002.05709.pdf
+        Args:
+            features: hidden vector of shape [bsz, n_views, ...].
+            labels: ground truth of shape [bsz].
+            mask: contrastive mask of shape [bsz, bsz], mask_{i,j}=1 if sample j
+                has the same class as sample i. Can be asymmetric.
+        Returns:
+            A loss scalar.
+        """
 
-        # m = self.model.DM[-1]
-        # nn.init.constant_(m.weight[t], 1)
-        # nn.init.constant_(m.fwt_weight[t], 1)
-        # nn.init.constant_(m.bwt_weight[t], 1)
+        if len(features.shape) < 3:
+            raise ValueError('`features` needs to be [bsz, n_views, ...],'
+                             'at least 3 dimensions are required')
+        if len(features.shape) > 3:
+            features = features.view(features.shape[0], features.shape[1], -1)
 
-        loss,acc=self.eval(t,x,y,None)
-        print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
-        loss, acc = round(loss, 3), round(acc, 3)
-        # pre_prune_acc = acc
-        pre_prune_loss = loss
-        prune_ratio = np.ones(len(self.model.DM)-1)
-        pre_count = 0
-        step=0
-        masks = [None for m in self.model.DM[:-1]]
-        while True:
-            t1 = time.time()
-            self.get_grad(t, x, y)
-            mask_count = 0
-            print('Previous use:', end=' ')
-            fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 3))
-            mask_in = None
-            for i in range(0, len(self.model.DM)-1):
-                m = self.model.DM[i]
-                mask_out = None
-                m.squeeze_previous(mask_in, mask_out)
-                mask_in = None
-                mask_temp = torch.ones(m.weight[-1].shape[0]).float().cuda()
-                norm = m.grad_in + m.grad_out
-                low, high = 0, norm.shape[0]
-                if norm.shape[0] != 0:
-                    values, indices = norm.sort(descending=True)
-                    # print(values)
-                    # while True:
-                    #   k = (high+low)//2
-                    #   # sellect top-k smallest
-                    #   m.mask_pre_out[t] = (norm>values[k])
-                    #   loss, acc = self.eval(t, x, y, None)
-                    #   loss, acc = round(loss, 3), round(acc, 3)
-                    #   post_prune_loss = loss
-                    #   # print(post_prune_loss)
-                    #   if post_prune_loss <= pre_prune_loss:
-                    #       # k is satisfy, try smaller k
-                    #       high = k
-                    #       pre_prune_loss = post_prune_loss
-                    #   else:
-                    #       # k is not satisfy, try bigger k
-                    #       low = k
+        batch_size = features.shape[0]
+        if labels is not None and mask is not None:
+            raise ValueError('Cannot define both `labels` and `mask`')
+        elif labels is None and mask is None:
+            mask = torch.eye(batch_size, dtype=torch.float32).to(device)
+        elif labels is not None:
+            labels = labels.contiguous().view(-1, 1)
+            if labels.shape[0] != batch_size:
+                raise ValueError('Num of labels does not match num of features')
+            mask = torch.eq(labels, labels.T).float().to(device)
+        else:
+            mask = mask.float().to(device)
 
-                    #   if k == (high+low)//2:
-                    #       break
+        contrast_count = features.shape[1]
+        contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
+        if self.contrast_mode == 'one':
+            anchor_feature = features[:, 0]
+            anchor_count = 1
+        elif self.contrast_mode == 'all':
+            anchor_feature = contrast_feature
+            anchor_count = contrast_count
+        else:
+            raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
 
-                    losses = []
-                    high = len(norm)
-                    for k in range(len(norm)):
-                        mask_out = (norm>values[k])
-                        masks[i] = torch.cat([mask_out.float(), mask_temp])
-                        loss, acc = self.eval(t, x, y, masks)
-                        loss, acc = round(loss, 3), round(acc, 3)
-                        losses.append(loss)
-                        if loss <= pre_prune_loss:
-                            pre_prune_loss = loss
-                            high = k
+        # compute logits
+        anchor_dot_contrast = torch.div(
+            torch.matmul(anchor_feature, contrast_feature.T),
+            self.temperature)
+        # for numerical stability
+        logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+        logits = anchor_dot_contrast - logits_max.detach()
 
-                    loss, acc = self.eval(t, x, y, None)
-                    loss, acc = round(loss, 3), round(acc, 3)
-                    losses.append(loss)
-                    axs[i].plot(range(len(norm)+1), losses)
-                    axs[i].set_xlabel('k')
-                    axs[i].set_ylabel('loss')
-                    axs[i].set_title(f'layer {i+1}')
+        # tile mask
+        mask = mask.repeat(anchor_count, contrast_count)
+        # mask-out self-contrast cases
+        logits_mask = torch.scatter(
+            torch.ones_like(mask),
+            1,
+            torch.arange(batch_size * anchor_count).view(-1, 1).to(device),
+            0
+        )
+        mask = mask * logits_mask
 
-                if high != norm.shape[0]:
-                    # found k = high is the smallest k satisfy
-                    mask_out = (norm>values[high])
-                else:
-                    mask_out = None
+        # compute log_prob
+        exp_logits = torch.exp(logits) * logits_mask
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
-                m.squeeze_previous(mask_in, mask_out)
+        # compute mean of log-likelihood over positive
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
 
-                if mask_out is None:
-                    mask_in = None
-                else:
-                    if isinstance(m, DynamicConv2D) and isinstance(self.model.DM[i+1], DynamicLinear):
-                        mask_in = mask_out.view(-1,1,1).expand(mask_out.size(0),self.model.smid,self.model.smid).contiguous().view(-1)
-                    else:
-                        mask_in = mask_out
+        # loss
+        loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
+        loss = loss.view(anchor_count, batch_size).mean()
 
-                # remove neurons 
-                if mask_out is None:
-                    mask_count = norm.numel()
-                else:
-                    mask_count = sum(mask_out.int()).item()
-                print('{}/{}'.format(mask_count, norm.numel()), end=' ')
-
-
-            mask_out = None
-            self.model.DM[-1].squeeze_previous(mask_in, mask_out)
-            print('| Time={:5.1f}ms'.format((time.time()-t1)*1000))
-            plt.show()
-            fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}_prune_previous.pdf', bbox_inches='tight')
-            step += 1
-            break
-            # if mask_count == pre_count:
-            #   break
-            pre_count = mask_count
-
-        loss,acc=self.eval(t,x,y,None)
-        print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
-
-    def get_grad(self, t, x, y):
-        self.model.train()
-        self.model.get_params(t-1)
-        self._get_optimizer(lr=None,track_grad=True)
-        for m in self.model.DM:
-            m.old_weight.requires_grad = True
-            m.old_bias.requires_grad = True
-            m.old_weight.grad = None
-            m.old_bias.grad = None
-        r=np.arange(x.size(0))
-        np.random.shuffle(r)
-        r=torch.LongTensor(r)
-        for m in self.model.DM:
-            m.grad_in = 0
-            m.grad_out = 0
-        # Loop batches
-        for i in range(0,len(r),self.sbatch):
-            if i+self.sbatch<=len(r): b=r[i:i+self.sbatch]
-            else: b=r[i:]
-            images=x[b].to(device)
-            targets=y[b].to(device)
-
-            outputs = self.model.forward(images, t=t)
-            outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-            loss = self.ce(outputs, targets) #+ self.model.group_lasso_reg() * self.lamb
-
-            self.optimizer.zero_grad()
-            loss.backward()
-
-            self.model.track_gradient(len(b))
-
-        for m in self.model.DM:
-            m.old_weight.requires_grad = False
-            m.old_bias.requires_grad = False
+        return loss
 
 

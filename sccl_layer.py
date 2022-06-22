@@ -268,7 +268,6 @@ class DynamicLinear(_DynamicLayer):
         else:
             bias = None
 
-
         output = F.linear(x, weight, bias)
 
         if self.norm_layer is not None:
@@ -575,3 +574,109 @@ class re_sigma(torch.autograd.Function):
         # send the gradient g straight-through on the backward pass.
         return g, None
     
+
+class _DynamicModel(nn.Module):
+    """docstring for ClassName"""
+    def __init__(self):
+        super(_DynamicModel, self).__init__()
+        self.permute = [None]
+
+    def restrict_gradients(self, t, requires_grad):
+        for m in self.DM:
+            m.restrict_gradients(t, requires_grad)
+
+    def get_optim_params(self):
+        params = []
+        for m in self.DM:
+            params += m.get_optim_params()
+        return params
+    def get_params(self, t):
+        for m in self.DM:
+            m.get_params(t)
+
+    def expand(self, new_class):
+        for m in self.DM[:-1]:
+            m.expand(add_in=None, add_out=None)
+
+        self.DM[-1].expand(add_in=None, add_out=new_class)
+
+    def group_lasso_reg(self):
+        total_reg = 0
+        total_strength = 0
+        for i, m in enumerate(self.DM[:-1]):
+
+            reg, strength = m.get_reg()
+            total_reg += reg
+            total_strength += strength
+                            
+        return total_reg/total_strength
+
+    def forward(self, input, t=-1):
+        for module in self.layers:
+            if isinstance(module, _DynamicLayer):
+                input = module(input, t)
+            else:
+                input = module(input)
+
+        return input
+
+    def compute_model_size(self, t=-1):
+        model_count = 0
+        layers_count = []
+        for m in self.DM:
+            temp_count = 0
+            for p in m.weight[:t]:
+                temp_count += p.numel()
+            temp_count += m.weight[t].numel()
+
+            for p in m.fwt_weight[:t]:
+                temp_count += p.numel()
+            temp_count += m.fwt_weight[t].numel()
+
+            for p in m.bwt_weight[:t]:
+                temp_count += p.numel()
+            temp_count += m.bwt_weight[t].numel()
+
+            if m.bias is not None:
+                for p in m.bias[:t]:
+                    temp_count += p.numel()
+                temp_count += m.bias[t].numel()
+
+            if m.norm_layer is not None:
+                if m.norm_layer.affine:
+                    for p in m.norm_layer.weight[:t]:
+                        temp_count += p.numel()
+                    temp_count += m.norm_layer.weight[t].numel()
+
+                    for p in m.norm_layer.bias[:t]:
+                        temp_count += p.numel()
+                    temp_count += m.norm_layer.bias[t].numel()
+
+            model_count += temp_count
+            layers_count.append(temp_count)
+
+        return model_count, layers_count
+
+    def track_gradient(self, sbatch):
+        for i, m in enumerate(self.DM[:-1]):
+
+            grad_in = m.sum_grad_in()
+            if isinstance(m, DynamicConv2D) and isinstance(self.DM[i+1], DynamicLinear):
+                grad_out = self.DM[i+1].sum_grad_out(size=(self.DM[i+1].old_weight.shape[0] + self.DM[i+1].fwt_weight[-1].shape[0], 
+                                                    m.old_weight.shape[0], 
+                                                    self.smid, self.smid))  
+            else:
+                grad_out = self.DM[i+1].sum_grad_out()
+
+            m.grad_in -= grad_in*sbatch
+            m.grad_out -= grad_out*sbatch
+
+    def s_H(self, t=-1):
+        s_H = 1
+        for m in self.DM:
+            weight = torch.cat([torch.cat([m.old_weight, m.fwt_weight[t]], dim=0), torch.cat([m.bwt_weight[t], m.weight[t]], dim=0)], dim=1)
+            # s_H *= weight.norm(p='fro')
+            # s_H *= weight.abs().max()
+            s_H *= weight.norm(p=2).detach().item()
+        return s_H
+            

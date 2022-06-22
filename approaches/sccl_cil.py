@@ -8,7 +8,6 @@ import torch
 from copy import deepcopy
 import torch.nn.functional as F
 import torch.nn as nn
-import kornia as K
 
 import time
 import csv
@@ -17,6 +16,7 @@ from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import networks.sccl_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+import kornia as K
 
 from accelerate import Accelerator
 accelerator = Accelerator()
@@ -30,7 +30,7 @@ class Appr(object):
                 lr=0.001,lr_min=1e-5,lr_factor=3,lr_patience=5,clipgrad=10,optim='Adam',tasknum=1,fix=False,norm_type=None):
         Net = getattr(network, args.arch)
         self.model = Net(input_size=inputsize, norm_type=args.norm_type).to(device)
-        
+
         self.nepochs = args.nepochs
         self.batch_size = args.batch_size
         self.val_batch_size = args.val_batch_size
@@ -48,6 +48,7 @@ class Appr(object):
         self.arch = args.arch
         self.seed = args.seed
         self.norm_type = args.norm_type
+        self.batch_DA = 32
 
         self.args = args
         self.lambs = [float(i) for i in args.lamb.split('_')]
@@ -65,6 +66,11 @@ class Appr(object):
 
         self.get_name(self.tasknum+1)
 
+        self.trans = torch.nn.Sequential(
+                        K.augmentation.RandomHorizontalFlip(same_on_batch=False),
+                        K.augmentation.RandomRotation((-180, 180), same_on_batch=False),
+                    )
+
     def get_name(self, t):
         self.log_name = '{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(self.experiment, self.approach, self.arch, self.seed,
                                                                                 '_'.join([str(lamb) for lamb in self.lambs[:t]]),  
@@ -78,7 +84,6 @@ class Appr(object):
                 self.check_point = torch.load(f'../result_data/trained_model/{self.log_name}.model')
                 self.model = self.check_point['model']
                 print('Resume from task', t-1)
-
                 return t-1
             except:
                 continue
@@ -133,19 +138,19 @@ class Appr(object):
         print('lambda', self.lamb)
         print(self.log_name)
 
-        train_loader = accelerator.prepare(train_loader)
-        valid_loader = accelerator.prepare(valid_loader)
+        # train_loader = accelerator.prepare(train_loader)
+        # valid_loader = accelerator.prepare(valid_loader)
 
-        self.train_phase(t, train_loader, valid_loader, True)
-        if not self.check_point['squeeze']:
-            self.check_point = None
-            return 
+        # self.train_phase(t, train_loader, valid_loader, True)
+        # if not self.check_point['squeeze']:
+        #     self.check_point = None
+        #     return 
 
-        self.prune(t, train_loader, thres=self.thres)
+        # self.prune(t, train_loader, thres=self.thres)
 
 
-        self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
-        torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+        # self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+        # torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
         self.train_phase(t, train_loader, valid_loader, False)
 
@@ -180,7 +185,7 @@ class Appr(object):
         lr = self.check_point['lr']
         patience = self.check_point['patience']
         # self.optimizer = self.check_point['optimizer']
-        self.optimizer = self._get_optimizer(lr)
+        self.optimizer = self._get_optimizer(lr=lr)
         start_epoch = self.check_point['epoch'] + 1
         squeeze = self.check_point['squeeze']
 
@@ -241,48 +246,55 @@ class Appr(object):
 
         except KeyboardInterrupt:
             print('KeyboardInterrupt')
-            self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
-            self.model = self.check_point['model']
 
         self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
         self.model = self.check_point['model']
 
     def train_batch(self, t, images, targets, squeeze):
-        outputs = self.model.forward(images, t=t)
-        outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-
+        # N = images.shape[0]
+        # images = images.unsqueeze(1).expand(-1, self.batch_DA, -1, -1, -1)
+        # images = images.reshape(-1, images.shape[2], images.shape[3], images.shape[4])
+        images = self.trans(images)
+        outputs = self.model.forward(images, t=t)[:, self.shape_out[t-1]:self.shape_out[t]]
+        # outputs = outputs.reshape(N, self.batch_DA, outputs.shape[1])
+        # outputs = outputs.mean(1)
         loss = self.ce(outputs, targets)
+        outputs = F.softmax(outputs/10, dim=1)
+        loss += 0.1*(-outputs*outputs.log()).sum()
 
         if squeeze:
             loss += self.model.group_lasso_reg() * self.lamb
                 
         self.optimizer.zero_grad()
-        loss.backward() 
+        # loss.backward() 
         accelerator.backward(loss)
         self.optimizer.step()
 
     def eval_batch(self, t, images, targets):
+        N = images.shape[0]
         if t is None:
-            outputs = []
+            images_DA = images.unsqueeze(1).expand(-1, self.batch_DA, -1, -1, -1)
+            images_DA = images_DA.reshape(-1, images_DA.shape[2], images_DA.shape[3], images_DA.shape[4])
+            images_DA = self.trans(images_DA)
+            outputs_tasks = []
             entropy = []
-            aug_images = [images]
-            batch_DA = 32
-            for n in range(batch_DA):
-                aug_images.append(self.trans(images))
-            aug_images = torch.cat(aug_images, dim=0)
             for task in range(1, self.cur_task + 1):
                 self.model.get_params(task-1)
-                output = self.model.forward(aug_images, t=task)[:, self.shape_out[task-1]:self.shape_out[task]]
-                output = output.reshape(batch_DA+1, len(targets), -1)
-                # output = F.softmax(output, dim=-1)
-                output = F.softplus(output)
-                output = output / output.sum(-1).unsqueeze(-1)
-                outputs.append(output[0])
-                entropy.append(-(output*output.log()).sum((-1, 0)))
+                outputs_DA = self.model.forward(images_DA, t=task)[:, self.shape_out[task-1]:self.shape_out[task]]
+                outputs_DA = outputs_DA.reshape(N, self.batch_DA, outputs_DA.shape[1])
+                outputs = self.model.forward(images, t=task)[:, self.shape_out[task-1]:self.shape_out[task]]
+                outputs_DA = torch.cat([outputs.unsqueeze(1), outputs_DA], dim=1)
+                outputs_DA = F.softmax(outputs_DA/10, dim=2)
+                entropy.append((-outputs_DA*outputs_DA.log()).sum((1, 2)))
+                # outputs = outputs.mean(1)
+                outputs_tasks.append(outputs)
 
             entropy = torch.stack(entropy, dim=1)
-            outputs = torch.stack(outputs, dim=1)
+            outputs = torch.stack(outputs_tasks, dim=1)
             v, i = entropy.min(1)
+            # for task in range(0, self.cur_task):
+            #     print((i==task).sum().item(), end=' ')
+            # print()
             outputs = outputs[range(outputs.shape[0]), i]
         else:
             self.model.get_params(t-1)
@@ -294,6 +306,69 @@ class Appr(object):
         hits=(indices==targets).float()
 
         return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
+
+    # def train_batch(self, t, images, targets, squeeze):
+    #     N = images.shape[0]
+    #     rot_images = []
+    #     for k in range(4):
+    #         rot_images.append(torch.rot90(images, k, (2, 3)))
+            
+    #     rot_images = torch.cat(rot_images, dim=0)
+    #     outputs = self.model.forward(rot_images, t=t)[:, self.shape_out[t-1]:self.shape_out[t]]
+    #     outputs = outputs.reshape(4, N, outputs.shape[1])
+    #     outputs = outputs.mean(0)
+
+    #     loss = self.ce(outputs, targets)
+
+    #     if squeeze:
+    #         loss += self.model.group_lasso_reg() * self.lamb
+                
+    #     self.optimizer.zero_grad()
+    #     # loss.backward() 
+    #     accelerator.backward(loss)
+    #     self.optimizer.step()
+
+    # def eval_batch(self, t, images, targets):
+    #     N = images.shape[0]
+    #     if t is None:
+    #         rot_images = []
+    #         for k in range(4):
+    #             rot_images.append(torch.rot90(images, k, (2, 3)))
+            
+    #         rot_images = torch.cat(rot_images, dim=0)
+    #         outputs_tasks = []
+    #         entropy = []
+    #         for task in range(1, self.cur_task + 1):
+    #             self.model.get_params(task-1)
+    #             outputs = self.model.forward(rot_images, t=task)[:, self.shape_out[task-1]:self.shape_out[task]]
+    #             outputs = outputs.reshape(4, N, outputs.shape[1])
+    #             # outputs = F.softplus(outputs)
+    #             outputs = F.softmax(outputs/100, dim=2)
+    #             outputs = outputs.mean(0)
+    #             outputs_tasks.append(outputs)
+    #             entropy.append(-(outputs*outputs.log()).sum((1)))
+
+    #         entropy = torch.stack(entropy, dim=1)
+    #         outputs = torch.stack(outputs_tasks, dim=1)
+    #         v, i = entropy.min(1)
+    #         outputs = outputs[range(outputs.shape[0]), i]
+    #     else:
+    #         rot_images = []
+    #         for k in range(4):
+    #             rot_images.append(torch.rot90(images, k, (2, 3)))
+            
+    #         rot_images = torch.cat(rot_images, dim=0)
+    #         self.model.get_params(t-1)
+    #         outputs = self.model.forward(rot_images, t=t)
+    #         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+    #         outputs = outputs.reshape(4, N, outputs.shape[1])
+    #         outputs = outputs.mean(0)
+                        
+    #     loss=self.ce(outputs,targets)
+    #     values,indices=outputs.max(1)
+    #     hits=(indices==targets).float()
+
+    #     return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
 
     def train_epoch(self, t, data_loader, squeeze=True):
         self.model.train()
@@ -324,18 +399,18 @@ class Appr(object):
 
     def prune(self, t, data_loader, thres=0.0):
 
-        fig, axs = plt.subplots(3, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 9))
-        for i, m in enumerate(self.model.DM[:-1]):
-            axs[0][i].hist(m.norm_in().detach().cpu().numpy(), bins=100)
-            axs[0][i].set_title(f'layer {i+1}')
+        # fig, axs = plt.subplots(3, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 9))
+        # for i, m in enumerate(self.model.DM[:-1]):
+        #     axs[0][i].hist(m.norm_in().detach().cpu().numpy(), bins=100)
+        #     axs[0][i].set_title(f'layer {i+1}')
 
-            axs[1][i].hist(m.norm_out().detach().cpu().numpy(), bins=100)
-            axs[1][i].set_title(f'layer {i+1}')
+        #     axs[1][i].hist(m.norm_out().detach().cpu().numpy(), bins=100)
+        #     axs[1][i].set_title(f'layer {i+1}')
 
-            axs[2][i].hist((m.norm_in()*m.norm_out()).detach().cpu().numpy(), bins=100)
-            axs[2][i].set_title(f'layer {i+1}')
+        #     axs[2][i].hist((m.norm_in()*m.norm_out()).detach().cpu().numpy(), bins=100)
+        #     axs[2][i].set_title(f'layer {i+1}')
 
-        plt.show()
+        # plt.show()
 
         loss,acc=self.eval(t,data_loader)
         loss, acc = round(loss, 3), round(acc, 3)

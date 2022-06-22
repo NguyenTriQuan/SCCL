@@ -11,7 +11,6 @@ from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer, _DynamicMode
 from utils import *
 import sys
 
-            
 class MLP(_DynamicModel):
 
     def __init__(self, input_size, mul=1, norm_type=None):

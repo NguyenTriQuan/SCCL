@@ -8,6 +8,7 @@ import torch
 from copy import deepcopy
 import torch.nn.functional as F
 import torch.nn as nn
+import kornia as K
 
 import time
 import csv
@@ -97,7 +98,7 @@ class Appr(object):
         optimizer = accelerator.prepare(optimizer)
         return optimizer
 
-    def train(self, t, train_loader, valid_loader, ncla=0):
+    def train(self, t, train_loader, valid_loader, train_transform, valid_transform, ncla=0):
 
         if self.check_point is None:
             print('Training new task')
@@ -135,18 +136,18 @@ class Appr(object):
         train_loader = accelerator.prepare(train_loader)
         valid_loader = accelerator.prepare(valid_loader)
 
-        self.train_phase(t, train_loader, valid_loader, True)
+        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, True)
         if not self.check_point['squeeze']:
             self.check_point = None
             return 
 
-        self.prune(t, train_loader, thres=self.thres)
+        self.prune(t, train_loader, valid_transform, thres=self.thres)
 
 
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
-        self.train_phase(t, train_loader, valid_loader, False)
+        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
         self.check_point = None
         # self.model.get_params(t-1)
@@ -161,7 +162,7 @@ class Appr(object):
         # print('s_H={:.1e}'.format(s_H), end='')
         
 
-    def train_phase(self, t, train_loader, valid_loader, squeeze):
+    def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 
         print('number of neurons:', end=' ')
         for m in self.model.DM:
@@ -170,10 +171,10 @@ class Appr(object):
         params = self.model.compute_model_size()
         print('num params', params)
 
-        train_loss,train_acc=self.eval(t,train_loader)
+        train_loss,train_acc=self.eval(t,train_loader,valid_transform)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
 
-        valid_loss,valid_acc=self.eval(t,valid_loader)
+        valid_loss,valid_acc=self.eval(t,valid_loader,valid_transform)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
         lr = self.check_point['lr']
@@ -191,16 +192,16 @@ class Appr(object):
         try:
             for e in range(start_epoch, self.nepochs):
                 clock0=time.time()
-                self.train_epoch(t, train_loader, squeeze)
+                self.train_epoch(t, train_loader, train_transform, squeeze)
             
                 clock1=time.time()
-                train_loss,train_acc=self.eval(t, train_loader)
+                train_loss,train_acc=self.eval(t, train_loader, valid_transform)
                 clock2=time.time()
                 print('| Epoch {:3d}, time={:5.1f}ms/{:5.1f}ms | Train: loss={:.3f}, acc={:5.2f}% |'.format(
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),train_loss,100*train_acc),end='')
 
-                valid_loss,valid_acc=self.eval(t, valid_loader)
+                valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 
                 s_H = self.model.s_H()
@@ -247,6 +248,7 @@ class Appr(object):
         self.model = self.check_point['model']
 
     def train_batch(self, t, images, targets, squeeze):
+        # images = self.train_transforms(images)
         outputs = self.model.forward(images, t=t)
         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
 
@@ -294,16 +296,18 @@ class Appr(object):
 
         return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
 
-    def train_epoch(self, t, data_loader, squeeze=True):
+    def train_epoch(self, t, data_loader, train_transform, squeeze=True):
         self.model.train()
         self.model.get_params(t-1)
         for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
+            if train_transform:
+                images = train_transform(images)
             self.train_batch(t, images, targets, squeeze)
 
 
-    def eval(self, t, data_loader):
+    def eval(self, t, data_loader, valid_transform):
         total_loss=0
         total_acc=0
         total_num=0
@@ -312,6 +316,8 @@ class Appr(object):
         for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
+            if valid_transform:
+                images = valid_transform(images)
                     
             loss, hits = self.eval_batch(t, images, targets)
             total_loss += loss
@@ -321,7 +327,7 @@ class Appr(object):
         return total_loss/total_num,total_acc/total_num
 
 
-    def prune(self, t, data_loader, thres=0.0):
+    def prune(self, t, data_loader, valid_transform, thres=0.0):
 
         fig, axs = plt.subplots(3, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 9))
         for i, m in enumerate(self.model.DM[:-1]):
@@ -336,7 +342,7 @@ class Appr(object):
 
         plt.show()
 
-        loss,acc=self.eval(t,data_loader)
+        loss,acc=self.eval(t,data_loader,valid_transform)
         loss, acc = round(loss, 3), round(acc, 3)
         print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
         # pre_prune_acc = acc
@@ -365,7 +371,7 @@ class Appr(object):
 
                 if norm.shape[0] != 0:
                     values, indices = norm.sort(descending=True)
-                    loss,acc=self.eval(t,data_loader)
+                    loss,acc=self.eval(t,data_loader,valid_transform)
                     loss, acc = round(loss, 3), round(acc, 3)
                     pre_prune_loss = loss
 
@@ -373,7 +379,7 @@ class Appr(object):
                         k = (high+low)//2
                         # Select top-k biggest norm
                         m.mask = (norm>values[k])
-                        loss, acc = self.eval(t, data_loader)
+                        loss, acc = self.eval(t, data_loader, valid_transform)
                         loss, acc = round(loss, 3), round(acc, 3)
                         # post_prune_acc = acc
                         post_prune_loss = loss
@@ -412,7 +418,7 @@ class Appr(object):
 
             fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
             # plt.show()
-            loss,acc=self.eval(t,data_loader)
+            loss,acc=self.eval(t,data_loader,valid_transform)
             print('| Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
 
             step += 1
@@ -423,7 +429,7 @@ class Appr(object):
         for m in self.model.DM[:-1]:
             m.squeeze()
             m.mask = None
-        loss,acc=self.eval(t,data_loader)
+        loss,acc=self.eval(t,data_loader,valid_transform)
         print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
 
         print('number of neurons:', end=' ')

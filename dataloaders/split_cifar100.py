@@ -5,93 +5,76 @@ import utils
 from torchvision import datasets,transforms
 from sklearn.utils import shuffle
 from torch.utils.data import  TensorDataset, DataLoader
+import kornia as K
 
 def get(batch_size, val_batch_size, seed=0,pc_valid=0.10, tasknum = 10):
     np.random.seed(seed)
     data={}
     taskcla=[]
     size=[3,32,32]
+    task_order=shuffle(np.arange(10),random_state=seed)
+    print('Task order =',task_order+1)
 
-    if not os.path.isdir('../dat/binary_split_cifar100/'):
-        os.makedirs('../dat/binary_split_cifar100')
-
-        mean=[x/255 for x in [125.3,123.0,113.9]]
-        std=[x/255 for x in [63.0,62.1,66.7]]
-        
-        # CIFAR100
-        dat={}
-        
-        dat['train']=datasets.CIFAR100('../dat/',train=True,download=True,
-                                       transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)]))
-        dat['test']=datasets.CIFAR100('../dat/',train=False,download=True,
-                                       transform=transforms.Compose([transforms.ToTensor(),transforms.Normalize(mean,std)]))
-        for n in range(10):
-            data[n]={}
-            data[n]['name']='cifar100'
-            data[n]['ncla']=10
-            data[n]['train']={'x': [],'y': []}
-            data[n]['test']={'x': [],'y': []}
-        for s in ['train','test']:
-            loader=torch.utils.data.DataLoader(dat[s],batch_size=1,shuffle=False)
-            for image,target in loader:
-                task_idx = target.numpy()[0] // 10
-                data[task_idx][s]['x'].append(image)
-                data[task_idx][s]['y'].append(target.numpy()[0]%10)
-
-        # "Unify" and save
-        for t in range(10):
-            for s in ['train','test']:
-                data[t][s]['x']=torch.stack(data[t][s]['x']).view(-1,size[0],size[1],size[2])
-                data[t][s]['y']=torch.LongTensor(np.array(data[t][s]['y'],dtype=int)).view(-1)
-                torch.save(data[t][s]['x'], os.path.join(os.path.expanduser('../dat/binary_split_cifar100'),
-                                                         'data'+str(t+1)+s+'x.bin'))
-                torch.save(data[t][s]['y'], os.path.join(os.path.expanduser('../dat/binary_split_cifar100'),
-                                                         'data'+str(t+1)+s+'y.bin'))
+    mean=torch.tensor([x/255 for x in [125.3,123.0,113.9]])
+    std=torch.tensor([x/255 for x in [63.0,62.1,66.7]])
+    if tasknum > 10:
+        tasknum = 10
+    # CIFAR100
+    dat={}
     
-    # Load binary files
-    data={}
-    data[0] = dict.fromkeys(['name','ncla','train','test'])
-    ids=shuffle(np.arange(10),random_state=seed)
-    print('Task order =',ids+1)
-    for i in range(10):
-        data[i] = dict.fromkeys(['name','ncla','train','test'])
-        for s in ['train','test']:
-            data[i][s]={'x':[],'y':[]}
-            data[i][s]['x']=torch.load(os.path.join(os.path.expanduser('../dat/binary_split_cifar100'),
-                                                    'data'+str(ids[i]+1)+s+'x.bin'))
-            data[i][s]['y']=torch.load(os.path.join(os.path.expanduser('../dat/binary_split_cifar100'),
-                                                    'data'+str(ids[i]+1)+s+'y.bin'))
-        data[i]['ncla']=len(np.unique(data[i]['train']['y'].numpy()))
-        data[i]['name']='cifar100-'+str(ids[i]+1)
-            
-    # Validation
-    for t in range(10):
-        r=np.arange(data[t]['train']['x'].size(0))
+    train_set=datasets.CIFAR100('../dat/',train=True,download=True)
+    test_set=datasets.CIFAR100('../dat/',train=False,download=True)
+
+    train_data, train_targets = torch.FloatTensor(train_set.data), torch.LongTensor(train_set.targets)
+    test_data, test_targets = torch.FloatTensor(test_set.data), torch.LongTensor(test_set.targets)
+
+    train_data = train_data.permute(0, 3, 1, 2)/255.0
+    test_data = test_data.permute(0, 3, 1, 2)/255.0
+
+    # train_data = (train_data - mean.view(1,-1,1,1))/std.view(1,-1,1,1)
+    # test_data = (test_data - mean.view(1,-1,1,1))/std.view(1,-1,1,1)
+    
+    for t in range(tasknum):
+        data[t]={}
+        data[t]['name']='cifar100-'+str(task_order[t]+1)
+        data[t]['ncla']=10
+        #train and valid
+        ids = (train_targets//10 == task_order[t])
+        images = train_data[ids]
+        labels = train_targets[ids]%10
+
+        r=np.arange(images.size(0))
         r=np.array(shuffle(r,random_state=seed),dtype=int)
         nvalid=int(pc_valid*len(r))
         ivalid=torch.LongTensor(r[:nvalid])
         itrain=torch.LongTensor(r[nvalid:])
-        data[t]['valid']={}
-        data[t]['valid']['x']=data[t]['train']['x'][ivalid].clone()
-        data[t]['valid']['y']=data[t]['train']['y'][ivalid].clone()
-        data[t]['train']['x']=data[t]['train']['x'][itrain].clone()
-        data[t]['train']['y']=data[t]['train']['y'][itrain].clone()
+        data[t]['train_loader'] = DataLoader(TensorDataset(images[itrain], labels[itrain]), batch_size=batch_size, shuffle=True)
+        data[t]['valid_loader'] = DataLoader(TensorDataset(images[ivalid], labels[ivalid]), batch_size=val_batch_size, shuffle=False)
 
-        data[t]['train loader'] = DataLoader(
-                    TensorDataset(data[t]['train']['x'], data[t]['train']['y']) , batch_size=batch_size, shuffle=True
-                )
+        #test
+        ids = (test_targets//10 == task_order[t])
+        images = test_data[ids]
+        labels = test_targets[ids]%10
+        data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=val_batch_size, shuffle=False)
 
-        data[t]['valid loader'] = DataLoader(
-                    TensorDataset(data[t]['valid']['x'], data[t]['valid']['y']) , batch_size=val_batch_size, shuffle=False
-                )
-
-        data[t]['test loader'] = DataLoader(
-                    TensorDataset(data[t]['test']['x'], data[t]['test']['y']) , batch_size=val_batch_size, shuffle=False
-                )
-
+    # data['train_transform'] = torch.nn.Sequential(
+    #     K.augmentation.RandomCrop(size=(32, 32), padding=4),
+    #     K.augmentation.RandomHorizontalFlip(),
+    #     K.augmentation.Normalize(mean, std),
+    # )
+    data['train_transform'] = torch.nn.Sequential(
+        K.augmentation.RandomResizedCrop(size=(32, 32), scale=(0.2, 1.0), same_on_batch=False),
+        K.augmentation.RandomHorizontalFlip(),
+        K.augmentation.ColorJitter(0.4, 0.4, 0.4, 0.1, p=0.8, same_on_batch=False),
+        K.augmentation.RandomGrayscale(p=0.2),
+        K.augmentation.Normalize(mean, std),
+    )
+    data['valid_transform'] = torch.nn.Sequential(
+        K.augmentation.Normalize(mean, std),
+    )
     # Others
     n=0
-    for t in range(10):
+    for t in range(tasknum):
         taskcla.append((t,data[t]['ncla']))
         n+=data[t]['ncla']
     data['ncla']=n

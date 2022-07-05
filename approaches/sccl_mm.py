@@ -117,9 +117,6 @@ class Appr(object):
             self.get_name(t)
             torch.save(self.check_point, f'../result_data/trained_model/{self.log_name}.model')
                 
-            with open(f'../result_data/csv_data/{self.log_name}.csv', 'w', newline='') as csvfile:
-                writer = csv.writer(csvfile, delimiter=',',quotechar='|', quoting=csv.QUOTE_MINIMAL)
-                writer.writerow(['train loss', 'train acc', 'valid loss', 'valid acc', 'fro norm'])
         else: 
             print('Retraining current task')
 
@@ -204,8 +201,8 @@ class Appr(object):
                 valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 
-                s_H = self.model.s_H()
-                print('s_H={:.1e}'.format(s_H), end='')
+                # s_H = self.model.s_H()
+                # print('s_H={:.1e}'.format(s_H), end='')
                 # Adapt lr
                 if squeeze:
                     if train_acc >= best_acc:
@@ -235,9 +232,6 @@ class Appr(object):
                             self.optimizer = self._get_optimizer(lr)
 
                 print()
-                with open(f'../result_data/csv_data/{self.log_name}.csv', 'a', newline='') as csvfile:
-                    writer = csv.writer(csvfile, delimiter=',',quotechar='|', quoting=csv.QUOTE_MINIMAL)
-                    writer.writerow([train_loss, train_acc, valid_loss, valid_acc, s_H])
 
         except KeyboardInterrupt:
             print('KeyboardInterrupt')

@@ -42,6 +42,7 @@ def get(batch_size, val_batch_size, seed=0,pc_valid=0.10, tasknum = 10):
         ids = (train_targets//10 == task_order[t])
         images = train_data[ids]
         labels = train_targets[ids]%10
+        # labels = train_targets[ids]
 
         r=np.arange(images.size(0))
         r=np.array(shuffle(r,random_state=seed),dtype=int)
@@ -55,6 +56,7 @@ def get(batch_size, val_batch_size, seed=0,pc_valid=0.10, tasknum = 10):
         ids = (test_targets//10 == task_order[t])
         images = test_data[ids]
         labels = test_targets[ids]%10
+        # labels = test_targets[ids]
         data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=val_batch_size, shuffle=False)
 
     # data['train_transform'] = torch.nn.Sequential(

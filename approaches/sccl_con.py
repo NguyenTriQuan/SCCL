@@ -18,6 +18,7 @@ from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import networks.sccl_con_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+from torch.distributions import Normal
 
 from accelerate import Accelerator
 accelerator = Accelerator()
@@ -51,13 +52,13 @@ class Appr(object):
         self.seed = args.seed
         self.norm_type = args.norm_type
         self.temperature = 0.07
-        self.contrast_mode = 'all'
+        self.contrast_mode = 'one'
         self.base_temperature = 0.07
 
         self.args = args
         self.lambs = [float(i) for i in args.lamb.split('_')]
         self.check_point = None
-        self.ncla = 0
+        self.ncla = self.model.ncla
         
         if len(self.lambs) < args.tasknum:
             self.lambs = [self.lambs[-1] if i>=len(self.lambs) else self.lambs[i] for i in range(args.tasknum)]
@@ -107,8 +108,8 @@ class Appr(object):
         if self.check_point is None:
             print('Training new task')
 
-            self.model.expand(0)
-            self.ncla += ncla
+            self.model.expand(ncla)
+            self.model = self.model.to(device)
             self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
             try:
@@ -121,7 +122,8 @@ class Appr(object):
         else: 
             print('Retraining current task')
 
-        self.model = self.model.to(device)
+        self.ncla = self.model.ncla
+        self.n_old = self.model.ncla[t-1]
         self.model = accelerator.prepare(self.model)
         self.model.restrict_gradients(t-1, False)
         self.lamb = self.lambs[t-1]
@@ -184,8 +186,8 @@ class Appr(object):
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),loss, 100*train_acc),end='')
                 print(' Valid: acc={:5.2f}% |'.format(100*valid_acc),end='')
-                s_H = self.model.s_H()
-                print('s_H={:.1e}'.format(s_H), end='')
+                # s_H = self.model.s_H()
+                # print('s_H={:.1e}'.format(s_H), end='')
                 # Adapt lr
                 if squeeze:
                     if valid_acc >= best_acc:
@@ -232,7 +234,7 @@ class Appr(object):
         labels = []
         for images, targets in data_loader:
             images=images.to(device)
-            targets=targets.to(device)
+            targets=targets.to(device)+self.n_old
             if valid_transform:
                 images = valid_transform(images)
             features = self.model.forward(images, t=t)
@@ -241,26 +243,40 @@ class Appr(object):
 
         repres = torch.cat(repres, dim=0)
         labels = torch.cat(labels, dim=0)
-        self.repres_mean = []
-        self.repres_std = []
-        for c in range(self.ncla):
+        repres_mean = []
+        repres_std = []
+        for c in range(self.ncla[t-1], self.ncla[t]):
             ids = (labels == c)
             repres_c = repres[ids]
-            self.repres_mean.append(repres_c.mean(0))
-            self.repres_std.append(repres_c.std(0))
+            repres_mean.append(repres_c.mean(0))
+            repres_std.append(repres_c.std(0))
 
-        self.repres_mean = torch.stack(self.repres_mean, dim=0)
-        self.repres_std = torch.stack(self.repres_std, dim=0)
+        repres_mean = torch.stack(repres_mean, dim=0)
+        repres_std = torch.stack(repres_std, dim=0)
+        if self.model.repres_mean is None:
+            self.model.repres_mean = repres_mean
+            self.model.repres_std = repres_std
+        else:
+            self.model.repres_mean = torch.cat([self.model.repres_mean[:self.ncla[t-1]], repres_mean], dim=0)
+            self.model.repres_std = torch.cat([self.model.repres_std[:self.ncla[t-1]], repres_std], dim=0)
+
+        # print(self.model.repres_mean.shape)
 
     def train_batch(self, t, images, targets, squeeze):
         features = self.model.forward(images, t=t)
         batch_size = targets.shape[0]
         f1, f2 = torch.split(features, [batch_size, batch_size], dim=0)
         features = torch.cat([f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
+        if self.n_old != 0 :
+            old_features = Normal(self.model.repres_mean[:self.ncla[t-1]], self.model.repres_std[:self.ncla[t-1]]).sample(torch.Size([batch_size // self.n_old, 2])).view(-1, 2, features.shape[2]).to(device)
+            old_targets = torch.arange(self.n_old).repeat(batch_size // self.n_old).to(device)
+            features = torch.cat([features, old_features], dim=0)
+            targets = torch.cat([targets, old_targets], dim=0)
+
         loss = self.SupConLoss(features, targets)
 
-        if squeeze:
-            loss += self.model.group_lasso_reg() * self.lamb
+        # if squeeze:
+        #     loss += self.model.group_lasso_reg() * self.lamb
                 
         self.optimizer.zero_grad()
         # loss.backward() 
@@ -269,8 +285,19 @@ class Appr(object):
         return loss.data.cpu().numpy()*batch_size
 
     def eval_batch(self, t, images, targets):
-        features = self.model.forward(images, t=t)
-        sim = torch.matmul(features, self.repres_mean.T)
+        if t is not None:
+            self.model.get_params(t-1)
+            features = self.model.forward(images, t=t)
+            sim = torch.matmul(features, self.model.repres_mean[self.ncla[t-1]:self.ncla[t]].T)
+        else:
+            sim = []
+            for t in range(1, len(self.ncla)):
+                self.model.get_params(t-1)
+                features = self.model.forward(images, t=t)
+                sim.append(torch.matmul(features, self.model.repres_mean[self.ncla[t-1]:self.ncla[t]].T))
+            sim = torch.cat(sim, dim=1)
+            targets += self.n_old
+
         v, i = sim.max(1)
         hits = (i==targets).float()
         return hits.sum().data.cpu().numpy()
@@ -281,8 +308,8 @@ class Appr(object):
         total_loss=0
         total_num=0
         for images, targets in data_loader:
-            images=images.to(device)
-            targets=targets.to(device)
+            images = images.to(device)
+            targets = targets.to(device) + self.n_old
             if train_transform:
                 images = torch.cat([images, train_transform(images)], dim=0)
                 # images = torch.cat([images, images], dim=0)
@@ -296,7 +323,6 @@ class Appr(object):
         total_acc=0
         total_num=0
         self.model.eval()
-        self.model.get_params(t-1)
         for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
@@ -307,6 +333,83 @@ class Appr(object):
             total_num += len(targets)
                 
         return 0, total_acc/total_num
+
+
+    def SupConLoss(self, features, labels=None, mask=None):
+        
+        """Compute loss for model. If both `labels` and `mask` are None,
+        it degenerates to SimCLR unsupervised loss:
+        https://arxiv.org/pdf/2002.05709.pdf
+        Args:
+            features: hidden vector of shape [bsz, n_views, ...].
+            labels: ground truth of shape [bsz].
+            mask: contrastive mask of shape [bsz, bsz], mask_{i,j}=1 if sample j
+                has the same class as sample i. Can be asymmetric.
+        Returns:
+            A loss scalar.
+        """
+
+        if len(features.shape) < 3:
+            raise ValueError('`features` needs to be [bsz, n_views, ...],'
+                             'at least 3 dimensions are required')
+        if len(features.shape) > 3:
+            features = features.view(features.shape[0], features.shape[1], -1)
+
+        batch_size = features.shape[0]
+        if labels is not None and mask is not None:
+            raise ValueError('Cannot define both `labels` and `mask`')
+        elif labels is None and mask is None:
+            mask = torch.eye(batch_size, dtype=torch.float32).to(device)
+        elif labels is not None:
+            labels = labels.contiguous().view(-1, 1)
+            if labels.shape[0] != batch_size:
+                raise ValueError('Num of labels does not match num of features')
+            mask = torch.eq(labels, labels.T).float().to(device)
+        else:
+            mask = mask.float().to(device)
+
+        contrast_count = features.shape[1]
+        contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
+        if self.contrast_mode == 'one':
+            anchor_feature = features[:, 0]
+            anchor_count = 1
+        elif self.contrast_mode == 'all':
+            anchor_feature = contrast_feature
+            anchor_count = contrast_count
+        else:
+            raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
+
+        # compute logits
+        anchor_dot_contrast = torch.div(
+            torch.matmul(anchor_feature, contrast_feature.T),
+            self.temperature)
+        # for numerical stability
+        logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+        logits = anchor_dot_contrast - logits_max.detach()
+
+        # tile mask
+        mask = mask.repeat(anchor_count, contrast_count)
+        # mask-out self-contrast cases
+        logits_mask = torch.scatter(
+            torch.ones_like(mask),
+            1,
+            torch.arange(batch_size * anchor_count).view(-1, 1).to(device),
+            0
+        )
+        mask = mask * logits_mask
+
+        # compute log_prob
+        exp_logits = torch.exp(logits) * logits_mask
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+
+        # compute mean of log-likelihood over positive
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+
+        # loss
+        loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
+        loss = loss.view(anchor_count, batch_size).mean()
+
+        return loss
 
 
     def prune(self, t, data_loader, valid_transform, thres=0.0):
@@ -421,80 +524,5 @@ class Appr(object):
         params = self.model.compute_model_size()
         print('num params', params)
 
-
-    def SupConLoss(self, features, labels=None, mask=None):
-        """Compute loss for model. If both `labels` and `mask` are None,
-        it degenerates to SimCLR unsupervised loss:
-        https://arxiv.org/pdf/2002.05709.pdf
-        Args:
-            features: hidden vector of shape [bsz, n_views, ...].
-            labels: ground truth of shape [bsz].
-            mask: contrastive mask of shape [bsz, bsz], mask_{i,j}=1 if sample j
-                has the same class as sample i. Can be asymmetric.
-        Returns:
-            A loss scalar.
-        """
-
-        if len(features.shape) < 3:
-            raise ValueError('`features` needs to be [bsz, n_views, ...],'
-                             'at least 3 dimensions are required')
-        if len(features.shape) > 3:
-            features = features.view(features.shape[0], features.shape[1], -1)
-
-        batch_size = features.shape[0]
-        if labels is not None and mask is not None:
-            raise ValueError('Cannot define both `labels` and `mask`')
-        elif labels is None and mask is None:
-            mask = torch.eye(batch_size, dtype=torch.float32).to(device)
-        elif labels is not None:
-            labels = labels.contiguous().view(-1, 1)
-            if labels.shape[0] != batch_size:
-                raise ValueError('Num of labels does not match num of features')
-            mask = torch.eq(labels, labels.T).float().to(device)
-        else:
-            mask = mask.float().to(device)
-
-        contrast_count = features.shape[1]
-        contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
-        if self.contrast_mode == 'one':
-            anchor_feature = features[:, 0]
-            anchor_count = 1
-        elif self.contrast_mode == 'all':
-            anchor_feature = contrast_feature
-            anchor_count = contrast_count
-        else:
-            raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
-
-        # compute logits
-        anchor_dot_contrast = torch.div(
-            torch.matmul(anchor_feature, contrast_feature.T),
-            self.temperature)
-        # for numerical stability
-        logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
-        logits = anchor_dot_contrast - logits_max.detach()
-
-        # tile mask
-        mask = mask.repeat(anchor_count, contrast_count)
-        # mask-out self-contrast cases
-        logits_mask = torch.scatter(
-            torch.ones_like(mask),
-            1,
-            torch.arange(batch_size * anchor_count).view(-1, 1).to(device),
-            0
-        )
-        mask = mask * logits_mask
-
-        # compute log_prob
-        exp_logits = torch.exp(logits) * logits_mask
-        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
-
-        # compute mean of log-likelihood over positive
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
-
-        # loss
-        loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
-        loss = loss.view(anchor_count, batch_size).mean()
-
-        return loss
 
 

@@ -16,6 +16,9 @@ class _DynamicModel(nn.Module):
     def __init__(self):
         super(_DynamicModel, self).__init__()
         self.permute = [None]
+        self.ncla = [0]
+        self.repres_mean = None
+        self.repres_std = None
 
     def restrict_gradients(self, t, requires_grad):
         for m in self.DM:
@@ -31,10 +34,11 @@ class _DynamicModel(nn.Module):
             m.get_params(t)
 
     def expand(self, new_class):
-        self.DM[0].expand(add_in=0, add_out=None)
+        self.DM[0].expand(add_in=None, add_out=None)
         for m in self.DM[1:-1]:
             m.expand(add_in=None, add_out=None)
-        self.DM[-1].expand(add_in=None, add_out=0)
+        self.DM[-1].expand(add_in=None, add_out=None)
+        self.ncla.append(self.ncla[-1] + new_class)
 
     def group_lasso_reg(self):
         total_reg = 0
@@ -148,7 +152,7 @@ class VGG8(_DynamicModel):
         self.input_size = input_size
 
         self.layers = nn.ModuleList([
-            DynamicConv2D(nchannels, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True),
+            DynamicConv2D(nchannels, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=False),
             nn.ReLU(),
             DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
@@ -180,7 +184,7 @@ class VGG8(_DynamicModel):
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(128*self.smid*self.smid, 256, smid=self.smid, norm_type=norm_type, last_layer=True),
+            DynamicLinear(128*self.smid*self.smid, 256, smid=self.smid, norm_type=norm_type, last_layer=False),
             ])
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
@@ -343,89 +347,3 @@ class BasicBlock(_DynamicModel):
         return out
     def forward_mask(self, x, masks):
         pass
-
-
-# class Bottleneck(nn.Module):
-#     expansion = 4
-
-#     def __init__(self, in_planes, planes, stride=1):
-#         super(Bottleneck, self).__init__()
-
-#         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
-#         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3,
-#                                stride=stride, padding=1, bias=False)
-#         self.conv3 = nn.Conv2d(planes, self.expansion *
-#                                planes, kernel_size=1, bias=False)
-
-#         self.shortcut = nn.Sequential()
-#         if stride != 1 or in_planes != self.expansion*planes:
-#             self.shortcut = nn.Sequential(
-#                 nn.Conv2d(in_planes, self.expansion*planes,
-#                           kernel_size=1, stride=stride, bias=False),
-#                 norm_layer(self.expansion*planes)
-#             )
-
-#     def forward(self, x):
-#         out = F.relu(self.bn1(self.conv1(x)))
-#         out = F.relu(self.bn2(self.conv2(out)))
-#         out = self.bn3(self.conv3(out))
-#         out += self.shortcut(x)
-#         out = F.relu(out)
-#         return out
-
-
-# class ResNet(_DynamicModel):
-#     def __init__(self, input_size, block, num_blocks):
-#         super(ResNet, self).__init__()
-
-#         nchannels, size, _ = input_size
-#         self.in_planes = 64
-#         self.conv1 = nn.Conv2d(nchannels, 64, kernel_size=3,
-#                                stride=1, padding=1, bias=False)
-
-#         self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
-#         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
-#         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
-#         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
-#         self.linear = nn.Linear(512*block.expansion, num_classes)
-
-#     def _make_layer(self, block, planes, num_blocks, stride):
-#         strides = [stride] + [1]*(num_blocks-1)
-#         layers = []
-#         for stride in strides:
-#             layers.append(block(self.in_planes, planes, stride, self._norm_layer))
-#             self.in_planes = planes * block.expansion
-#         return nn.Sequential(*layers)
-
-#     def forward(self, x):
-#         out = F.relu(self.bn1(self.conv1(x)))
-#         out = self.layer1(out)
-#         out = self.layer2(out)
-#         out = self.layer3(out)
-#         out = self.layer4(out)
-#         out = F.avg_pool2d(out, 4)
-#         out = out.view(out.size(0), -1)
-#         out = self.linear(out)
-#         return out
-
-
-# def ResNet18(**kwargs: Any):
-#     return ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
-
-
-# def ResNet34(**kwargs: Any):
-#     return ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
-
-
-# def ResNet50(**kwargs: Any):
-#     return ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
-
-
-# def ResNet101(**kwargs: Any):
-#     return ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-
-
-# def ResNet152(**kwargs: Any):
-#     return ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
-
-

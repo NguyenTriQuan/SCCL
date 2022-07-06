@@ -1,6 +1,7 @@
 from cProfile import label
 import sys, time, os
 import math
+from turtle import pos
 
 import numpy as np
 from pytest import param
@@ -52,7 +53,7 @@ class Appr(object):
         self.seed = args.seed
         self.norm_type = args.norm_type
         self.temperature = 0.07
-        self.contrast_mode = 'one'
+        self.contrast_mode = 'all'
         self.base_temperature = 0.07
 
         self.args = args
@@ -265,15 +266,18 @@ class Appr(object):
     def train_batch(self, t, images, targets, squeeze):
         features = self.model.forward(images, t=t)
         batch_size = targets.shape[0]
-        f1, f2 = torch.split(features, [batch_size, batch_size], dim=0)
-        features = torch.cat([f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
-        if self.n_old != 0 :
-            old_features = Normal(self.model.repres_mean[:self.ncla[t-1]], self.model.repres_std[:self.ncla[t-1]]).sample(torch.Size([batch_size // self.n_old, 2])).view(-1, 2, features.shape[2]).to(device)
-            old_targets = torch.arange(self.n_old).repeat(batch_size // self.n_old).to(device)
-            features = torch.cat([features, old_features], dim=0)
-            targets = torch.cat([targets, old_targets], dim=0)
+        # f1, f2 = torch.split(features, [batch_size, batch_size], dim=0)
+        # features = torch.cat([f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
+        # if self.n_old != 0 :
+        #     old_fea_dis = Normal(self.model.repres_mean[:self.ncla[t-1]], self.model.repres_std[:self.ncla[t-1]])
+        #     old_features = old_fea_dis.sample(torch.Size([batch_size // self.n_old, 2])).view(-1, 2, features.shape[2]).to(device)
+        #     old_targets = torch.arange(self.n_old).repeat(batch_size // self.n_old).to(device)
+        #     features = torch.cat([features, old_features], dim=0)
+        #     targets = torch.cat([targets, old_targets], dim=0)
 
-        loss = self.SupConLoss(features, targets)
+        # print(features.shape)
+        # loss = self.SupConLoss(features, targets)
+        loss = self.sup_con_cl_loss(features, targets)
 
         # if squeeze:
         #     loss += self.model.group_lasso_reg() * self.lamb
@@ -312,6 +316,7 @@ class Appr(object):
             targets = targets.to(device) + self.n_old
             if train_transform:
                 images = torch.cat([images, train_transform(images)], dim=0)
+                targets = torch.cat([targets, targets], dim=0)
                 # images = torch.cat([images, images], dim=0)
                 # images = train_transform(images)
             total_loss += self.train_batch(t, images, targets, squeeze)
@@ -333,6 +338,27 @@ class Appr(object):
             total_num += len(targets)
                 
         return 0, total_acc/total_num
+
+    def sup_con_cl_loss(self, features, labels):
+        sim = torch.div(
+            torch.matmul(features, features.T),
+            self.temperature)
+        logits_max, _ = torch.max(sim, dim=1, keepdim=True)
+        logits = sim - logits_max.detach()
+        exp_logits = torch.exp(logits)
+        pos_mask = (labels.view(-1, 1) == labels.view(1, -1)).float().to(device)
+        neg_mask = (1-pos_mask)
+
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+
+        mean_log_prob_pos = (pos_mask * log_prob).sum(1) / pos_mask.sum(1)
+        mean_log_prob_neg = (neg_mask * log_prob).sum(1) / neg_mask.sum(1)
+
+        # loss
+        loss = mean_log_prob_neg/10 - mean_log_prob_pos
+        loss = loss.mean()
+        return loss
+
 
 
     def SupConLoss(self, features, labels=None, mask=None):

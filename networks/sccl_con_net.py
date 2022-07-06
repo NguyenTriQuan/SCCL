@@ -134,7 +134,7 @@ class MLP(_DynamicModel):
             nn.Dropout(0.25),
             DynamicLinear(np.prod(input_size), N, bias=True, norm_type=norm_type, first_layer=True),
             nn.ReLU(),
-            DynamicLinear(N, N, bias=True, norm_type=norm_type, last_layer=True),
+            DynamicLinear(N, N, bias=True, last_layer=True),
             ])
         
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
@@ -184,7 +184,7 @@ class VGG8(_DynamicModel):
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(128*self.smid*self.smid, 256, smid=self.smid, norm_type=norm_type, last_layer=False),
+            DynamicLinear(128*self.smid*self.smid, 256, smid=self.smid, last_layer=False),
             ])
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]

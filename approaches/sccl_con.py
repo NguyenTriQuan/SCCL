@@ -315,10 +315,10 @@ class Appr(object):
             images = images.to(device)
             targets = targets.to(device) + self.n_old
             if train_transform:
-                images = torch.cat([images, train_transform(images)], dim=0)
+                # images = torch.cat([images, train_transform(images)], dim=0)
                 targets = torch.cat([targets, targets], dim=0)
-                # images = torch.cat([images, images], dim=0)
-                # images = train_transform(images)
+                images = torch.cat([images, images], dim=0)
+                images = train_transform(images)
             total_loss += self.train_batch(t, images, targets, squeeze)
             total_num += targets.shape[0]
         return total_loss/total_num
@@ -352,10 +352,11 @@ class Appr(object):
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
         mean_log_prob_pos = (pos_mask * log_prob).sum(1) / pos_mask.sum(1)
-        mean_log_prob_neg = (neg_mask * log_prob).sum(1) / neg_mask.sum(1)
+        # mean_log_prob_neg = (neg_mask * log_prob).sum(1) / neg_mask.sum(1)
 
         # loss
-        loss = mean_log_prob_neg/10 - mean_log_prob_pos
+        # loss = mean_log_prob_neg/10 - mean_log_prob_pos
+        loss = - mean_log_prob_pos
         loss = loss.mean()
         return loss
 

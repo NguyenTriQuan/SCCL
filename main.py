@@ -7,7 +7,6 @@ import copy
 import utils
 from utils import *
 from arguments import get_args
-from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import importlib
 # import comet_ml at the top of your file
 # from comet_ml import Experiment

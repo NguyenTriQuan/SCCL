@@ -40,7 +40,7 @@ class _DynamicLayer(nn.Module):
             self.out_features = out_features
         else:
             self.out_features = 0
-            
+
         if bias:
             self.bias = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features))])
         else:
@@ -161,11 +161,13 @@ class _DynamicLayer(nn.Module):
             self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in // self.groups, *self.kernel_size)))
             fan_in = (self.in_features + add_in) * np.prod(self.kernel_size)
 
-        gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-        bound = gain * math.sqrt(3.0/fan_in)
-        nn.init.uniform_(self.weight[-1], -bound, bound)
-        nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
-        nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
+        # gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        # bound = gain * math.sqrt(3.0/fan_in)
+        # nn.init.uniform_(self.weight[-1], -bound, bound)
+        # nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
+        # nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
+
+        nn.init.kaiming_uniform_(self.weight[-1], a=math.sqrt(5))
 
         if self.bias:
             self.bias.append(nn.Parameter(torch.Tensor(add_out).uniform_(0, 0)))
@@ -263,9 +265,11 @@ class DynamicLinear(_DynamicLayer):
         
     def forward(self, x, t, all=True):
 
-        weight = torch.cat([torch.cat([self.old_weight, self.fwt_weight[t]], dim=0), torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
+        # weight = torch.cat([torch.cat([self.old_weight, self.fwt_weight[t]], dim=0), torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
+        weight = self.weight[t]
         if self.bias is not None:
-            bias = torch.cat([self.old_bias, self.bias[t]])
+            # bias = torch.cat([self.old_bias, self.bias[t]])
+            bias = self.bias[t]
         else:
             bias = None
 
@@ -345,9 +349,11 @@ class DynamicConv2D(_DynamicConvNd):
     
     def forward(self, x, t):
 
-        weight = torch.cat([torch.cat([self.old_weight, self.fwt_weight[t]], dim=0), torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
+        # weight = torch.cat([torch.cat([self.old_weight, self.fwt_weight[t]], dim=0), torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
+        weight = self.weight[t]
         if self.bias is not None:
-            bias = torch.cat([self.old_bias, self.bias[t]])
+            # bias = torch.cat([self.old_bias, self.bias[t]])
+            bias = self.bias[t]
         else:
             bias = None
 

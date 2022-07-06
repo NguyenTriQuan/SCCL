@@ -15,7 +15,7 @@ import kornia as K
 import time
 import csv
 from utils import *
-from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from sccl_con_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import networks.sccl_con_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
@@ -235,7 +235,7 @@ class Appr(object):
         labels = []
         for images, targets in data_loader:
             images=images.to(device)
-            targets=targets.to(device)+self.n_old
+            targets=targets.to(device)
             if valid_transform:
                 images = valid_transform(images)
             features = self.model.forward(images, t=t)
@@ -268,17 +268,21 @@ class Appr(object):
         batch_size = targets.shape[0]
         # f1, f2 = torch.split(features, [batch_size, batch_size], dim=0)
         # features = torch.cat([f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
-        # if self.n_old != 0 :
-        #     old_fea_dis = Normal(self.model.repres_mean[:self.ncla[t-1]], self.model.repres_std[:self.ncla[t-1]])
-        #     old_features = old_fea_dis.sample(torch.Size([batch_size // self.n_old, 2])).view(-1, 2, features.shape[2]).to(device)
-        #     old_targets = torch.arange(self.n_old).repeat(batch_size // self.n_old).to(device)
-        #     features = torch.cat([features, old_features], dim=0)
-        #     targets = torch.cat([targets, old_targets], dim=0)
-
-        # print(features.shape)
         # loss = self.SupConLoss(features, targets)
-        loss = self.sup_con_cl_loss(features, targets)
 
+        if self.n_old != 0 :
+            old_fea_dis = Normal(self.model.repres_mean[:self.ncla[t-1]], self.model.repres_std[:self.ncla[t-1]])
+            old_features = old_fea_dis.sample(torch.Size([2 * batch_size // self.n_old])).view(-1, features.shape[1]).to(device)
+            old_targets = torch.arange(self.n_old).repeat(2 * batch_size // self.n_old).view(-1).to(device)
+            features = torch.cat([features, old_features], dim=0)
+            targets = torch.cat([targets, old_targets], dim=0)
+            # neg_mask = ((targets.view(-1, 1) * targets.view(1, -1)) < self.n_old).float().to(device)
+            # print(targets)
+        else:
+            neg_mask = None
+
+        # print(targets.shape, features.shape)
+        loss = self.sup_con_loss(features, targets)
         # if squeeze:
         #     loss += self.model.group_lasso_reg() * self.lamb
                 
@@ -292,7 +296,8 @@ class Appr(object):
         if t is not None:
             self.model.get_params(t-1)
             features = self.model.forward(images, t=t)
-            sim = torch.matmul(features, self.model.repres_mean[self.ncla[t-1]:self.ncla[t]].T)
+            # print(self.model.repres_mean)
+            sim = torch.matmul(features, self.model.repres_mean.T)
         else:
             sim = []
             for t in range(1, len(self.ncla)):
@@ -300,9 +305,10 @@ class Appr(object):
                 features = self.model.forward(images, t=t)
                 sim.append(torch.matmul(features, self.model.repres_mean[self.ncla[t-1]:self.ncla[t]].T))
             sim = torch.cat(sim, dim=1)
-            targets += self.n_old
 
         v, i = sim.max(1)
+        # print(sim)
+        # print(i, targets)
         hits = (i==targets).float()
         return hits.sum().data.cpu().numpy()
 
@@ -313,7 +319,7 @@ class Appr(object):
         total_num=0
         for images, targets in data_loader:
             images = images.to(device)
-            targets = targets.to(device) + self.n_old
+            targets = targets.to(device)
             if train_transform:
                 images = torch.cat([images, train_transform(images)], dim=0)
                 targets = torch.cat([targets, targets], dim=0)
@@ -339,7 +345,7 @@ class Appr(object):
                 
         return 0, total_acc/total_num
 
-    def sup_con_cl_loss(self, features, labels):
+    def sup_con_loss(self, features, labels):
         sim = torch.div(
             torch.matmul(features, features.T),
             self.temperature)
@@ -347,19 +353,37 @@ class Appr(object):
         logits = sim - logits_max.detach()
         exp_logits = torch.exp(logits)
         pos_mask = (labels.view(-1, 1) == labels.view(1, -1)).float().to(device)
-        neg_mask = (1-pos_mask)
 
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
         mean_log_prob_pos = (pos_mask * log_prob).sum(1) / pos_mask.sum(1)
-        # mean_log_prob_neg = (neg_mask * log_prob).sum(1) / neg_mask.sum(1)
 
         # loss
-        # loss = mean_log_prob_neg/10 - mean_log_prob_pos
         loss = - mean_log_prob_pos
         loss = loss.mean()
         return loss
+        
+    def sup_con_cl_loss(self, features, labels, neg_mask=None):
+        sim = torch.div(
+            torch.matmul(features, features.T),
+            self.temperature)
+        logits_max, _ = torch.max(sim, dim=1, keepdim=True)
+        logits = sim - logits_max.detach()
+        exp_logits = torch.exp(logits)
+        pos_mask = (labels.view(-1, 1) == labels.view(1, -1)).float().to(device)
 
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+
+        mean_log_prob_pos = (pos_mask * log_prob).sum(1) / pos_mask.sum(1)
+        if neg_mask is not None:
+            mean_log_prob_neg = (neg_mask * log_prob).sum(1) / neg_mask.sum(1)
+        else:
+            mean_log_prob_neg = 0
+
+        # loss
+        loss = self.lamb * mean_log_prob_neg - mean_log_prob_pos
+        loss = loss.mean()
+        return loss
 
 
     def SupConLoss(self, features, labels=None, mask=None):

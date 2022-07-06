@@ -33,7 +33,7 @@ def get(batch_size, val_batch_size, seed=0,pc_valid=0.10, tasknum = 10):
 
     # train_data = (train_data - mean.view(1,-1,1,1))/std.view(1,-1,1,1)
     # test_data = (test_data - mean.view(1,-1,1,1))/std.view(1,-1,1,1)
-    
+    n_old = 0
     for t in range(tasknum):
         data[t]={}
         data[t]['name']='cifar100-'+str(task_order[t]+1)
@@ -41,8 +41,7 @@ def get(batch_size, val_batch_size, seed=0,pc_valid=0.10, tasknum = 10):
         #train and valid
         ids = (train_targets//10 == task_order[t])
         images = train_data[ids]
-        labels = train_targets[ids]%10
-        # labels = train_targets[ids]
+        labels = train_targets[ids]%10 + n_old
 
         r=np.arange(images.size(0))
         r=np.array(shuffle(r,random_state=seed),dtype=int)
@@ -55,9 +54,10 @@ def get(batch_size, val_batch_size, seed=0,pc_valid=0.10, tasknum = 10):
         #test
         ids = (test_targets//10 == task_order[t])
         images = test_data[ids]
-        labels = test_targets[ids]%10
-        # labels = test_targets[ids]
+        labels = test_targets[ids]%10 + n_old
         data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=val_batch_size, shuffle=False)
+
+        n_old += 10
 
     # data['train_transform'] = torch.nn.Sequential(
     #     K.augmentation.RandomCrop(size=(32, 32), padding=4),

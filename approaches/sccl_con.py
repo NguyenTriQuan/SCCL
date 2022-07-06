@@ -315,10 +315,10 @@ class Appr(object):
             images = images.to(device)
             targets = targets.to(device) + self.n_old
             if train_transform:
-                # images = torch.cat([images, train_transform(images)], dim=0)
+                images = torch.cat([images, train_transform(images)], dim=0)
                 targets = torch.cat([targets, targets], dim=0)
-                images = torch.cat([images, images], dim=0)
-                images = train_transform(images)
+                # images = torch.cat([images, images], dim=0)
+                # images = train_transform(images)
             total_loss += self.train_batch(t, images, targets, squeeze)
             total_num += targets.shape[0]
         return total_loss/total_num

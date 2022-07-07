@@ -279,7 +279,7 @@ class Appr(object):
             features = torch.cat([features, old_features], dim=0)
             targets = torch.cat([targets, old_targets], dim=0)
 
-        features = F.normalize(features)
+        features = F.normalize(features, dim=1)
         loss = self.sup_con_cl_loss(features, targets)
         # if squeeze:
         #     loss += self.model.group_lasso_reg() * self.lamb
@@ -294,7 +294,7 @@ class Appr(object):
         if t is not None:
             self.model.get_params(t-1)
             features = self.model.forward(images, t=t)
-            features = F.normalize(features)
+            features = F.normalize(features, dim=1)
             feature_mean = F.normalize(self.model.repres_mean, dim=1)
             sim = torch.matmul(features, feature_mean.T)
         else:
@@ -302,7 +302,7 @@ class Appr(object):
             for t in range(1, len(self.ncla)):
                 self.model.get_params(t-1)
                 features = self.model.forward(images, t=t)
-                features = F.normalize(features)
+                features = F.normalize(features, dim=1)
                 feature_mean = F.normalize(self.model.repres_mean[self.ncla[t-1]:self.ncla[t]], dim=1)
                 sim.append(torch.matmul(features, feature_mean.T))
             sim = torch.cat(sim, dim=1)

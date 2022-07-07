@@ -98,13 +98,17 @@ def get_args():
     parser.add_argument('--eta', default=0.8, type=float, help='(default=%(default)f)')
     parser.add_argument('--resume', action='store_true', default=False, help='Resume from check point')
     parser.add_argument('--max_mul', default=0.0, type=float, help='max number of neurons to expand')
-    parser.add_argument('--cil', default=False, type=bool, help='(default=%(default)s)')
-    parser.add_argument('--fix', default=False, type=bool, help='(default=%(default)s)')
+    parser.add_argument('--cil', default=False, action='store_true', help='(default=%(default)s)')
+    parser.add_argument('--fix', default=False, action='store_true', help='(default=%(default)s)')
     parser.add_argument('--shink', default=-1, type=int, help='delete network of recent tasks, shink back to given task')
     parser.add_argument('--max_params', default=0.0, type=float, help='max number of parameters of SCCL')
     parser.add_argument('--arch', default=None, type=str, help='Architecture')
     parser.add_argument('--min_ratio', default=-1.0, type=float, required=False, help='min prune ratio')
     parser.add_argument('--norm_type', default=None, type=str, required=False, help='normalization layer type')
+    parser.add_argument('--affine', default=False, action='store_true', help='(default=%(default)s)')
+    parser.add_argument('--augment', default=False, action='store_true', help='(default=%(default)s)')
+    
+    
 
     args=parser.parse_args()
     return args

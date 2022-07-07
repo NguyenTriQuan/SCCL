@@ -41,7 +41,7 @@ torch.manual_seed(args.seed)
 
 # try:
 dataloader = importlib.import_module('dataloaders.{}'.format(args.experiment))
-data, taskcla, inputsize = dataloader.get(batch_size=args.batch_size, val_batch_size=args.val_batch_size, seed=args.seed, tasknum=args.tasknum)
+data, taskcla, inputsize = dataloader.get(args)
 # except:
 #     dataloader = importlib.import_module('dataloaders.single_task')
 #     data, taskcla, inputsize = dataloader.get(batch_size=args.batch_size, val_batch_size=args.val_batch_size, seed=args.seed, name=args.experiment)

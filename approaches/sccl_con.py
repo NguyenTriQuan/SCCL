@@ -173,6 +173,7 @@ class Appr(object):
         start_epoch = self.check_point['epoch'] + 1
         # squeeze = self.check_point['squeeze']        
         squeeze = False    
+        print(train_transform)
 
         try:
             for e in range(start_epoch, self.nepochs):
@@ -276,13 +277,14 @@ class Appr(object):
             old_targets = torch.arange(self.n_old).repeat(2 * batch_size // self.n_old).view(-1).to(device)
             features = torch.cat([features, old_features], dim=0)
             targets = torch.cat([targets, old_targets], dim=0)
-            # neg_mask = ((targets.view(-1, 1) * targets.view(1, -1)) < self.n_old).float().to(device)
+            neg_mask = ((targets.view(-1, 1) * targets.view(1, -1)) < self.n_old).float().to(device)
             # print(targets)
         else:
             neg_mask = None
 
         # print(targets.shape, features.shape)
-        loss = self.sup_con_loss(features, targets)
+        # loss = self.sup_con_loss(features, targets)
+        loss = self.sup_con_cl_loss(features, targets, neg_mask)
         # if squeeze:
         #     loss += self.model.group_lasso_reg() * self.lamb
                 

@@ -130,6 +130,8 @@ class Appr(object):
         self.lamb = self.lambs[t-1]
         print('lambda', self.lamb)
         print(self.log_name)
+        # print(train_transform)
+        # print(valid_transform)
 
         train_loader = accelerator.prepare(train_loader)
         valid_loader = accelerator.prepare(valid_loader)
@@ -173,7 +175,6 @@ class Appr(object):
         start_epoch = self.check_point['epoch'] + 1
         # squeeze = self.check_point['squeeze']        
         squeeze = False    
-        print(train_transform)
 
         try:
             for e in range(start_epoch, self.nepochs):
@@ -273,18 +274,12 @@ class Appr(object):
 
         if self.n_old != 0 :
             old_fea_dis = Normal(self.model.repres_mean[:self.ncla[t-1]], self.model.repres_std[:self.ncla[t-1]])
-            old_features = old_fea_dis.sample(torch.Size([2 * batch_size // self.n_old])).view(-1, features.shape[1]).to(device)
-            old_targets = torch.arange(self.n_old).repeat(2 * batch_size // self.n_old).view(-1).to(device)
+            old_features = old_fea_dis.sample(torch.Size([3 * (len(self.ncla)-1) * batch_size // self.n_old])).view(-1, features.shape[1]).to(device)
+            old_targets = torch.arange(self.n_old).repeat(3 * (len(self.ncla)-1) * batch_size // self.n_old).view(-1).to(device)
             features = torch.cat([features, old_features], dim=0)
             targets = torch.cat([targets, old_targets], dim=0)
-            neg_mask = ((targets.view(-1, 1) * targets.view(1, -1)) < self.n_old).float().to(device)
-            # print(targets)
-        else:
-            neg_mask = None
 
-        # print(targets.shape, features.shape)
-        # loss = self.sup_con_loss(features, targets)
-        loss = self.sup_con_cl_loss(features, targets, neg_mask)
+        loss = self.sup_con_cl_loss(features, targets)
         # if squeeze:
         #     loss += self.model.group_lasso_reg() * self.lamb
                 
@@ -346,44 +341,30 @@ class Appr(object):
             total_num += len(targets)
                 
         return 0, total_acc/total_num
-
-    def sup_con_loss(self, features, labels):
+        
+    def sup_con_cl_loss(self, features, labels):
         sim = torch.div(
             torch.matmul(features, features.T),
             self.temperature)
         logits_max, _ = torch.max(sim, dim=1, keepdim=True)
         logits = sim - logits_max.detach()
-        exp_logits = torch.exp(logits)
         pos_mask = (labels.view(-1, 1) == labels.view(1, -1)).float().to(device)
 
+        logits_mask = torch.scatter(
+            torch.ones_like(pos_mask),
+            1,
+            torch.arange(features.shape[0]).view(-1, 1).to(device),
+            0
+        )
+        pos_mask = pos_mask * logits_mask
+
+        exp_logits = torch.exp(logits) * logits_mask
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
         mean_log_prob_pos = (pos_mask * log_prob).sum(1) / pos_mask.sum(1)
 
         # loss
         loss = - mean_log_prob_pos
-        loss = loss.mean()
-        return loss
-        
-    def sup_con_cl_loss(self, features, labels, neg_mask=None):
-        sim = torch.div(
-            torch.matmul(features, features.T),
-            self.temperature)
-        logits_max, _ = torch.max(sim, dim=1, keepdim=True)
-        logits = sim - logits_max.detach()
-        exp_logits = torch.exp(logits)
-        pos_mask = (labels.view(-1, 1) == labels.view(1, -1)).float().to(device)
-
-        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
-
-        mean_log_prob_pos = (pos_mask * log_prob).sum(1) / pos_mask.sum(1)
-        if neg_mask is not None:
-            mean_log_prob_neg = (neg_mask * log_prob).sum(1) / neg_mask.sum(1)
-        else:
-            mean_log_prob_neg = 0
-
-        # loss
-        loss = self.lamb * mean_log_prob_neg - mean_log_prob_pos
         loss = loss.mean()
         return loss
 

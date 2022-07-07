@@ -59,7 +59,6 @@ class _DynamicModel(nn.Module):
             else:
                 features = module(features)
 
-        features = F.normalize(features)
         return features
 
     def compute_model_size(self, t=-1):

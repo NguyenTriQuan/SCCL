@@ -382,6 +382,10 @@ class ResNet(_DynamicModel):
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2, norm_type=norm_type)
         self.linear = DynamicLinear(512*block.expansion, num_classes, last_layer=True)
 
+        self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
+        for i, m in enumerate(self.DM[:-1]):
+            m.next_layer = self.DM[i+1]
+
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1]*(num_blocks-1)
         layers = []
@@ -402,7 +406,7 @@ class ResNet(_DynamicModel):
         return out
 
 
-def ResNet18():
+def ResNet18(input_size, norm_type=None):
     return ResNet(BasicBlock, [2, 2, 2, 2])
 
 

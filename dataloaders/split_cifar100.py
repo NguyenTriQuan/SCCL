@@ -43,7 +43,9 @@ def get(args, pc_valid=0.10):
         #train and valid
         ids = (train_targets//10 == task_order[t])
         images = train_data[ids]
-        labels = train_targets[ids]%10 + n_old
+        labels = train_targets[ids]%10 
+        if args.cil:
+            labels += n_old
 
         r=np.arange(images.size(0))
         r=np.array(shuffle(r,random_state=args.seed),dtype=int)
@@ -56,7 +58,9 @@ def get(args, pc_valid=0.10):
         #test
         ids = (test_targets//10 == task_order[t])
         images = test_data[ids]
-        labels = test_targets[ids]%10 + n_old
+        labels = test_targets[ids]%10
+        if args.cil:
+            labels += n_old
         data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.val_batch_size, shuffle=False)
 
         n_old += 10

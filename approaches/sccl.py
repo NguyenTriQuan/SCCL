@@ -60,7 +60,7 @@ class Appr(object):
 
         self.ce = torch.nn.CrossEntropyLoss()
         self.optimizer = self._get_optimizer()
-        self.shape_out = self.model.layers[-1].shape_out
+        self.shape_out = self.model.DM[-1].shape_out
         self.cur_task = len(self.shape_out)-1
 
         self.get_name(self.tasknum+1)
@@ -105,9 +105,6 @@ class Appr(object):
 
             self.model.expand(ncla)
 
-            self.shape_out = self.model.layers[-1].shape_out
-            self.cur_task = len(self.shape_out)-1
-
             self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
             try:
@@ -123,7 +120,7 @@ class Appr(object):
         self.model = self.model.to(device)
         self.model = accelerator.prepare(self.model)
         self.model.restrict_gradients(t-1, False)
-        self.shape_out = self.model.layers[-1].shape_out
+        self.shape_out = self.model.DM[-1].shape_out
         self.cur_task = len(self.shape_out)-1
 
         self.lamb = self.lambs[self.cur_task-1]
@@ -323,18 +320,18 @@ class Appr(object):
 
     def prune(self, t, data_loader, valid_transform, thres=0.0):
 
-        fig, axs = plt.subplots(3, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 9))
-        for i, m in enumerate(self.model.DM[:-1]):
-            axs[0][i].hist(m.norm_in().detach().cpu().numpy(), bins=100)
-            axs[0][i].set_title(f'layer {i+1}')
+        # fig, axs = plt.subplots(3, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 9))
+        # for i, m in enumerate(self.model.DM[:-1]):
+        #     axs[0][i].hist(m.norm_in().detach().cpu().numpy(), bins=100)
+        #     axs[0][i].set_title(f'layer {i+1}')
 
-            axs[1][i].hist(m.norm_out().detach().cpu().numpy(), bins=100)
-            axs[1][i].set_title(f'layer {i+1}')
+        #     axs[1][i].hist(m.norm_out().detach().cpu().numpy(), bins=100)
+        #     axs[1][i].set_title(f'layer {i+1}')
 
-            axs[2][i].hist((m.norm_in()*m.norm_out()).detach().cpu().numpy(), bins=100)
-            axs[2][i].set_title(f'layer {i+1}')
+        #     axs[2][i].hist((m.norm_in()*m.norm_out()).detach().cpu().numpy(), bins=100)
+        #     axs[2][i].set_title(f'layer {i+1}')
 
-        plt.show()
+        # plt.show()
 
         loss,acc=self.eval(t,data_loader,valid_transform)
         loss, acc = round(loss, 3), round(acc, 3)

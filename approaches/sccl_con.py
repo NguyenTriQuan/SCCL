@@ -52,7 +52,7 @@ class Appr(object):
         self.arch = args.arch
         self.seed = args.seed
         self.norm_type = args.norm_type
-        self.temperature = 0.07
+        self.temperature = 0.15
         self.contrast_mode = 'all'
         self.base_temperature = 0.07
 
@@ -272,12 +272,12 @@ class Appr(object):
         # features = torch.cat([f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
         # loss = self.SupConLoss(features, targets)
 
-        if self.n_old != 0 :
-            old_fea_dis = Normal(self.model.repres_mean[:self.ncla[t-1]], self.model.repres_std[:self.ncla[t-1]])
-            old_features = old_fea_dis.sample(torch.Size([3 * (len(self.ncla)-1) * batch_size // self.n_old])).view(-1, features.shape[1]).to(device)
-            old_targets = torch.arange(self.n_old).repeat(3 * (len(self.ncla)-1) * batch_size // self.n_old).view(-1).to(device)
-            features = torch.cat([features, old_features], dim=0)
-            targets = torch.cat([targets, old_targets], dim=0)
+        # if self.n_old != 0 :
+        #     old_feat_dist = Normal(self.model.repres_mean[:self.ncla[t-1]], self.model.repres_std[:self.ncla[t-1]])
+        #     old_features = old_feat_dist.sample(torch.Size([3 * (len(self.ncla)-1) * batch_size // self.n_old])).view(-1, features.shape[1]).to(device)
+        #     old_targets = torch.arange(self.n_old).repeat(3 * (len(self.ncla)-1) * batch_size // self.n_old).view(-1).to(device)
+        #     features = torch.cat([features, old_features], dim=0)
+        #     targets = torch.cat([targets, old_targets], dim=0)
 
         features = F.normalize(features, dim=1)
         loss = self.sup_con_cl_loss(features, targets)
@@ -294,22 +294,44 @@ class Appr(object):
         if t is not None:
             self.model.get_params(t-1)
             features = self.model.forward(images, t=t)
-            features = F.normalize(features, dim=1)
-            feature_mean = F.normalize(self.model.repres_mean, dim=1)
-            sim = torch.matmul(features, feature_mean.T)
+            # features = F.normalize(features, dim=1)
+            # feature_mean = F.normalize(self.model.repres_mean, dim=1)
+            # sim = torch.matmul(features, feature_mean.T)
+
+            feat_dist = Normal(self.model.repres_mean, self.model.repres_std)
+            features = features.unsqueeze(1).expand([features.shape[0], self.ncla[-1], features.shape[1]])
+            log_prob = feat_dist.log_prob(features)
+            sim = log_prob.sum(2)
+            v, i = sim.max(1)
+
+            # feat_dist = Normal(self.model.repres_mean[self.ncla[t-1]: self.ncla[t]], self.model.repres_std[self.ncla[t-1]: self.ncla[t]])
+            # features = features.unsqueeze(1).expand([features.shape[0], self.ncla[t]-self.ncla[t-1], features.shape[1]])
+            # log_prob = feat_dist.log_prob(features)
+            # sim = log_prob.sum(2)
+            # v, i = sim.max(1) 
+            # i += self.ncla[t-1]
+
         else:
             sim = []
+            entropy = []
             for t in range(1, len(self.ncla)):
                 self.model.get_params(t-1)
                 features = self.model.forward(images, t=t)
-                features = F.normalize(features, dim=1)
-                feature_mean = F.normalize(self.model.repres_mean[self.ncla[t-1]:self.ncla[t]], dim=1)
-                sim.append(torch.matmul(features, feature_mean.T))
-            sim = torch.cat(sim, dim=1)
-
-        v, i = sim.max(1)
-        # print(sim)
-        # print(i, targets)
+                # features = F.normalize(features, dim=1)
+                # feature_mean = F.normalize(self.model.repres_mean[self.ncla[t-1]:self.ncla[t]], dim=1)
+                # sim.append(torch.matmul(features, feature_mean.T))
+                feat_dist = Normal(self.model.repres_mean[self.ncla[t-1]:self.ncla[t]], self.model.repres_std[self.ncla[t-1]:self.ncla[t]])
+                features = features.unsqueeze(1).expand([features.shape[0], self.ncla[t]-self.ncla[t-1], features.shape[1]])
+                log_prob = feat_dist.log_prob(features).sum(2)
+                sim.append(log_prob)
+                log_prob = F.softmax(log_prob/self.temperature, dim=1)
+                entropy.append((-log_prob*log_prob.log()).sum(1))
+            sim = torch.stack(sim, dim=1)
+            entropy = torch.stack(entropy, dim=1)
+            v, i = entropy.min(1)
+            sim = sim[range(sim.shape[0]), i]
+            v, i = sim.max(1)
+        
         hits = (i==targets).float()
         return hits.sum().data.cpu().numpy()
 

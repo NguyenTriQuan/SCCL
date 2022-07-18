@@ -7,7 +7,7 @@ from torch.distributions import Bernoulli, LogNormal
 import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
-from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from sccl_mm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys

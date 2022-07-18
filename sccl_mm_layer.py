@@ -106,12 +106,6 @@ class _DynamicLayer(nn.Module):
 
         return norm
 
-    def get_weights_in(self, t):
-        return torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
-    
-    def get_weights_out(self, t):
-        return torch.cat([self.next_layer.weight[t], self.next_layer.bwt_weight[t]], dim=0)
-
     def squeeze(self):
         if self.mask is not None:
             mask_out = self.mask
@@ -184,8 +178,7 @@ class _DynamicLayer(nn.Module):
         self.strength_out = self.weight[-1].data.numel() + self.bwt_weight[-1].data.numel()
         
         self.mask = None
-        # self.mask_pre_in.append(None)
-        # self.mask_pre_out.append(None)
+        self.movement = 0
 
     def get_params(self, t):
         self.old_weight.data = self.weight[0].data
@@ -193,40 +186,6 @@ class _DynamicLayer(nn.Module):
             self.old_bias.data = self.bias[0].data
         else:
             self.old_bias = None
-
-        # for i in range(1, t+1):
-        #   if self.mask_pre_in[i] is not None:
-        #       if isinstance(self, DynamicLinear):
-        #           fwt_weight = torch.zeros(self.weight[i].shape[0], self.old_weight.shape[1]).cuda()
-        #           fwt_weight[:, self.mask_pre_in[i]] = self.fwt_weight[i].data
-        #       else:
-        #           fwt_weight = torch.zeros(self.weight[i].shape[0], self.old_weight.shape[1] // self.groups, *self.kernel_size).cuda()
-        #           fwt_weight[:, self.mask_pre_in[i]] = self.fwt_weight[i].data
-        #   else:
-        #       fwt_weight = self.fwt_weight[i].data
-
-        #   if self.mask_pre_out[i] is not None:
-        #       if isinstance(self, DynamicLinear):
-        #           bwt_weight = torch.zeros(self.old_weight.shape[0], self.weight[i].shape[1]).cuda()
-        #           bwt_weight[self.mask_pre_out[i]] = self.bwt_weight[i].data
-        #       else:
-        #           bwt_weight = torch.zeros(self.old_weight.shape[0], self.weight[i].shape[1] // self.groups, *self.kernel_size).cuda()
-        #           bwt_weight[self.mask_pre_out[i]] = self.bwt_weight[i].data
-        #   else:
-        #       bwt_weight = self.bwt_weight[i].data
-
-        #   self.old_weight.data = torch.cat([torch.cat([self.old_weight.data, fwt_weight], dim=0), 
-        #                                   torch.cat([bwt_weight, self.weight[i].data], dim=0)], dim=1)
-        #   if self.bias is not None:
-        #       self.old_bias.data = torch.cat([self.old_bias.data, self.bias[i].data])
-
-        # if self.mask_pre_out[t+1] is not None:
-        #   self.old_weight.data = self.old_weight.data[self.mask_pre_out[t+1]]
-        #   if self.bias is not None:
-        #       self.old_bias.data = self.old_bias.data[self.mask_pre_out[t+1]]
-
-        # if self.mask_pre_in[t+1] is not None:
-        #   self.old_weight.data = self.old_weight.data[:, self.mask_pre_in[t+1]]
 
         for i in range(1, t+1):
             fwt_weight = self.fwt_weight[i].data
@@ -236,20 +195,6 @@ class _DynamicLayer(nn.Module):
                                             torch.cat([bwt_weight, self.weight[i].data], dim=0)], dim=1)
             if self.bias:
                 self.old_bias.data = torch.cat([self.old_bias.data, self.bias[i].data])
-
-        # if self.norm_layer:
-        #     self.norm_layer.get_params(t)
-
-    # def squeeze_previous(self, mask_in=None, mask_out=None):
-    #     if mask_in is not None:
-    #         self.fwt_weight[-1].data = self.fwt_weight[-1].data[:, self.mask_pre_in[-1]].clone()
-    #         self.fwt_weight[-1].grad = None
-    #         self.mask_pre_in[-1] = mask_in.clone()
-
-    #     if mask_out is not None:
-    #         self.bwt_weight[-1].data = self.bwt_weight[-1].data[self.mask_pre_out[-1]].clone()  
-    #         self.bwt_weight[-1].grad = None
-    #         self.mask_pre_out[-1] = mask_out.clone()
 
 
 class DynamicLinear(_DynamicLayer):
@@ -293,14 +238,17 @@ class DynamicLinear(_DynamicLayer):
         norm = weight.norm(2, dim=0)
         return norm
 
-    def get_grads_in(self, t):
-        return torch.cat([self.weight[t].grad.data, self.fwt_weight[t].grad.data], dim=1)
-    
-    def get_grads_out(self, t):
-        return torch.cat([self.next_layer.weight[t], self.next_layer.bwt_weight[t]], dim=0)
+    def track_movement(self, t=-1):
+        weight_in = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
+        grad_in = torch.cat([self.weight[t].grad, self.fwt_weight[t].grad], dim=1)
+        movement_in = (weight_in * grad_in).sum(dim=1)
+        if self.bias is not None:
+            movement_in += self.bias[t] * self.bias[t].grad
 
-    def track_movement(self):
-        return 
+        weight_out = torch.cat([self.next_layer.weight[t], self.next_layer.bwt_weight[t]], dim=0)
+        grad_out = torch.cat([self.next_layer.weight[t].grad, self.next_layer.bwt_weight[t].grad], dim=0)
+        movement_out = (weight_out * grad_out).sum(dim=0)
+        self.movement += (movement_in + movement_out).detach()
         
             
         
@@ -356,7 +304,7 @@ class DynamicConv2D(_DynamicConvNd):
 
 
     def norm_in(self, t=-1):
-        weight = self.get_weights_in(t)
+        weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
         norm = weight.norm(2, dim=(1,2,3))
         if self.bias is not None:
             norm = (norm**2 + self.bias[t]**2)**(1/2)
@@ -364,7 +312,7 @@ class DynamicConv2D(_DynamicConvNd):
         return norm
 
     def norm_out(self, t=-1):
-        weight = self.get_weights_out(t)
+        weight = torch.cat([self.next_layer.weight[t], self.next_layer.bwt_weight[t]], dim=0)
         if isinstance(self.next_layer, DynamicLinear):
             weight = weight.view(self.next_layer.weight[t].shape[0] + self.next_layer.bwt_weight[t].shape[0], 
                                 self.weight[t].shape[0], 
@@ -372,6 +320,24 @@ class DynamicConv2D(_DynamicConvNd):
 
         norm = weight.norm(2, dim=(0,2,3))
         return norm
+
+    def track_movement(self, t=-1):
+        weight_in = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
+        grad_in = torch.cat([self.weight[t].grad, self.fwt_weight[t].grad], dim=1)
+        movement_in = (weight_in * grad_in).sum(dim=(1,2,3))
+        if self.bias is not None:
+            movement_in += self.bias[t] * self.bias[t].grad
+
+        weight_out = torch.cat([self.next_layer.weight[t], self.next_layer.bwt_weight[t]], dim=0)
+        grad_out = torch.cat([self.next_layer.weight[t].grad, self.next_layer.bwt_weight[t].grad], dim=0)
+        movement_out = (weight_out * grad_out)
+        if isinstance(self.next_layer, DynamicLinear):
+            movement_out = movement_out.view(self.next_layer.weight[t].shape[0] + self.next_layer.bwt_weight[t].shape[0], 
+                                self.weight[t].shape[0], 
+                                self.next_layer.smid, self.next_layer.smid)
+
+        movement_out = movement_out.sum(dim=(0,2,3))
+        self.movement += (movement_in + movement_out).detach()
 
 class DynamicNorm(nn.Module):
     def __init__(self, num_features, eps=1e-5, momentum=0.1,

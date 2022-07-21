@@ -38,6 +38,11 @@ class _DynamicModel(nn.Module):
             m.expand(add_in=None, add_out=None)
         self.DM[-1].expand(add_in=None, add_out=new_class)
 
+    def squeeze(self):
+        for m in self.DM[:-1]:
+            m.squeeze()
+            m.mask = None
+
     def group_lasso_reg(self):
         total_reg = 0
         total_strength = 0
@@ -116,6 +121,16 @@ class _DynamicModel(nn.Module):
             # s_H *= weight.abs().max()
             s_H *= weight.norm(p=2).detach().item()
         return s_H
+
+    def report(self):
+        for m in self.DM:
+            print(m.__class__.__name__, m.in_features, m.out_features)
+
+        # for block in self.layers:
+        #     if block.shortcut:
+        #         print(block.shortcut.in_features, block.shortcut.out_features)
+        #     else:
+        #         print(None)
             
 class MLP(_DynamicModel):
 
@@ -322,27 +337,39 @@ class BasicBlock(_DynamicModel):
 
     def __init__(self, in_planes, planes, stride=1, norm_type=None):
         super(BasicBlock, self).__init__()
-        self.conv1 = DynamicConv2D(in_planes, planes, kernel_size=3, 
-                                stride=stride, padding=1, bias=False, norm_type=norm_type)
-        self.conv2 = DynamicConv2D(planes, planes, kernel_size=3,
+        self.layers = nn.ModuleList([
+            DynamicConv2D(in_planes, planes, kernel_size=3, 
+                                stride=stride, padding=1, bias=False, norm_type=norm_type),
+            nn.ReLU(),
+            DynamicConv2D(planes, planes, kernel_size=3,
                                stride=1, padding=1, bias=False, norm_type=norm_type)
+        ])
 
-        self.shortcut = nn.ModuleList([])
         if stride != 1 or in_planes != self.expansion*planes:
-            self.shortcut = nn.ModuleList([
-                DynamicConv2D(in_planes, self.expansion*planes,
-                          kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
-            ])
+            self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
+                            kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
+        else:
+            self.shortcut = None
+
+        self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
+        for i, m in enumerate(self.DM[:-1]):
+            m.next_layer = [self.DM[i+1]]
+
 
     def forward(self, x, t):
-        out = F.relu(self.conv1(x, t))
-        out = self.conv2(out, t)
-        out_shortcut = x
-        for m in self.shortcut:
-            out_shortcut = m(x, t)
-        out += out_shortcut
-        out = F.relu(out)
-        return out
+        out = x.clone()
+        for module in self.layers:
+            if isinstance(module, _DynamicLayer):
+                out = module(out, t)
+            else:
+                out = module(out)
+
+        if self.shortcut:
+            out += self.shortcut(x, t)
+        else:
+            out += x
+
+        return F.relu(out)
 
 
 class Bottleneck(_DynamicModel):
@@ -350,29 +377,44 @@ class Bottleneck(_DynamicModel):
 
     def __init__(self, in_planes, planes, stride=1, norm_type=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = DynamicConv2D(in_planes, planes, kernel_size=1, bias=False, norm_type=norm_type)
-        self.conv2 = DynamicConv2D(planes, planes, kernel_size=3,
-                               stride=stride, padding=1, bias=False, norm_type=norm_type)
-        self.conv3 = DynamicConv2D(planes, self.expansion * planes, 
-                                kernel_size=1, bias=False, norm_type=norm_type)
 
-        self.shortcut = nn.ModuleList([])
+        self.layers = nn.ModuleList([
+            DynamicConv2D(in_planes, planes, kernel_size=1, bias=False, norm_type=norm_type),
+            nn.ReLU(),
+            DynamicConv2D(planes, planes, kernel_size=3,
+                               stride=stride, padding=1, bias=False, norm_type=norm_type),
+            nn.ReLU(),
+            DynamicConv2D(planes, self.expansion * planes, 
+                                kernel_size=1, bias=False, norm_type=norm_type)
+        ])
+
         if stride != 1 or in_planes != self.expansion*planes:
-            self.shortcut = nn.ModuleList([
-                DynamicConv2D(in_planes, self.expansion*planes,
+            self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
                           kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
-            ])
+        else:
+            self.shortcut = DynamicConv2D(0, 0,
+                            kernel_size=1, stride=stride, bias=False)
+
+        self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
+        for i, m in enumerate(self.DM[:-1]):
+            m.next_layer = [self.DM[i+1]]
+
 
     def forward(self, x, t):
-        out = F.relu(self.conv1(x, t))
-        out = F.relu(self.conv2(out, t))
-        out = self.conv3(out, t)
-        out_shortcut = x
-        for m in self.shortcut:
-            out_shortcut = m(x, t)
-        out += out_shortcut
-        out = F.relu(out)
-        return out
+        out = x.clone()
+        for module in self.layers:
+            if isinstance(module, _DynamicLayer):
+                out = module(out, t)
+            else:
+                out = module(out)
+
+        if self.shortcut:
+            out += self.shortcut(x, t)
+        else:
+            out += x
+
+        return F.relu(out)
+
 
 
 class ResNet(_DynamicModel):
@@ -382,15 +424,18 @@ class ResNet(_DynamicModel):
 
         self.conv1 = DynamicConv2D(3, 64, kernel_size=3,
                                stride=1, padding=1, bias=False, norm_type=norm_type, first_layer=True)
-        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1, norm_type=norm_type)
-        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2, norm_type=norm_type)
-        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2, norm_type=norm_type)
-        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2, norm_type=norm_type)
-        self.linear = DynamicLinear(512*block.expansion, 0)
+        self.layers = self._make_layer(block, 64, num_blocks[0], stride=1, norm_type=norm_type)
+        self.layers += self._make_layer(block, 128, num_blocks[1], stride=2, norm_type=norm_type)
+        self.layers += self._make_layer(block, 256, num_blocks[2], stride=2, norm_type=norm_type)
+        self.layers += self._make_layer(block, 512, num_blocks[3], stride=2, norm_type=norm_type)
+        self.linear = DynamicLinear(512*block.expansion, 0, smid=1)
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
-        for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = self.DM[i+1]
+
+        self.conv1.next_layer = [self.layers[0]]
+        # for block in self.layers:
+
+
 
     def _make_layer(self, block, planes, num_blocks, stride, norm_type):
         strides = [stride] + [1]*(num_blocks-1)
@@ -402,19 +447,27 @@ class ResNet(_DynamicModel):
 
     def forward(self, x, t):
         out = F.relu(self.conv1(x, t))
-        for m in self.layer1:
+        for m in self.layers:
             out = m(out, t)
-        for m in self.layer2:
-            out = m(out, t)
-        for m in self.layer3:
-            out = m(out, t)
-        for m in self.layer4:
-            out = m(out, t)
+
         out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
         out = self.linear(out, t)
         return out
 
+    def squeeze(self):
+        share_mask = self.conv1.mask
+
+        for i, block in enumerate(self.layers):
+            if block.shortcut:
+                share_mask = block.shortcut.mask
+
+            share_mask += block.layers[-1].mask
+            block.layers[-1].mask = share_mask
+
+        for m in self.DM[:-1]:
+            m.squeeze()
+            m.mask = None
 
 def ResNet18(input_size, norm_type=None):
     return ResNet(BasicBlock, [2, 2, 2, 2], norm_type)

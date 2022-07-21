@@ -117,6 +117,7 @@ class Appr(object):
         else: 
             print('Retraining current task')
 
+        print(self.model.report())
         self.model = self.model.to(device)
         self.model = accelerator.prepare(self.model)
         self.model.restrict_gradients(t-1, False)
@@ -357,34 +358,36 @@ class Appr(object):
                 else:
                     high = int(sum(m.mask))
 
-                axs[i].hist(norm.detach().cpu().numpy(), bins=100)
-                axs[i].set_title(f'layer {i+1}')
+
+                # axs[i].hist(norm.detach().cpu().numpy(), bins=100)
+                # axs[i].set_title(f'layer {i+1}')
 
                 if norm.shape[0] != 0:
                     values, indices = norm.sort(descending=True)
-                    loss,acc=self.eval(t,data_loader,valid_transform)
-                    loss, acc = round(loss, 3), round(acc, 3)
-                    pre_prune_loss = loss
+                    high = 32
+                #     loss,acc=self.eval(t,data_loader,valid_transform)
+                #     loss, acc = round(loss, 3), round(acc, 3)
+                #     pre_prune_loss = loss
 
-                    while True:
-                        k = (high+low)//2
-                        # Select top-k biggest norm
-                        m.mask = (norm>values[k])
-                        loss, acc = self.eval(t, data_loader, valid_transform)
-                        loss, acc = round(loss, 3), round(acc, 3)
-                        # post_prune_acc = acc
-                        post_prune_loss = loss
-                        if  post_prune_loss <= pre_prune_loss:
-                        # if pre_prune_acc <= post_prune_acc:
-                            # k is satisfy, try smaller k
-                            high = k
-                            # pre_prune_loss = post_prune_loss
-                        else:
-                            # k is not satisfy, try bigger k
-                            low = k
+                    # while True:
+                    #     k = (high+low)//2
+                    #     # Select top-k biggest norm
+                    #     m.mask = (norm>values[k])
+                    #     loss, acc = self.eval(t, data_loader, valid_transform)
+                    #     loss, acc = round(loss, 3), round(acc, 3)
+                    #     # post_prune_acc = acc
+                    #     post_prune_loss = loss
+                    #     if  post_prune_loss <= pre_prune_loss:
+                    #     # if pre_prune_acc <= post_prune_acc:
+                    #         # k is satisfy, try smaller k
+                    #         high = k
+                    #         # pre_prune_loss = post_prune_loss
+                    #     else:
+                    #         # k is not satisfy, try bigger k
+                    #         low = k
 
-                        if k == (high+low)//2:
-                            break
+                    #     if k == (high+low)//2:
+                    #         break
 
 
                 if high == norm.shape[0]:
@@ -413,13 +416,13 @@ class Appr(object):
             print('| Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
 
             step += 1
+            break
             if sum(prune_ratio) == pre_sum:
                 break
             pre_sum = sum(prune_ratio)
 
-        for m in self.model.DM[:-1]:
-            m.squeeze()
-            m.mask = None
+        self.model.squeeze()
+
         loss,acc=self.eval(t,data_loader,valid_transform)
         print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
 

@@ -125,6 +125,7 @@ class Appr(object):
 
         self.ncla = self.model.ncla
         self.n_old = self.model.ncla[t-1]
+        print(self.n_old)
         self.model = accelerator.prepare(self.model)
         self.model.restrict_gradients(t-1, False)
         self.lamb = self.lambs[t-1]
@@ -272,12 +273,12 @@ class Appr(object):
         # features = torch.cat([f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
         # loss = self.SupConLoss(features, targets)
 
-        # if self.n_old != 0 :
-        #     old_feat_dist = Normal(self.model.repres_mean[:self.ncla[t-1]], self.model.repres_std[:self.ncla[t-1]])
-        #     old_features = old_feat_dist.sample(torch.Size([3 * (len(self.ncla)-1) * batch_size // self.n_old])).view(-1, features.shape[1]).to(device)
-        #     old_targets = torch.arange(self.n_old).repeat(3 * (len(self.ncla)-1) * batch_size // self.n_old).view(-1).to(device)
-        #     features = torch.cat([features, old_features], dim=0)
-        #     targets = torch.cat([targets, old_targets], dim=0)
+        if self.n_old != 0 :
+            old_feat_dist = Normal(self.model.repres_mean[:self.ncla[t-1]], self.model.repres_std[:self.ncla[t-1]])
+            old_features = old_feat_dist.sample(torch.Size([3 * (len(self.ncla)-1) * batch_size // self.n_old])).view(-1, features.shape[1]).to(device)
+            old_targets = torch.arange(self.n_old).repeat(3 * (len(self.ncla)-1) * batch_size // self.n_old).view(-1).to(device)
+            features = torch.cat([features, old_features], dim=0)
+            targets = torch.cat([targets, old_targets], dim=0)
 
         features = F.normalize(features, dim=1)
         loss = self.sup_con_cl_loss(features, targets)
@@ -320,11 +321,13 @@ class Appr(object):
                 # features = F.normalize(features, dim=1)
                 # feature_mean = F.normalize(self.model.repres_mean[self.ncla[t-1]:self.ncla[t]], dim=1)
                 # sim.append(torch.matmul(features, feature_mean.T))
-                feat_dist = Normal(self.model.repres_mean[self.ncla[t-1]:self.ncla[t]], self.model.repres_std[self.ncla[t-1]:self.ncla[t]])
-                features = features.unsqueeze(1).expand([features.shape[0], self.ncla[t]-self.ncla[t-1], features.shape[1]])
+                feat_dist = Normal(self.model.repres_mean, self.model.repres_std)
+                features = features.unsqueeze(1).expand([features.shape[0], self.ncla[-1], features.shape[1]])
                 log_prob = feat_dist.log_prob(features).sum(2)
                 sim.append(log_prob)
-                log_prob = F.softmax(log_prob/self.temperature, dim=1)
+                log_prob = log_prob/sum(log_prob)
+                log_prob = F.softmax(log_prob*10000, dim=1)
+                print(log_prob)
                 entropy.append((-log_prob*log_prob.log()).sum(1))
             sim = torch.stack(sim, dim=1)
             entropy = torch.stack(entropy, dim=1)

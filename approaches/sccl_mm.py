@@ -305,6 +305,11 @@ class Appr(object):
                 images = train_transform(images)
             self.train_batch(t, images, targets, squeeze)
 
+        for i, m in enumerate(self.model.DM[:-1]):
+            # print(m.movement)
+            print((m.movement < 0).float().sum().item(), end=' ')
+        print()
+
 
     def eval(self, t, data_loader, valid_transform):
         total_loss=0
@@ -328,7 +333,7 @@ class Appr(object):
     def prune(self, t, data_loader, valid_transform, thres=0.0): 
         fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 3))
         for i, m in enumerate(self.model.DM[:-1]):
-            m.mask = (m.movement >= 0)
+            m.mask = (m.movement < 0)
             axs[i].hist(m.mask.float().cpu().numpy() , bins=100)
             axs[i].set_title(f'layer {i+1}')
             m.squeeze()

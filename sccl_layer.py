@@ -49,6 +49,8 @@ class _DynamicLayer(nn.Module):
         self.shape_in = [0]
         self.shape_out = [0]
 
+        self.norm_type = norm_type
+
         if norm_type:
             self.norm_layer = DynamicNorm(self.out_features, affine=True, track_running_stats=True, norm_type=norm_type)
         else:
@@ -93,9 +95,9 @@ class _DynamicLayer(nn.Module):
 
     def get_reg(self):
         reg = 0
-        strength = self.strength_in + self.next_layer.strength_out
+        strength = self.strength_in #+ self.next_layer.strength_out
         reg += self.norm_in().sum() * strength
-        reg += self.norm_out().sum() * strength
+        # reg += self.norm_out().sum() * strength
             
         if self.norm_layer:
             if self.norm_layer.affine:
@@ -104,7 +106,8 @@ class _DynamicLayer(nn.Module):
         return reg, strength
 
     def get_importance(self):
-        norm = self.norm_in() * self.norm_out()
+        norm = self.norm_in() 
+        # * self.norm_out()
         if self.norm_layer:
             if self.norm_layer.affine:
                 norm *= self.norm_layer.reg()
@@ -129,17 +132,18 @@ class _DynamicLayer(nn.Module):
             self.shape_out[-1] = self.out_features
 
             if self.next_layer:
-                if isinstance(self.next_layer, DynamicLinear) and isinstance(self, DynamicConv2D):
-                    mask_in = self.mask.view(-1,1,1).expand(self.mask.size(0),self.next_layer.smid,self.next_layer.smid).contiguous().view(-1)
-                else:
-                    mask_in = self.mask
+                for m in self.next_layer:
+                    if isinstance(m, DynamicLinear) and isinstance(self, DynamicConv2D):
+                        mask_in = self.mask.view(-1,1,1).expand(self.mask.size(0),m.smid,m.smid).contiguous().view(-1)
+                    else:
+                        mask_in = self.mask
 
-                self.next_layer.weight[-1].data = self.next_layer.weight[-1].data[:, mask_in].clone()
-                self.next_layer.weight[-1].grad = None
-                self.next_layer.bwt_weight[-1].data = self.next_layer.bwt_weight[-1].data[:, mask_in].clone()
-                self.next_layer.bwt_weight[-1].grad = None
-                self.next_layer.in_features -= (mask_in.numel() - mask_in.sum()).item()
-                self.next_layer.shape_in[-1] = self.next_layer.in_features
+                    m.weight[-1].data = m.weight[-1].data[:, mask_in].clone()
+                    m.weight[-1].grad = None
+                    m.bwt_weight[-1].data = m.bwt_weight[-1].data[:, mask_in].clone()
+                    m.bwt_weight[-1].grad = None
+                    m.in_features -= (mask_in.numel() - mask_in.sum()).item()
+                    m.shape_in[-1] = m.in_features
 
     def expand(self, add_in=None, add_out=None):
         if add_in is None:
@@ -161,11 +165,12 @@ class _DynamicLayer(nn.Module):
             self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in // self.groups, *self.kernel_size)))
             fan_in = (self.in_features + add_in) * np.prod(self.kernel_size)
 
-        gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-        bound = gain * math.sqrt(3.0/fan_in)
-        nn.init.uniform_(self.weight[-1], -bound, bound)
-        nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
-        nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
+        if fan_in != 0:
+            gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+            bound = gain * math.sqrt(3.0/fan_in)
+            nn.init.uniform_(self.weight[-1], -bound, bound)
+            nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
+            nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
 
         if self.bias:
             self.bias.append(nn.Parameter(torch.Tensor(add_out).uniform_(0, 0)))

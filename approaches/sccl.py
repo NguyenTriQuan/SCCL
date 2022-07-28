@@ -364,30 +364,29 @@ class Appr(object):
 
                 if norm.shape[0] != 0:
                     values, indices = norm.sort(descending=True)
-                    high = 32
-                #     loss,acc=self.eval(t,data_loader,valid_transform)
-                #     loss, acc = round(loss, 3), round(acc, 3)
-                #     pre_prune_loss = loss
+                    loss,acc=self.eval(t,data_loader,valid_transform)
+                    loss, acc = round(loss, 3), round(acc, 3)
+                    pre_prune_loss = loss
 
-                    # while True:
-                    #     k = (high+low)//2
-                    #     # Select top-k biggest norm
-                    #     m.mask = (norm>values[k])
-                    #     loss, acc = self.eval(t, data_loader, valid_transform)
-                    #     loss, acc = round(loss, 3), round(acc, 3)
-                    #     # post_prune_acc = acc
-                    #     post_prune_loss = loss
-                    #     if  post_prune_loss <= pre_prune_loss:
-                    #     # if pre_prune_acc <= post_prune_acc:
-                    #         # k is satisfy, try smaller k
-                    #         high = k
-                    #         # pre_prune_loss = post_prune_loss
-                    #     else:
-                    #         # k is not satisfy, try bigger k
-                    #         low = k
+                    while True:
+                        k = (high+low)//2
+                        # Select top-k biggest norm
+                        m.mask = (norm>values[k])
+                        loss, acc = self.eval(t, data_loader, valid_transform)
+                        loss, acc = round(loss, 3), round(acc, 3)
+                        # post_prune_acc = acc
+                        post_prune_loss = loss
+                        if  post_prune_loss <= pre_prune_loss:
+                        # if pre_prune_acc <= post_prune_acc:
+                            # k is satisfy, try smaller k
+                            high = k
+                            # pre_prune_loss = post_prune_loss
+                        else:
+                            # k is not satisfy, try bigger k
+                            low = k
 
-                    #     if k == (high+low)//2:
-                    #         break
+                        if k == (high+low)//2:
+                            break
 
 
                 if high == norm.shape[0]:

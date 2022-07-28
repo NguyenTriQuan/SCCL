@@ -24,7 +24,7 @@ device = accelerator.device
     
 class _DynamicLayer(nn.Module):
 
-    def __init__(self, in_features, out_features, next_layer=None, bias=True, norm_type=None, smid=1, first_layer=False, last_layer=False, dropout=0.0):
+    def __init__(self, in_features, out_features, next_layer=[], bias=True, norm_type=None, smid=1, first_layer=False, last_layer=False, dropout=0.0):
         super(_DynamicLayer, self).__init__()
 
         self.base_in_features = in_features
@@ -131,19 +131,18 @@ class _DynamicLayer(nn.Module):
             self.out_features -= (mask_out.numel() - mask_out.sum()).item()
             self.shape_out[-1] = self.out_features
 
-            if self.next_layer:
-                for m in self.next_layer:
-                    if isinstance(m, DynamicLinear) and isinstance(self, DynamicConv2D):
-                        mask_in = self.mask.view(-1,1,1).expand(self.mask.size(0),m.smid,m.smid).contiguous().view(-1)
-                    else:
-                        mask_in = self.mask
+            for m in self.next_layer:
+                if isinstance(m, DynamicLinear) and isinstance(self, DynamicConv2D):
+                    mask_in = self.mask.view(-1,1,1).expand(self.mask.size(0),m.smid,m.smid).contiguous().view(-1)
+                else:
+                    mask_in = self.mask
 
-                    m.weight[-1].data = m.weight[-1].data[:, mask_in].clone()
-                    m.weight[-1].grad = None
-                    m.bwt_weight[-1].data = m.bwt_weight[-1].data[:, mask_in].clone()
-                    m.bwt_weight[-1].grad = None
-                    m.in_features -= (mask_in.numel() - mask_in.sum()).item()
-                    m.shape_in[-1] = m.in_features
+                m.weight[-1].data = m.weight[-1].data[:, mask_in].clone()
+                m.weight[-1].grad = None
+                m.bwt_weight[-1].data = m.bwt_weight[-1].data[:, mask_in].clone()
+                m.bwt_weight[-1].grad = None
+                m.in_features -= (mask_in.numel() - mask_in.sum()).item()
+                m.shape_in[-1] = m.in_features
 
     def expand(self, add_in=None, add_out=None):
         if add_in is None:
@@ -258,7 +257,7 @@ class _DynamicLayer(nn.Module):
 
 class DynamicLinear(_DynamicLayer):
 
-    def __init__(self, in_features, out_features, next_layer=None, bias=True, norm_type=None, smid=1, first_layer=False, last_layer=False, dropout=0.0):
+    def __init__(self, in_features, out_features, next_layer=[], bias=True, norm_type=None, smid=1, first_layer=False, last_layer=False, dropout=0.0):
         super(DynamicLinear, self).__init__(in_features, out_features, next_layer, bias, norm_type, smid, first_layer, last_layer, dropout)
         
         self.weight = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features, self.in_features))])
@@ -340,7 +339,7 @@ class _DynamicConvNd(_DynamicLayer):
 
 class DynamicConv2D(_DynamicConvNd):
     def __init__(self, in_features, out_features, kernel_size, 
-                stride=1, padding=0, dilation=1, groups=1, next_layer=None, bias=True, norm_type=None, smid=1, first_layer=False, last_layer=False, dropout=0.0):
+                stride=1, padding=0, dilation=1, groups=1, next_layer=[], bias=True, norm_type=None, smid=1, first_layer=False, last_layer=False, dropout=0.0):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)

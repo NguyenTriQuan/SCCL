@@ -392,8 +392,7 @@ class Bottleneck(_DynamicModel):
             self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
                           kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
         else:
-            self.shortcut = DynamicConv2D(0, 0,
-                            kernel_size=1, stride=stride, bias=False)
+            self.shortcut = None
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
@@ -432,9 +431,13 @@ class ResNet(_DynamicModel):
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
 
-        self.conv1.next_layer = [self.layers[0]]
-        # for block in self.layers:
-
+        m = self.conv1
+        for block in self.layers:
+            m.next_layer = [block.layers[0]]
+            if block.shortcut:
+                m.next_layer.append(block.shortcut)
+            m = block.layers[-1]
+        m.next_layer = [self.linear]
 
 
     def _make_layer(self, block, planes, num_blocks, stride, norm_type):
@@ -456,6 +459,7 @@ class ResNet(_DynamicModel):
         return out
 
     def squeeze(self):
+        # share masks between skip connection layers
         share_mask = self.conv1.mask
 
         for i, block in enumerate(self.layers):

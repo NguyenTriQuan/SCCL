@@ -342,7 +342,9 @@ class Appr(object):
         prune_ratio = np.ones(len(self.model.DM)-1)
         step = 0
         pre_sum = 0
-        # Dynamic expansion
+        for i in range(0, len(self.model.DM)-1):
+            m = self.model.DM[i]
+            m.mask = torch.ones(m.out_features).bool().cuda()
         while True:
             t1 = time.time()
             fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))
@@ -357,7 +359,6 @@ class Appr(object):
                     high = norm.shape[0]
                 else:
                     high = int(sum(m.mask))
-
 
                 # axs[i].hist(norm.detach().cpu().numpy(), bins=100)
                 # axs[i].set_title(f'layer {i+1}')

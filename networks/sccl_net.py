@@ -361,6 +361,9 @@ class BasicBlock(_DynamicModel):
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
                 out = module(out, t)
+                if out is None:
+                    out = 0
+                    break
             else:
                 out = module(out)
 
@@ -404,6 +407,9 @@ class Bottleneck(_DynamicModel):
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
                 out = module(out, t)
+                if out is None:
+                    out = 0
+                    break
             else:
                 out = module(out)
 
@@ -465,7 +471,7 @@ class ResNet(_DynamicModel):
         for i, block in enumerate(self.layers):
             if block.shortcut:
                 share_mask = block.shortcut.mask
-
+                            
             share_mask += block.layers[-1].mask
             block.layers[-1].mask = share_mask
 

@@ -273,6 +273,9 @@ class DynamicLinear(_DynamicLayer):
         else:
             bias = None
 
+        if weight.numel() == 0:
+            return None
+
         output = F.linear(x, weight, bias)
 
         if self.norm_layer is not None:
@@ -354,6 +357,9 @@ class DynamicConv2D(_DynamicConvNd):
             bias = torch.cat([self.old_bias, self.bias[t]])
         else:
             bias = None
+
+        if weight.numel() == 0:
+            return None
 
         output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
 

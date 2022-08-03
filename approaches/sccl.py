@@ -364,7 +364,7 @@ class Appr(object):
             pos_prune_loss = loss
             # 1 cluster keep all
             if pos_prune_loss > pre_prune_loss:
-                m.mask = None
+                m.mask = torch.ones(norm.shape[0]).bool().cuda()
 
 
         self.model.squeeze()

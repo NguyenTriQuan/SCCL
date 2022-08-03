@@ -151,7 +151,7 @@ class MLP(_DynamicModel):
         
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = self.DM[i+1]
+            m.next_layer = [self.DM[i+1]]
 
 
 class VGG8(_DynamicModel):
@@ -203,7 +203,7 @@ class VGG8(_DynamicModel):
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = self.DM[i+1]
+            m.next_layer = [self.DM[i+1]]
 
 class VGG(_DynamicModel):
     '''
@@ -235,7 +235,7 @@ class VGG(_DynamicModel):
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = self.DM[i+1]
+            m.next_layer = [self.DM[i+1]]
 
 
 def make_layers(cfg, nchannels, norm_type=None, bias=True):
@@ -322,7 +322,7 @@ class Alexnet(_DynamicModel):
         ])
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = self.DM[i+1]
+            m.next_layer = [self.DM[i+1]]
 
 '''ResNet in PyTorch.
 

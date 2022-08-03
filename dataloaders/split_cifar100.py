@@ -65,11 +65,6 @@ def get(args, pc_valid=0.10):
 
         n_old += 10
 
-    # data['train_transform'] = torch.nn.Sequential(
-    #     K.augmentation.RandomCrop(size=(32, 32), padding=4),
-    #     K.augmentation.RandomHorizontalFlip(),
-    #     K.augmentation.Normalize(mean, std),
-    # )
     if args.augment:
         data['train_transform'] = torch.nn.Sequential(
             K.augmentation.RandomResizedCrop(size=(32, 32), scale=(0.2, 1.0), same_on_batch=False),

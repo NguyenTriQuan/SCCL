@@ -14,16 +14,17 @@ from sklearn.utils import shuffle
 from torch.utils.data import  TensorDataset, DataLoader
 import kornia as K
 
-def get(batch_size, val_batch_size, seed=0, pc_valid=0.0, tasknum = 5):
-    np.random.seed(seed)
+def get(args, pc_valid=0.0):
+    np.random.seed(args.seed)
     data={}
     taskcla=[]
     size=[1,28,28]
-    task_order=shuffle(np.arange(5),random_state=seed)
+    task_order=shuffle(np.arange(5),random_state=args.seed)
     print('Task order =',task_order+1)
 
     mean = (0.1307)
     std = (0.3081)
+    tasknum = args.tasknum
     if tasknum > 5:
         tasknum = 5
     # CIFAR100
@@ -40,7 +41,7 @@ def get(batch_size, val_batch_size, seed=0, pc_valid=0.0, tasknum = 5):
 
     # train_data = (train_data - mean.view(1,-1,1,1))/std.view(1,-1,1,1)
     # test_data = (test_data - mean.view(1,-1,1,1))/std.view(1,-1,1,1)
-    
+    n_old = 0
     for t in range(tasknum):
         data[t]={}
         data[t]['name']='mnist-'+str(task_order[t]+1)
@@ -49,28 +50,33 @@ def get(batch_size, val_batch_size, seed=0, pc_valid=0.0, tasknum = 5):
         ids = (train_targets//2 == task_order[t])
         images = train_data[ids]
         labels = train_targets[ids]%2
+        if args.cil:
+            labels += n_old
 
-        data[t]['train_loader'] = DataLoader(TensorDataset(images, labels), batch_size=batch_size, shuffle=True)
-        data[t]['valid_loader'] = DataLoader(TensorDataset(images, labels), batch_size=val_batch_size, shuffle=False)
+        data[t]['train_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.batch_size, shuffle=True)
+        data[t]['valid_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.val_batch_size, shuffle=False)
 
         #test
         ids = (test_targets//2 == task_order[t])
         images = test_data[ids]
         labels = test_targets[ids]%2
-        data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=val_batch_size, shuffle=False)
+        if args.cil:
+            labels += n_old
+        data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.val_batch_size, shuffle=False)
 
-    # data['train_transform'] = torch.nn.Sequential(
-    #     K.augmentation.RandomCrop(size=(32, 32), padding=4),
-    #     K.augmentation.RandomHorizontalFlip(),
-    #     K.augmentation.Normalize(mean, std),
-    # )
-    data['train_transform'] = torch.nn.Sequential(
-        K.augmentation.RandomResizedCrop(size=(28, 28), scale=(0.2, 1.0), same_on_batch=False),
-        K.augmentation.RandomHorizontalFlip(),
-        # K.augmentation.ColorJitter(0.4, 0.4, 0.4, 0.1, p=0.8, same_on_batch=False),
-        # K.augmentation.RandomGrayscale(p=0.2),
-        K.augmentation.Normalize(mean, std),
-    )
+        n_old += 2
+
+    if args.augment:
+        data['train_transform'] = torch.nn.Sequential(
+            K.augmentation.RandomResizedCrop(size=(28, 28), scale=(0.2, 1.0), same_on_batch=False),
+            K.augmentation.RandomHorizontalFlip(),
+            K.augmentation.Normalize(mean, std),
+        )
+    else:
+        data['train_transform'] = torch.nn.Sequential(
+            K.augmentation.Normalize(mean, std),
+        )
+        
     data['valid_transform'] = torch.nn.Sequential(
         K.augmentation.Normalize(mean, std),
     )

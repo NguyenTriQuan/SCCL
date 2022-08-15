@@ -107,6 +107,14 @@ class Appr(object):
             print('Training new task')
 
             self.model.expand(ncla)
+            self.model = self.model.to(device)
+            self.model = accelerator.prepare(self.model)
+            self.model.restrict_gradients(t-1, False)
+            self.shape_out = self.model.DM[-1].shape_out
+            self.cur_task = len(self.shape_out)-1
+
+            # if t > 1:
+            #     self.get_mask_pre(t, train_loader, valid_transform)
 
             self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
@@ -311,7 +319,15 @@ class Appr(object):
                 
         return total_loss/total_num,total_acc/total_num
 
-    def get_movement(self, data_loader, valid_transform):
+    def get_mask_pre(self, t, data_loader, valid_transform):
+        self.model.train()
+        self.model.get_params(t-1)
+        for m in self.model.DM[:-1]:
+            m.grad_in = 0
+            m.old_weight.requires_grad = True
+            m.old_bias.requires_grad = True
+            print(m.old_weight.shape)
+
         for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
@@ -319,13 +335,36 @@ class Appr(object):
                 images = valid_transform(images)
 
             outputs = self.model.forward(images, t=t)
-            outputs = outputs[:, self.shape_out[-2]:self.shape_out[-1]]
+            outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
 
             loss = self.ce(outputs, targets)
                     
             self.optimizer.zero_grad()
             # loss.backward() 
             accelerator.backward(loss)
+
+            for m in self.model.DM[:-1]:
+                m.grad_in -= m.sum_grad_in().detach() * len(targets)
+
+        fig, axs = plt.subplots(2, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 6))
+        for i in range(0, len(self.model.DM)-1):
+            m = self.model.DM[i]
+            axs[0][i].hist(m.grad_in.detach().cpu().numpy(), bins=100)
+            norm  = m.grad_in.view(-1, 1)
+            GMM = GaussianMixture(n_components=2, n_features=1).cuda()
+            GMM.fit(norm, delta=1e-9, n_iter=1000)
+            cl = GMM.predict(norm).cuda()
+            value, idx = GMM.mu.squeeze().max(0)
+            # print(value, idx, cl)
+            m.mask_pre = (cl==idx).float()
+            print(m.mask_pre.sum())
+            axs[0][i].hist(m.mask_pre.detach().cpu().numpy(), bins=100)
+
+        for m in self.model.DM[:-1]:
+            m.old_weight.requires_grad = False
+            m.old_bias.requires_grad = False
+
+        plt.show()
 
     def prune(self, t, data_loader, valid_transform, thres=0.0):
 

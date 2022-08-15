@@ -7,6 +7,88 @@ from torch.utils.data import  TensorDataset, DataLoader
 
 
 ########################################################################################################################
+def get(args, pc_valid=0.0):
+    np.random.seed(args.seed)
+    data={}
+    taskcla=[]
+    size=[1,28,28]
+    task_order=shuffle(np.arange(5),random_state=args.seed)
+    print('Task order =',task_order+1)
+
+    mean = (0.1307)
+    std = (0.3081)
+    tasknum = args.tasknum
+    if tasknum > 5:
+        tasknum = 5
+    # CIFAR100
+    dat={}
+    
+    train_set = datasets.MNIST('../dat/', train=True, download=True)
+    test_set = datasets.MNIST('../dat/', train=False, download=True)
+
+    train_data, train_targets = train_set.data.float(), train_set.targets.long()
+    test_data, test_targets = test_set.data.float(), test_set.targets.long()
+
+    train_data = train_data.unsqueeze(1)/255.0
+    test_data = test_data.unsqueeze(1)/255.0
+
+    # train_data = (train_data - mean.view(1,-1,1,1))/std.view(1,-1,1,1)
+    # test_data = (test_data - mean.view(1,-1,1,1))/std.view(1,-1,1,1)
+    n_old = 0
+    for t in range(tasknum):
+        print(t, end=',')
+        sys.stdout.flush()
+        data[t] = {}
+        data[t]['name'] = 'pmnist-{:d}'.format(i)
+        data[t]['ncla'] = 10
+        permutation = np.random.permutation(28*28)
+
+        data[t]={}
+        data[t]['name']='mnist-'+str(task_order[t]+1)
+        data[t]['ncla']=2
+        #train and valid
+        ids = (train_targets//2 == task_order[t])
+        images = train_data[ids]
+        labels = train_targets[ids]%2
+        if args.cil:
+            labels += n_old
+
+        data[t]['train_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.batch_size, shuffle=True)
+        data[t]['valid_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.val_batch_size, shuffle=False)
+
+        #test
+        ids = (test_targets//2 == task_order[t])
+        images = test_data[ids]
+        labels = test_targets[ids]%2
+        if args.cil:
+            labels += n_old
+        data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.val_batch_size, shuffle=False)
+
+        n_old += 2
+
+    if args.augment:
+        data['train_transform'] = torch.nn.Sequential(
+            K.augmentation.RandomResizedCrop(size=(28, 28), scale=(0.2, 1.0), same_on_batch=False),
+            K.augmentation.RandomHorizontalFlip(),
+            K.augmentation.Normalize(mean, std),
+        )
+    else:
+        data['train_transform'] = torch.nn.Sequential(
+            K.augmentation.Normalize(mean, std),
+        )
+        
+    data['valid_transform'] = torch.nn.Sequential(
+        K.augmentation.Normalize(mean, std),
+    )
+    # Others
+    n=0
+    for t in range(tasknum):
+        taskcla.append((t,data[t]['ncla']))
+        n+=data[t]['ncla']
+    data['ncla']=n
+    print()
+    return data, taskcla, size
+
 
 def get(batch_size, val_batch_size, seed=0, fixed_order=False, pc_valid=0, tasknum = 10):
     np.random.seed(seed)

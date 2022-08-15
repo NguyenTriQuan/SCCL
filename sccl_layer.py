@@ -70,6 +70,7 @@ class _DynamicLayer(nn.Module):
         self.next_layer = next_layer
         self.smid = smid
         self.mask = None
+        self.mask_pre = []
         
 
     def restrict_gradients(self, t, requires_grad):
@@ -95,9 +96,9 @@ class _DynamicLayer(nn.Module):
 
     def get_reg(self):
         reg = 0
-        strength = self.strength_in #+ self.next_layer.strength_out
+        strength = self.strength_in + self.next_layer[0].strength_out
         reg += self.norm_in().sum() * strength
-        # reg += self.norm_out().sum() * strength
+        reg += self.norm_out().sum() * strength
             
         if self.norm_layer:
             if self.norm_layer.affine:
@@ -107,7 +108,7 @@ class _DynamicLayer(nn.Module):
 
     def get_importance(self):
         norm = self.norm_in() 
-        # * self.norm_out()
+        norm *= self.norm_out()
         if self.norm_layer:
             if self.norm_layer.affine:
                 norm *= self.norm_layer.reg()
@@ -187,6 +188,8 @@ class _DynamicLayer(nn.Module):
         self.strength_out = self.weight[-1].data.numel() + self.bwt_weight[-1].data.numel()
         
         self.mask = None
+        self.mask_pre.append(None)
+        self.grad_in = 0
         # self.mask_pre_in.append(None)
         # self.mask_pre_out.append(None)
 
@@ -295,17 +298,17 @@ class DynamicLinear(_DynamicLayer):
         return norm
 
     def norm_out(self, t=-1):
-        weight = torch.cat([self.next_layer.weight[t], self.next_layer.bwt_weight[t]], dim=0)
+        weight = torch.cat([self.next_layer[0].weight[t], self.next_layer[0].bwt_weight[t]], dim=0)
         norm = weight.norm(2, dim=0)
         return norm
 
-    # def sum_grad_in(self):
-    #     weight = torch.cat([self.old_weight.data, self.bwt_weight[-1].data], dim=1)
-    #     weight_grad = torch.cat([self.old_weight.grad.data, self.bwt_weight[-1].grad.data], dim=1)
-    #     S = (weight*weight_grad).sum(dim=1)
-    #     if self.bias is not None:
-    #         S += self.old_bias.data*self.old_bias.grad.data
-    #     return S
+    def sum_grad_in(self):
+        weight = torch.cat([self.old_weight.data, self.bwt_weight[-1].data], dim=1)
+        weight_grad = torch.cat([self.old_weight.grad.data, self.bwt_weight[-1].grad.data], dim=1)
+        S = (weight*weight_grad).sum(dim=1)
+        if self.bias is not None:
+            S += self.old_bias.data*self.old_bias.grad.data
+        return S
 
     # def sum_grad_out(self, size=None):
     #     weight = torch.cat([self.old_weight.data, self.fwt_weight[-1].data], dim=0)
@@ -381,23 +384,23 @@ class DynamicConv2D(_DynamicConvNd):
         return norm
 
     def norm_out(self, t=-1):
-        weight = torch.cat([self.next_layer.weight[t], self.next_layer.bwt_weight[t]], dim=0)
-        if isinstance(self.next_layer, DynamicLinear):
-            weight = weight.view(self.next_layer.weight[t].shape[0] + self.next_layer.bwt_weight[t].shape[0], 
+        weight = torch.cat([self.next_layer[0].weight[t], self.next_layer[0].bwt_weight[t]], dim=0)
+        if isinstance(self.next_layer[0], DynamicLinear):
+            weight = weight.view(self.next_layer[0].weight[t].shape[0] + self.next_layer[0].bwt_weight[t].shape[0], 
                                 self.weight[t].shape[0], 
-                                self.next_layer.smid, self.next_layer.smid)
+                                self.next_layer[0].smid, self.next_layer[0].smid)
 
         norm = weight.norm(2, dim=(0,2,3))
         return norm
 
-    # def sum_grad_in(self):
-    #     weight = torch.cat([self.old_weight.data, self.bwt_weight[-1].data], dim=1)
-    #     weight_grad = torch.cat([self.old_weight.grad.data, self.bwt_weight[-1].grad.data], dim=1)
+    def sum_grad_in(self):
+        weight = torch.cat([self.old_weight.data, self.bwt_weight[-1].data], dim=1)
+        weight_grad = torch.cat([self.old_weight.grad.data, self.bwt_weight[-1].grad.data], dim=1)
 
-    #     S = (weight*weight_grad).sum(dim=(1,2,3))
-    #     if self.bias is not None:
-    #         S += self.old_bias.data*self.old_bias.grad.data
-    #     return S
+        S = (weight*weight_grad).sum(dim=(1,2,3))
+        if self.bias is not None:
+            S += self.old_bias.data*self.old_bias.grad.data
+        return S
 
     # def sum_grad_out(self):
     #     weight = torch.cat([self.old_weight.data, self.fwt_weight[-1].data], dim=0)

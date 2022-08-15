@@ -103,15 +103,15 @@ class _DynamicModel(nn.Module):
         for i, m in enumerate(self.DM[:-1]):
 
             grad_in = m.sum_grad_in()
-            if isinstance(m, DynamicConv2D) and isinstance(self.DM[i+1], DynamicLinear):
-                grad_out = self.DM[i+1].sum_grad_out(size=(self.DM[i+1].old_weight.shape[0] + self.DM[i+1].fwt_weight[-1].shape[0], 
-                                                    m.old_weight.shape[0], 
-                                                    self.smid, self.smid))  
-            else:
-                grad_out = self.DM[i+1].sum_grad_out()
+            # if isinstance(m, DynamicConv2D) and isinstance(self.DM[i+1], DynamicLinear):
+            #     grad_out = self.DM[i+1].sum_grad_out(size=(self.DM[i+1].old_weight.shape[0] + self.DM[i+1].fwt_weight[-1].shape[0], 
+            #                                         m.old_weight.shape[0], 
+            #                                         self.smid, self.smid))  
+            # else:
+            #     grad_out = self.DM[i+1].sum_grad_out()
 
             m.grad_in -= grad_in*sbatch
-            m.grad_out -= grad_out*sbatch
+            # m.grad_out -= grad_out*sbatch
 
     def s_H(self, t=-1):
         s_H = 1
@@ -126,11 +126,6 @@ class _DynamicModel(nn.Module):
         for m in self.DM:
             print(m.__class__.__name__, m.in_features, m.out_features)
 
-        # for block in self.layers:
-        #     if block.shortcut:
-        #         print(block.shortcut.in_features, block.shortcut.out_features)
-        #     else:
-        #         print(None)
             
 class MLP(_DynamicModel):
 

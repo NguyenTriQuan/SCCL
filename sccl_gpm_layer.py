@@ -60,12 +60,6 @@ class _DynamicLayer(nn.Module):
         else:
             self.norm_layer = None
 
-        self.old_weight = nn.Parameter(torch.Tensor(self.in_features, self.out_features), requires_grad=False)
-        if self.bias is not None:
-            self.old_bias = nn.Parameter(torch.Tensor(self.out_features), requires_grad=False)
-        else:
-            self.old_bias = None
-
         self.next_layer = next_layer
         self.smid = smid
         self.mask = None
@@ -122,8 +116,15 @@ class _DynamicLayer(nn.Module):
                 bias = None
 
             for i in range(1, t+1):
-                weight = torch.cat([torch.cat([weight, self.fwt_weight[i]], dim=0), 
-                                                torch.cat([self.bwt_weight[i], self.weight[i]], dim=0)], dim=1)
+                w = self.weight[i]
+                fwt = self.fwt_weight[i]
+                bwt = self.bwt_weight[i]
+                # if i == t:
+                #     weight = F.dropout(weight, 0.2, self.training)
+
+
+                weight = torch.cat([torch.cat([weight, fwt], dim=0), 
+                                                torch.cat([bwt, w], dim=0)], dim=1)
                 if self.bias:
                     bias = torch.cat([bias, self.bias[i]])
             return weight, bias

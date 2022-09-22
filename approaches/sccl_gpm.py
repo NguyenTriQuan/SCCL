@@ -91,8 +91,8 @@ class Appr(object):
     def _get_optimizer(self,lr=None):
         if lr is None: lr=self.lr
 
-        # params = self.model.get_optim_params()
-        params = self.model.parameters()
+        params = self.model.get_optim_params()
+        # params = self.model.parameters()
 
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
@@ -308,6 +308,7 @@ class Appr(object):
             N += images.shape[0]
             if N >= self.val_batch_size:
                 break
+        self.model.eval()
         outputs  = self.model(torch.cat(inputs, dim=0), t=self.cur_task)
         
         for i, m in enumerate(self.model.DM[:-1]):

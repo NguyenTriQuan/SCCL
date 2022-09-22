@@ -41,6 +41,7 @@ class _DynamicLayer(nn.Module):
         else:
             self.out_features = 0
             
+        bias = False
         if bias:
             self.bias = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features))])
         else:

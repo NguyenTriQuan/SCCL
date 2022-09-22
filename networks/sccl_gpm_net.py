@@ -8,7 +8,7 @@ from torch.distributions import Bernoulli, LogNormal
 import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
-from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys
@@ -54,10 +54,10 @@ class _DynamicModel(nn.Module):
                             
         return total_reg/total_strength
 
-    def forward(self, input, t=-1, squeeze=False):
+    def forward(self, input, t=-1):
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
-                input = module(input, t, squeeze)
+                input = module(input, t)
             else:
                 input = module(input)
 
@@ -100,32 +100,22 @@ class _DynamicModel(nn.Module):
 
         return model_count, layers_count
 
-    def track_gradient(self, sbatch):
-        for i, m in enumerate(self.DM[:-1]):
+    def project_gradient(self, t):
+        for m in self.DM[:-1]:
+            m.project_gradient(t)
 
-            grad_in = m.sum_grad_in()
-            # if isinstance(m, DynamicConv2D) and isinstance(self.DM[i+1], DynamicLinear):
-            #     grad_out = self.DM[i+1].sum_grad_out(size=(self.DM[i+1].old_weight.shape[0] + self.DM[i+1].fwt_weight[-1].shape[0], 
-            #                                         m.old_weight.shape[0], 
-            #                                         self.smid, self.smid))  
-            # else:
-            #     grad_out = self.DM[i+1].sum_grad_out()
-
-            m.grad_in -= grad_in*sbatch
-            # m.grad_out -= grad_out*sbatch
-
-    def s_H(self, t=-1):
-        s_H = 1
-        for m in self.DM:
-            weight = torch.cat([torch.cat([m.old_weight, m.fwt_weight[t]], dim=0), torch.cat([m.bwt_weight[t], m.weight[t]], dim=0)], dim=1)
-            # s_H *= weight.norm(p='fro')
-            # s_H *= weight.abs().max()
-            s_H *= weight.norm(p=2).detach().item()
-        return s_H
 
     def report(self):
         for m in self.DM:
             print(m.__class__.__name__, m.in_features, m.out_features)
+
+class Custom_Dropout(nn.Module):
+    def __init__(self, p=0.0):
+        super(Custom_Dropout, self).__init__()
+        self.p = p
+    
+    def forward(self, x):
+        return (F.dropout(x, self.p, self.training) + F.dropout(x, self.p, self.training))/2
             
 class MLP(_DynamicModel):
 
@@ -164,6 +154,7 @@ class VGG8(_DynamicModel):
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(0.25),
+            # Custom_Dropout(0.25),
 
             DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
@@ -171,6 +162,7 @@ class VGG8(_DynamicModel):
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(0.25),
+            # Custom_Dropout(0.25),
 
             DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
@@ -178,6 +170,7 @@ class VGG8(_DynamicModel):
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(0.5),
+            # Custom_Dropout(0.5),
             ])
 
         self.smid = size

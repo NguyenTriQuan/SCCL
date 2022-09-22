@@ -1,3 +1,4 @@
+from cProfile import label
 import sys, time, os
 import math
 
@@ -14,8 +15,8 @@ import kornia as K
 import time
 import csv
 from utils import *
-from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
-import networks.sccl_net as network
+from sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+import networks.sccl_gpm_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from gmm_torch.gmm import GaussianMixture
@@ -90,8 +91,8 @@ class Appr(object):
     def _get_optimizer(self,lr=None):
         if lr is None: lr=self.lr
 
-        params = self.model.get_optim_params()
-        # params = self.model.parameters()
+        # params = self.model.get_optim_params()
+        params = self.model.parameters()
 
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
@@ -110,12 +111,8 @@ class Appr(object):
             self.model.expand(ncla)
             self.model = self.model.to(device)
             self.model = accelerator.prepare(self.model)
-            self.model.restrict_gradients(t-1, False)
             self.shape_out = self.model.DM[-1].shape_out
             self.cur_task = len(self.shape_out)-1
-
-            # if t > 1:
-            #     self.get_mask_pre(t, train_loader, valid_transform)
 
             self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
@@ -132,7 +129,6 @@ class Appr(object):
         print(self.model.report())
         self.model = self.model.to(device)
         self.model = accelerator.prepare(self.model)
-        # self.model.restrict_gradients(t-1, False)
         self.shape_out = self.model.DM[-1].shape_out
         self.cur_task = len(self.shape_out)-1
 
@@ -156,6 +152,7 @@ class Appr(object):
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
+        self.updateGPM(train_loader, valid_transform, self.thres)
         self.check_point = None
         
 
@@ -242,8 +239,7 @@ class Appr(object):
         self.model = self.check_point['model']
 
     def train_batch(self, t, images, targets, squeeze):
-        # images = self.train_transforms(images)
-        outputs = self.model.forward(images, t=t, squeeze=squeeze)
+        outputs = self.model.forward(images, t=t)
         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
 
         loss = self.ce(outputs, targets)
@@ -254,10 +250,11 @@ class Appr(object):
         self.optimizer.zero_grad()
         # loss.backward() 
         accelerator.backward(loss)
+        if t > 1:
+            self.model.project_gradient(t-1)
         self.optimizer.step()
 
     def eval_batch(self, t, images, targets):
-        self.model.get_params(t-1)
         outputs = self.model.forward(images, t=t)
         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
                         
@@ -269,7 +266,6 @@ class Appr(object):
 
     def train_epoch(self, t, data_loader, train_transform, squeeze=True):
         self.model.train()
-        self.model.get_params(t-1)
         for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
@@ -297,217 +293,81 @@ class Appr(object):
                 
         return total_loss/total_num,total_acc/total_num
 
-    def get_mask_pre(self, t, data_loader, valid_transform):
-        self.model.train()
-        self.model.get_params(t-1)
-        for m in self.model.DM[:-1]:
-            m.grad_in = 0
-            m.old_weight.requires_grad = True
-            m.old_bias.requires_grad = True
-            print(m.old_weight.shape)
 
-        for images, targets in data_loader:
+    def updateGPM (self, data_loader, valid_transform, threshold): 
+        # Collect activations by forward pass
+        inputs = []
+        N = 0
+        for i, (images, targets) in enumerate(data_loader):
             images=images.to(device)
             targets=targets.to(device)
             if valid_transform:
                 images = valid_transform(images)
 
-            outputs = self.model.forward(images, t=t)
-            outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+            inputs.append(images)
+            N += images.shape[0]
+            if N >= self.val_batch_size:
+                break
+        outputs  = self.model(torch.cat(inputs, dim=0), t=self.cur_task)
+        
+        for i, m in enumerate(self.model.DM[:-1]):
+            if isinstance(m, DynamicConv2D):
+                k = 0
+                batch_size, n_channels, s, _ = m.act.shape
+                mat = np.zeros((m.kernel_size[0]*m.kernel_size[1]*m.in_features, s*s*batch_size))
+                for kk in range(batch_size):
+                    for ii in range(m.kernel_size[0]):
+                        for jj in range(m.kernel_size[1]):
+                            mat[:,k]=m.act[kk,:,ii:m.kernel_size[0]+ii,jj:m.kernel_size[1]+jj].reshape(-1) 
+                            k +=1
+            else:
+                mat = m.act.transpose()
 
-            loss = self.ce(outputs, targets)
-                    
-            self.optimizer.zero_grad()
-            # loss.backward() 
-            accelerator.backward(loss)
+            if self.cur_task == 1:
+                U, S, Vh = np.linalg.svd(mat, full_matrices=False)
+                # criteria (Eq-5)
+                sval_total = (S**2).sum()
+                sval_ratio = (S**2)/sval_total
+                print(sval_ratio.shape)
+                r = np.sum(np.cumsum(sval_ratio) < threshold) #+1  
+                m.feature = U[:, :r]
+            else:
+                return
+                U1, S1, Vh1 = np.linalg.svd(mat, full_matrices=False)
+                sval_total = (S1**2).sum()
+                # Projected Representation (Eq-8)
+                m.feature = np.hstack([m.feature, np.zeros((m.feature.shape[0], m.shape_out[-1]-m.shape_out[-2]))])
+                act_hat = mat - np.dot(np.dot(m.feature, m.feature.transpose()),mat)
+                U, S, Vh = np.linalg.svd(act_hat, full_matrices=False)
+                # criteria (Eq-9)
+                sval_hat = (S**2).sum()
+                sval_ratio = (S**2)/sval_total               
+                accumulated_sval = (sval_total-sval_hat)/sval_total
+                r = 0
+                for ii in range (sval_ratio.shape[0]):
+                    if accumulated_sval < threshold:
+                        accumulated_sval += sval_ratio[ii]
+                        r += 1
+                    else:
+                        break
+                if r == 0:
+                    print ('Skip Updating GPM for layer: {}'.format(i+1)) 
+                    continue
+                # update GPM
+                Ui = np.hstack((m.feature, U[:,0:r]))  
+                if Ui.shape[1] > Ui.shape[0] :
+                    m.feature = Ui[:, 0: Ui.shape[0]]
+                else:
+                    m.feature = Ui
 
-            for m in self.model.DM[:-1]:
-                m.grad_in -= m.sum_grad_in().detach() * len(targets)
+            m.projection_matrix = torch.Tensor(np.dot(m.feature, m.feature.transpose())).to(device)
 
-        fig, axs = plt.subplots(2, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 6))
-        for i in range(0, len(self.model.DM)-1):
-            m = self.model.DM[i]
-            axs[0][i].hist(m.grad_in.detach().cpu().numpy(), bins=100)
-            norm  = m.grad_in.view(-1, 1)
-            GMM = GaussianMixture(n_components=2, n_features=1).cuda()
-            GMM.fit(norm, delta=1e-9, n_iter=1000)
-            cl = GMM.predict(norm).cuda()
-            value, idx = GMM.mu.squeeze().max(0)
-            # print(value, idx, cl)
-            m.mask_pre = (cl==idx).float()
-            print(m.mask_pre.sum())
-            axs[0][i].hist(m.mask_pre.detach().cpu().numpy(), bins=100)
-
-        for m in self.model.DM[:-1]:
-            m.old_weight.requires_grad = False
-            m.old_bias.requires_grad = False
-
-        plt.show()
-
-    # def prune(self, t, data_loader, valid_transform, thres=0.0):
-
-    #     loss,acc=self.eval(t,data_loader,valid_transform)
-    #     loss, acc = round(loss, 3), round(acc, 3)
-    #     print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
-    #     # pre_prune_acc = acc
-    #     pre_prune_loss = loss
-    #     fig, axs = plt.subplots(2, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 6))
-    #     for i in range(0, len(self.model.DM)-1):
-    #         m = self.model.DM[i]
-    #         norm = m.get_importance().view(-1, 1).detach()
-    #         axs[0][i].hist(norm.detach().cpu().numpy(), bins=100)
-
-    #         # 1 cluster remove all
-    #         m.mask = torch.zeros(norm.shape[0]).bool().cuda()
-    #         loss,acc=self.eval(t,data_loader,valid_transform)
-    #         loss, acc = round(loss, 3), round(acc, 3)
-    #         pos_prune_loss = loss
-    #         if pos_prune_loss - pre_prune_loss <= thres:
-    #             continue
-    #         # 2 clusters remove one, keep other
-
-    #         # cl, c = self.KMeans(x=norm, K=2, Niter=100)
-    #         # v, i = c.view(-1).max(0)
-    #         # m.mask = (cl == i)
-
-    #         GMM = GaussianMixture(n_components=2, n_features=1).cuda()
-    #         GMM.fit(norm, delta=1e-9, n_iter=1000)
-    #         cl = GMM.predict(norm).cuda()
-    #         value, idx = GMM.mu.squeeze().max(0)
-    #         m.mask = (cl==idx)
-    #         loss,acc=self.eval(t,data_loader,valid_transform)
-    #         loss, acc = round(loss, 3), round(acc, 3)
-    #         pos_prune_loss = loss
-    #         # 1 cluster keep all
-    #         if pos_prune_loss > pre_prune_loss:
-    #             m.mask = torch.ones(norm.shape[0]).bool().cuda()
-
-
-    #     self.model.squeeze()
-
-    #     loss,acc=self.eval(t,data_loader,valid_transform)
-    #     print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
-
-    #     print('number of neurons:', end=' ')
-    #     for m in self.model.DM:
-    #         print(m.out_features, end=' ')
-    #     print()
-    #     params = self.model.compute_model_size()
-    #     print('num params', params)
-
-    #     for i in range(0, len(self.model.DM)-1):
-    #         m = self.model.DM[i]
-    #         norm = m.get_importance().view(-1, 1).detach()
-    #         axs[1][i].hist(norm.detach().cpu().numpy(), bins=100)
-
-    #     plt.show()
-
-
-
-    # def prune(self, t, data_loader, valid_transform, thres=0.0):
-
-    #     loss,acc=self.eval(t,data_loader,valid_transform)
-    #     loss, acc = round(loss, 3), round(acc, 3)
-    #     print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
-    #     # pre_prune_acc = acc
-    #     pre_prune_loss = loss
-    #     prune_ratio = np.ones(len(self.model.DM)-1)
-    #     step = 0
-    #     pre_sum = 0
-    #     for i in range(0, len(self.model.DM)-1):
-    #         m = self.model.DM[i]
-    #         m.mask = torch.ones(m.out_features).bool().cuda()
-    #     while True:
-    #         t1 = time.time()
-    #         fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))
-    #         print('Pruning ratio:', end=' ')
-    #         for i in range(0, len(self.model.DM)-1):
-    #             m = self.model.DM[i]
-    #             mask_temp = m.mask
-    #             norm = m.get_importance()
-
-    #             low = 0 
-    #             if m.mask is None:
-    #                 high = norm.shape[0]
-    #             else:
-    #                 high = int(sum(m.mask))
-
-    #             # axs[i].hist(norm.detach().cpu().numpy(), bins=100)
-    #             # axs[i].set_title(f'layer {i+1}')
-
-    #             if norm.shape[0] != 0:
-    #                 values, indices = norm.sort(descending=True)
-    #                 loss,acc=self.eval(t,data_loader,valid_transform)
-    #                 loss, acc = round(loss, 3), round(acc, 3)
-    #                 pre_prune_loss = loss
-
-    #                 while True:
-    #                     cl, c = self.KMeans(x=norm, K=2, Niter=100)
-    #                     value, idx = c.view(-1).max(0)
-    #                     m.mask = (cl==idx)
-                        
-    #                     k = (high+low)//2
-    #                     # Select top-k biggest norm
-    #                     m.mask = (norm>values[k])
-    #                     loss, acc = self.eval(t, data_loader, valid_transform)
-    #                     loss, acc = round(loss, 3), round(acc, 3)
-    #                     # post_prune_acc = acc
-    #                     post_prune_loss = loss
-    #                     if  post_prune_loss <= pre_prune_loss:
-    #                     # if pre_prune_acc <= post_prune_acc:
-    #                         # k is satisfy, try smaller k
-    #                         high = k
-    #                         # pre_prune_loss = post_prune_loss
-    #                     else:
-    #                         # k is not satisfy, try bigger k
-    #                         low = k
-
-    #                     if k == (high+low)//2:
-    #                         break
-
-
-    #             if high == norm.shape[0]:
-    #                 # not found any k satisfy, keep all neurons
-    #                 m.mask = mask_temp
-    #             else:
-    #                 # found k = high is the smallest k satisfy
-    #                 m.mask = (norm>values[high])
-
-    #             # remove neurons 
-    #             # m.squeeze()
-
-    #             if m.mask is None:
-    #                 prune_ratio[i] = 0.0
-    #             else:
-    #                 mask_count = int(sum(m.mask))
-    #                 total_count = m.mask.numel()
-    #                 prune_ratio[i] = 1.0 - mask_count/total_count
-
-    #             print('{:.3f}'.format(prune_ratio[i]), end=' ')
-    #             # m.mask = None
-
-    #         fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
-    #         # plt.show()
-    #         loss,acc=self.eval(t,data_loader,valid_transform)
-    #         print('| Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
-
-    #         step += 1
-    #         break
-    #         if sum(prune_ratio) == pre_sum:
-    #             break
-    #         pre_sum = sum(prune_ratio)
-
-    #     self.model.squeeze()
-
-    #     loss,acc=self.eval(t,data_loader,valid_transform)
-    #     print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
-
-    #     print('number of neurons:', end=' ')
-    #     for m in self.model.DM:
-    #         print(m.out_features, end=' ')
-    #     print()
-    #     params = self.model.compute_model_size()
-    #     print('num params', params)
+        print('-'*40)
+        print('Gradient Constraints Summary')
+        print('-'*40)
+        for i, m in enumerate(self.model.DM[:-1]):
+            print ('Layer {} : {}/{}'.format(i+1, m.feature.shape[1], m.feature.shape[0]))
+        print('-'*40)
 
 
     def prune(self, t, data_loader, valid_transform, thres=0.0):
@@ -522,7 +382,7 @@ class Appr(object):
         pre_sum = 0
         for i in range(0, len(self.model.DM)-1):
             m = self.model.DM[i]
-            m.mask = torch.ones(m.out_features).bool().cuda()
+            m.mask = torch.ones(m.shape_out[-1]-m.shape_out[-2]).bool().cuda()
         while True:
             t1 = time.time()
             fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))
@@ -538,9 +398,8 @@ class Appr(object):
                 else:
                     high = int(sum(m.mask))
 
-                # axs[i].hist(norm.detach().cpu().numpy(), bins=100)
-                # axs[i].set_title(f'layer {i+1}')
-
+                axs[i].hist(norm[m.mask].detach().cpu().numpy(), bins=100)
+                axs[i].set_title(f'layer {i+1}')
                 if norm.shape[0] != 0:
                     values, indices = norm.sort(descending=True)
                     loss,acc=self.eval(t,data_loader,valid_transform)
@@ -556,7 +415,7 @@ class Appr(object):
                         post_prune_acc = acc
                         # post_prune_loss = loss
                         # if  post_prune_loss <= pre_prune_loss:
-                        if post_prune_acc >= pre_prune_acc:
+                        if pre_prune_acc <= post_prune_acc:
                             # k is satisfy, try smaller k
                             high = k
                             # pre_prune_loss = post_prune_loss
@@ -589,12 +448,11 @@ class Appr(object):
                 # m.mask = None
 
             fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
-            # plt.show()
+            plt.show()
             loss,acc=self.eval(t,data_loader,valid_transform)
             print('| Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
 
             step += 1
-            # break
             if sum(prune_ratio) == pre_sum:
                 break
             pre_sum = sum(prune_ratio)

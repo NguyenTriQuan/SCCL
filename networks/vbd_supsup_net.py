@@ -103,29 +103,32 @@ class VGG8(nn.Module):
         self.input_size = input_size
 
         self.layers = nn.ModuleList([
-            nn.Conv2d(nchannels, 32, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(nchannels, 32, kernel_size=3, padding=1, bias=True),
             VBD_Layer(32),
             nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=True),
             VBD_Layer(32),
             nn.ReLU(),
             nn.MaxPool2d(2),
+            nn.Dropout(0.25),
 
-            nn.Conv2d(32, 64, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1, bias=True),
             VBD_Layer(64),
             nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=True),
             VBD_Layer(64),
             nn.ReLU(),
             nn.MaxPool2d(2),
+            nn.Dropout(0.25),
 
-            nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1, bias=True),
             VBD_Layer(128),
             nn.ReLU(),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=True),
             VBD_Layer(128),
             nn.ReLU(),
             nn.MaxPool2d(2),
+            nn.Dropout(0.25),
             ])
 
         self.smid = size
@@ -138,20 +141,22 @@ class VGG8(nn.Module):
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            nn.Linear(128*self.smid*self.smid, 256, bias=False),
+            nn.Linear(128*self.smid*self.smid, 256, bias=True),
             VBD_Layer(256),
             nn.ReLU(),
+            nn.Dropout(0.5),
             ])
 
         self.last = nn.ModuleList([nn.Linear(256, ncla) for t, ncla in taskcla])
 
-        for m in self.layers:
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                m.weight.requires_grad = False
+        # for m in self.layers:
+        #     if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+        #         m.weight.requires_grad = False
+        #         m.bias.requires_grad = False
 
     def forward(self, x, t):
-        for m in self.layers:
-            x = m(x)
+        for i in range(len(self.layers)):
+            x = self.layers[i](x)
 
         return self.last[t](x)
 

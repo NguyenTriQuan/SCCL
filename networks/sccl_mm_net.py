@@ -48,10 +48,10 @@ class _DynamicModel(nn.Module):
                             
         return total_reg/total_strength
 
-    def forward(self, input, t=-1):
+    def forward(self, input, t=-1, transfer=False):
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
-                input = module(input, t)
+                input = module(input, t, transfer)
             else:
                 input = module(input)
 

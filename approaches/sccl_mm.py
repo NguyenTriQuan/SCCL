@@ -17,6 +17,7 @@ from sccl_mm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import networks.sccl_mm_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+from gmm_torch.gmm import GaussianMixture
 
 from accelerate import Accelerator
 accelerator = Accelerator()
@@ -133,7 +134,7 @@ class Appr(object):
         train_loader = accelerator.prepare(train_loader)
         valid_loader = accelerator.prepare(valid_loader)
 
-        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, True)
+        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=True, transfer=False)
         if not self.check_point['squeeze']:
             self.check_point = None
             return 
@@ -144,7 +145,10 @@ class Appr(object):
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
-        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
+        for m in self.model.DM:
+            m.weight[t].requires_grad = False
+            
+        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, transfer=True)
 
         self.check_point = None
         # self.model.get_params(t-1)
@@ -159,7 +163,7 @@ class Appr(object):
         # print('s_H={:.1e}'.format(s_H), end='')
         
 
-    def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
+    def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, transfer):
 
         print('number of neurons:', end=' ')
         for m in self.model.DM:
@@ -189,7 +193,7 @@ class Appr(object):
         try:
             for e in range(start_epoch, self.nepochs):
                 clock0=time.time()
-                self.train_epoch(t, train_loader, train_transform, squeeze)
+                self.train_epoch(t, train_loader, train_transform, squeeze, transfer)
             
                 clock1=time.time()
                 train_loss,train_acc=self.eval(t, train_loader, valid_transform)
@@ -241,10 +245,11 @@ class Appr(object):
         self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
         self.model = self.check_point['model']
 
-    def train_batch(self, t, images, targets, squeeze):
+    def train_batch(self, t, images, targets, squeeze, transfer):
         # images = self.train_transforms(images)
-        outputs = self.model.forward(images, t=t)
-        outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+        outputs = self.model.forward(images, t=t, transfer=transfer)
+        if transfer:
+            outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
 
         loss = self.ce(outputs, targets)
 
@@ -330,14 +335,62 @@ class Appr(object):
                 
         return total_loss/total_num,total_acc/total_num
 
-    def prune(self, t, data_loader, valid_transform, thres=0.0): 
-        fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 3))
-        for i, m in enumerate(self.model.DM[:-1]):
-            m.mask = (m.movement < 0)
-            axs[i].hist(m.mask.float().cpu().numpy() , bins=100)
-            axs[i].set_title(f'layer {i+1}')
-            m.squeeze()
-            m.mask = None
+    def prune(self, t, data_loader, valid_transform, thres=0.0):
+
+        loss,acc=self.eval(t,data_loader,valid_transform)
+        loss, acc = round(loss, 3), round(acc, 3)
+        print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
+        # pre_prune_acc = acc
+        pre_prune_loss = loss
+        fig, axs = plt.subplots(2, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 6))
+        for i in range(0, len(self.model.DM)-1):
+            m = self.model.DM[i]
+            norm = m.get_importance().view(-1, 1).detach()
+            axs[0][i].hist(norm.detach().cpu().numpy(), bins=100)
+
+            # 1 cluster remove all
+            m.mask = torch.zeros(norm.shape[0]).bool().cuda()
+            loss,acc=self.eval(t,data_loader,valid_transform)
+            loss, acc = round(loss, 3), round(acc, 3)
+            pos_prune_loss = loss
+            if pos_prune_loss - pre_prune_loss <= thres:
+                continue
+            # 2 clusters remove one, keep other
+
+            # cl, c = self.KMeans(x=norm, K=2, Niter=100)
+            # v, i = c.view(-1).max(0)
+            # m.mask = (cl == i)
+
+            GMM = GaussianMixture(n_components=2, n_features=1).cuda()
+            GMM.fit(norm, delta=1e-9, n_iter=1000)
+            cl = GMM.predict(norm).cuda()
+            value, idx = GMM.mu.squeeze().max(0)
+            # print(value, idx, cl)
+            m.mask = (cl==idx)
+            loss,acc=self.eval(t,data_loader,valid_transform)
+            loss, acc = round(loss, 3), round(acc, 3)
+            pos_prune_loss = loss
+            # 1 cluster keep all
+            if pos_prune_loss > pre_prune_loss:
+                m.mask = torch.ones(norm.shape[0]).bool().cuda()
+
+
+        self.model.squeeze()
+
+        loss,acc=self.eval(t,data_loader,valid_transform)
+        print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
+
+        print('number of neurons:', end=' ')
+        for m in self.model.DM:
+            print(m.out_features, end=' ')
+        print()
+        params = self.model.compute_model_size()
+        print('num params', params)
+
+        for i in range(0, len(self.model.DM)-1):
+            m = self.model.DM[i]
+            norm = m.get_importance().view(-1, 1).detach()
+            axs[1][i].hist(norm.detach().cpu().numpy(), bins=100)
 
         plt.show()
 

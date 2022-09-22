@@ -520,9 +520,9 @@ class Appr(object):
         prune_ratio = np.ones(len(self.model.DM)-1)
         step = 0
         pre_sum = 0
-        for i in range(0, len(self.model.DM)-1):
-            m = self.model.DM[i]
-            m.mask = torch.ones(m.out_features).bool().cuda()
+        # for i in range(0, len(self.model.DM)-1):
+        #     m = self.model.DM[i]
+        #     m.mask = torch.ones(m.out_features).bool().cuda()
         while True:
             t1 = time.time()
             fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))

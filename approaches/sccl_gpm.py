@@ -300,9 +300,9 @@ class Appr(object):
         N = 0
         for i, (images, targets) in enumerate(data_loader):
             inputs.append(images)
-            # N += images.shape[0]
-            # if N >= self.val_batch_size:
-            #     break
+            N += images.shape[0]
+            if N >= self.val_batch_size:
+                break
         self.model.eval()
         inputs = torch.cat(inputs, dim=0).to(device)
         if valid_transform:
@@ -313,7 +313,7 @@ class Appr(object):
             if isinstance(m, DynamicConv2D):
                 k = 0
                 batch_size, n_channels, s, _ = m.act.shape
-                mat = torch.zeros((m.kernel_size[0]*m.kernel_size[1]*m.in_features, s*s*batch_size))
+                mat = torch.zeros((m.kernel_size[0]*m.kernel_size[1]*m.in_features, s*s*batch_size)).to(device)
                 for kk in range(batch_size):
                     for ii in range(m.kernel_size[0]):
                         for jj in range(m.kernel_size[1]):

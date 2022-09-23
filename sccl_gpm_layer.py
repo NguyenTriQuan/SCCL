@@ -134,9 +134,9 @@ class _DynamicLayer(nn.Module):
         sz =  weight_grad.size(0)
         weight_grad = weight_grad - torch.mm(weight_grad.view(sz,-1), self.projection_matrix).view(weight_grad.size())
         for i in range(1, t+1): 
-            self.weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]]
-            self.fwt_weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]]
-            self.bwt_weight[i].grad.data = weight_grad[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]]
+            self.weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]].contiguous()
+            self.fwt_weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]].contiguous()
+            self.bwt_weight[i].grad.data = weight_grad[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]].contiguous()
 
     def squeeze(self):
         if self.mask is not None:
@@ -224,7 +224,7 @@ class DynamicLinear(_DynamicLayer):
 
         
     def forward(self, x, t):
-        self.act = x.detach().cpu().numpy()
+        self.act = x.detach()
         weight, bias = self.get_parameter(t)
 
         if weight.numel() == 0:
@@ -289,7 +289,7 @@ class DynamicConv2D(_DynamicConvNd):
                                             stride, padding, dilation, False, _pair(0), groups, next_layer, bias, norm_type, smid, first_layer, last_layer, dropout)
     
     def forward(self, x, t):
-        self.act = x.detach().cpu().numpy()
+        self.act = x.detach()
         weight, bias = self.get_parameter(t)
 
         if weight.numel() == 0:

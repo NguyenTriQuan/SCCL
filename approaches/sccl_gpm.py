@@ -91,8 +91,8 @@ class Appr(object):
     def _get_optimizer(self,lr=None):
         if lr is None: lr=self.lr
 
-        params = self.model.get_optim_params()
-        # params = self.model.parameters()
+        # params = self.model.get_optim_params()
+        params = self.model.parameters()
 
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
@@ -313,31 +313,32 @@ class Appr(object):
             if isinstance(m, DynamicConv2D):
                 k = 0
                 batch_size, n_channels, s, _ = m.act.shape
-                mat = np.zeros((m.kernel_size[0]*m.kernel_size[1]*m.in_features, s*s*batch_size))
+                mat = torch.zeros((m.kernel_size[0]*m.kernel_size[1]*m.in_features, s*s*batch_size))
                 for kk in range(batch_size):
                     for ii in range(m.kernel_size[0]):
                         for jj in range(m.kernel_size[1]):
                             mat[:,k]=m.act[kk,:,ii:m.kernel_size[0]+ii,jj:m.kernel_size[1]+jj].reshape(-1) 
                             k +=1
             else:
-                mat = m.act.transpose()
+                mat = m.act.T
 
             if self.cur_task == 1:
-                U, S, Vh = np.linalg.svd(mat, full_matrices=False)
+                U, S, Vh = torch.linalg.svd(mat, full_matrices=False)
                 # criteria (Eq-5)
                 sval_total = (S**2).sum()
                 sval_ratio = (S**2)/sval_total
-                print(sval_ratio.shape)
-                r = np.sum(np.cumsum(sval_ratio) < threshold) #+1  
+                r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
+                plt.hist(sval_ratio.detach().cpu().numpy(), bins=100) 
+                plt.show()
                 m.feature = U[:, :r]
             else:
                 return
-                U1, S1, Vh1 = np.linalg.svd(mat, full_matrices=False)
+                U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
                 sval_total = (S1**2).sum()
                 # Projected Representation (Eq-8)
-                m.feature = np.hstack([m.feature, np.zeros((m.feature.shape[0], m.shape_out[-1]-m.shape_out[-2]))])
-                act_hat = mat - np.dot(np.dot(m.feature, m.feature.transpose()),mat)
-                U, S, Vh = np.linalg.svd(act_hat, full_matrices=False)
+                m.feature = torch.cat([m.feature, torch.zeros((m.feature.shape[0], m.shape_out[-1]-m.shape_out[-2])).to(device)], dim=1)
+                act_hat = mat - torch.mm(torch.mm(m.feature, m.feature.T), mat)
+                U, S, Vh = torch.linalg.svd(act_hat, full_matrices=False)
                 # criteria (Eq-9)
                 sval_hat = (S**2).sum()
                 sval_ratio = (S**2)/sval_total               
@@ -353,13 +354,13 @@ class Appr(object):
                     print ('Skip Updating GPM for layer: {}'.format(i+1)) 
                     continue
                 # update GPM
-                Ui = np.hstack((m.feature, U[:,0:r]))  
+                Ui = torch.cat([m.feature, U[:, 0: r]])  
                 if Ui.shape[1] > Ui.shape[0] :
                     m.feature = Ui[:, 0: Ui.shape[0]]
                 else:
                     m.feature = Ui
 
-            m.projection_matrix = torch.Tensor(np.dot(m.feature, m.feature.transpose())).to(device)
+            m.projection_matrix = torch.mm(m.feature, m.feature.T)
 
         print('-'*40)
         print('Gradient Constraints Summary')
@@ -384,7 +385,7 @@ class Appr(object):
             m.mask = torch.ones(m.shape_out[-1]-m.shape_out[-2]).bool().cuda()
         while True:
             t1 = time.time()
-            fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))
+            # fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))
             print('Pruning ratio:', end=' ')
             for i in range(0, len(self.model.DM)-1):
                 m = self.model.DM[i]
@@ -397,8 +398,8 @@ class Appr(object):
                 else:
                     high = int(sum(m.mask))
 
-                axs[i].hist(norm[m.mask].detach().cpu().numpy(), bins=100)
-                axs[i].set_title(f'layer {i+1}')
+                # axs[i].hist(norm[m.mask].detach().cpu().numpy(), bins=100)
+                # axs[i].set_title(f'layer {i+1}')
                 if norm.shape[0] != 0:
                     values, indices = norm.sort(descending=True)
                     loss,acc=self.eval(t,data_loader,valid_transform)
@@ -446,8 +447,8 @@ class Appr(object):
                 print('{:.3f}'.format(prune_ratio[i]), end=' ')
                 # m.mask = None
 
-            fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
-            plt.show()
+            # fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
+            # plt.show()
             loss,acc=self.eval(t,data_loader,valid_transform)
             print('| Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
 

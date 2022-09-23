@@ -299,17 +299,15 @@ class Appr(object):
         inputs = []
         N = 0
         for i, (images, targets) in enumerate(data_loader):
-            images=images.to(device)
-            targets=targets.to(device)
-            if valid_transform:
-                images = valid_transform(images)
-
             inputs.append(images)
-            N += images.shape[0]
-            if N >= self.val_batch_size:
-                break
+            # N += images.shape[0]
+            # if N >= self.val_batch_size:
+            #     break
         self.model.eval()
-        outputs  = self.model(torch.cat(inputs, dim=0), t=self.cur_task)
+        inputs = torch.cat(inputs, dim=0).to(device)
+        if valid_transform:
+            images = valid_transform(images)
+        outputs  = self.model(inputs, t=self.cur_task)
         
         for i, m in enumerate(self.model.DM[:-1]):
             if isinstance(m, DynamicConv2D):

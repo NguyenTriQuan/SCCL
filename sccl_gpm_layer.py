@@ -119,8 +119,8 @@ class _DynamicLayer(nn.Module):
                 w = self.weight[i]
                 fwt = self.fwt_weight[i]
                 bwt = self.bwt_weight[i]
-                if i == t:
-                    weight = F.dropout(weight, 0.25, self.training)
+                # if i == t:
+                #     weight = F.dropout(weight, 0.25, self.training)
 
 
                 weight = torch.cat([torch.cat([weight, fwt], dim=0), 

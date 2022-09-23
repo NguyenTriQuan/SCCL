@@ -91,8 +91,8 @@ class Appr(object):
     def _get_optimizer(self,lr=None):
         if lr is None: lr=self.lr
 
-        # params = self.model.get_optim_params()
-        params = self.model.parameters()
+        params = self.model.get_optim_params()
+        # params = self.model.parameters()
 
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
@@ -152,7 +152,7 @@ class Appr(object):
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
-        self.updateGPM(train_loader, valid_transform, self.thres)
+        # self.updateGPM(train_loader, valid_transform, self.thres)
         self.check_point = None
         
 
@@ -250,8 +250,8 @@ class Appr(object):
         self.optimizer.zero_grad()
         # loss.backward() 
         accelerator.backward(loss)
-        if t > 1:
-            self.model.project_gradient(t-1)
+        # if t > 1:
+        #     self.model.project_gradient(t-1)
         self.optimizer.step()
 
     def eval_batch(self, t, images, targets):

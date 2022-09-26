@@ -291,6 +291,8 @@ class DynamicConv2D(_DynamicConvNd):
                             torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
         if self.bias:
             bias = torch.cat([self.old_bias, self.bias[t]])
+        else:
+            bias = None
 
         if weight.numel() == 0:
             return None

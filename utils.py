@@ -476,15 +476,15 @@ class logger(object):
             raise ValueError('{} isn''t a file'.format(path))
 
 
-def naive_lip(model: nn.Module, n_iter: int = 5, eps=1e-3):
+def naive_lip(model: nn.Module, n_iter: int = 10, eps=1e-3, n_samples=100):
     lip = -1
     for i in range(n_iter):
-        x1 = torch.randn(100, 3, 32, 32).to(device)
-        alpha = ((torch.rand(100, 3, 32, 32) * 2 - 1) * eps).to(device)
+        x1 = torch.randn(n_samples, 3, 32, 32).to(device)
+        alpha = ((torch.rand(n_samples, 3, 32, 32) * 2 - 1) * eps).to(device)
 
         y1, y2 = model(x1), model(x1 + alpha)
-        denominator = torch.linalg.vector_norm(alpha.view(100, -1), ord=2, dim=1)
-        numerator = torch.linalg.vector_norm((y2-y1).view(100, -1), ord=2, dim=1)
+        denominator = torch.linalg.vector_norm(alpha.view(n_samples, -1), ord=2, dim=1)
+        numerator = torch.linalg.vector_norm((y2-y1).view(n_samples, -1), ord=2, dim=1)
         lip = max(lip, torch.div(numerator, denominator).max().item())
 
     return lip

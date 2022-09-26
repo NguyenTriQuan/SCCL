@@ -29,9 +29,13 @@ class _DynamicModel(nn.Module):
             params += m.get_optim_params()
         return params
 
-    def get_params(self, t):
+    def get_old_parameters(self, t):
         for m in self.DM:
-            m.get_params(t)
+            m.get_old_parameters(t)
+
+    def update_old_parameters(self, t):
+        for m in self.DM:
+            m.update_old_parameters(t)
 
     def expand(self, new_class):
         self.DM[0].expand(add_in=0, add_out=None)
@@ -100,9 +104,9 @@ class _DynamicModel(nn.Module):
 
         return model_count, layers_count
 
-    def project_gradient(self, t):
+    def project_gradient(self):
         for m in self.DM[:-1]:
-            m.project_gradient(t)
+            m.project_gradient()
 
 
     def report(self):

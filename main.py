@@ -12,11 +12,7 @@ import importlib
 # from comet_ml import Experiment
 import json
 
-# Create an experiment with your api key
-from accelerate import Accelerator
-accelerator = Accelerator()
-device = accelerator.device
-print(device)
+device = 'cuda'
 
 args = get_args()
 tstart = time.time()
@@ -101,6 +97,7 @@ for t, ncla in taskcla[start_task:]:
             if args.cil:
                 test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
             else:
+                appr.model.get_old_parameters(u+1)
                 test_loss, test_acc = appr.eval(u+1, data[u]['test_loader'], data['valid_transform'])
         else:
             test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data['valid_transform'])

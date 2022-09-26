@@ -18,9 +18,7 @@ from utils import *
 from typing import Optional, List, Tuple, Union
 import sys
 
-from accelerate import Accelerator
-accelerator = Accelerator()
-device = accelerator.device
+device = 'cuda'
     
 class _DynamicLayer(nn.Module):
 
@@ -63,11 +61,14 @@ class _DynamicLayer(nn.Module):
         self.next_layer = next_layer
         self.smid = smid
         self.mask = None
+        
+        self.old_weight = nn.Parameter(torch.empty(0), requires_grad=True)
+        self.old_bias = nn.Parameter(torch.empty(0), requires_grad=True) if self.bias else None
 
     def get_optim_params(self):
-        params = [self.weight[-1], self.fwt_weight[-1], self.bwt_weight[-1]]
+        params = [self.weight[-1], self.fwt_weight[-1], self.bwt_weight[-1], self.old_weight]
         if self.bias:
-            params += [self.bias[-1]]
+            params += [self.bias[-1], self.old_bias]
         if self.norm_layer:
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
@@ -94,49 +95,40 @@ class _DynamicLayer(nn.Module):
 
         return norm
 
-    def get_parameter(self, t, grad=False):
-        if grad:
-            weight_grad = torch.empty(0).to(device)
+    def get_old_parameters(self, t):
+
+        # recover old params
+        try:
+            for i in range(1, t): 
+                self.weight[i].data = self.old_weight.data[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]].clone()
+                self.fwt_weight[i].data = self.old_weight.data[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]].clone()
+                self.bwt_weight[i].data = self.old_weight.data[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]].clone()
+        except:
+            pass
+
+        # get old params
+        self.old_weight.data = torch.empty(0).to(device)
+        self.old_weight.grad = None
+        if self.bias:
+            self.old_bias.data = torch.empty(0).to(device)
+            self.old_bias.grad = None
+
+        for i in range(1, t):
+            self.old_weight.data = torch.cat([torch.cat([self.old_weight.data, self.fwt_weight[i].data], dim=0), 
+                                torch.cat([self.bwt_weight[i].data, self.weight[i].data], dim=0)], dim=1)
             if self.bias:
-                bias_grad = torch.empty(0).to(device)
-            else:
-                bias_grad = None
+                self.old_bias.data = torch.cat([self.old_bias.data, self.bias[i].data])
 
-            for i in range(1, t+1):
-                weight_grad = torch.cat([torch.cat([weight_grad, self.fwt_weight[i].grad], dim=0), 
-                                                torch.cat([self.bwt_weight[i].grad, self.weight[i].grad], dim=0)], dim=1)
-                if self.bias:
-                    bias_grad = torch.cat([bias_grad, self.bias[i].grad])
-            return weight_grad, bias_grad
-        else:
-            weight = torch.empty(0).to(device)
-            if self.bias:
-                bias = torch.empty(0).to(device)
-            else:
-                bias = None
+    def update_old_parameters(self, t):
+        for i in range(1, t): 
+            self.weight[i].data = self.old_weight.data[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]].clone()
+            self.fwt_weight[i].data = self.old_weight.data[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]].clone()
+            self.bwt_weight[i].data = self.old_weight.data[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]].clone()
 
-            for i in range(1, t+1):
-                w = self.weight[i]
-                fwt = self.fwt_weight[i]
-                bwt = self.bwt_weight[i]
-                # if i == t:
-                #     weight = F.dropout(weight, 0.25, self.training)
-
-
-                weight = torch.cat([torch.cat([weight, fwt], dim=0), 
-                                                torch.cat([bwt, w], dim=0)], dim=1)
-                if self.bias:
-                    bias = torch.cat([bias, self.bias[i]])
-            return weight, bias
-
-    def project_gradient(self, t):
-        weight_grad, bias_grad = self.get_parameter(t, grad=True)
-        sz =  weight_grad.size(0)
-        weight_grad = weight_grad - torch.mm(weight_grad.view(sz,-1), self.projection_matrix).view(weight_grad.size())
-        for i in range(1, t+1): 
-            self.weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]]
-            self.fwt_weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]]
-            self.bwt_weight[i].grad.data = weight_grad[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]]
+    def project_gradient(self):
+        sz =  self.old_weight.size(0)
+        self.old_weight.grad.data = self.old_weight.grad.data - \
+                torch.mm(self.old_weight.grad.data.view(sz,-1), self.projection_matrix).view(self.old_weight.size())
 
     def squeeze(self):
         if self.mask is not None:
@@ -225,7 +217,12 @@ class DynamicLinear(_DynamicLayer):
         
     def forward(self, x, t):
         self.act = x.detach()
-        weight, bias = self.get_parameter(t)
+        weight = torch.cat([torch.cat([self.old_weight, self.fwt_weight[t]], dim=0), 
+                            torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
+        if self.bias:
+            bias = torch.cat([self.old_bias, self.bias[t]])
+        else:
+            bias = None
 
         if weight.numel() == 0:
             return None
@@ -290,7 +287,10 @@ class DynamicConv2D(_DynamicConvNd):
     
     def forward(self, x, t):
         self.act = x.detach()
-        weight, bias = self.get_parameter(t)
+        weight = torch.cat([torch.cat([self.old_weight, self.fwt_weight[t]], dim=0), 
+                            torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
+        if self.bias:
+            bias = torch.cat([self.old_bias, self.bias[t]])
 
         if weight.numel() == 0:
             return None

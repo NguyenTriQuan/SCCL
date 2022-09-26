@@ -22,9 +22,7 @@ import torchvision.transforms as transforms
 from gmm_torch.gmm import GaussianMixture
 # from pykeops.torch import LazyTensor
 
-from accelerate import Accelerator
-accelerator = Accelerator()
-device = accelerator.device
+device = 'cuda'
 
 import sys
 
@@ -100,7 +98,6 @@ class Appr(object):
         elif self.optim == 'Adam':
             optimizer = torch.optim.Adam(params, lr=lr)
 
-        # optimizer = accelerator.prepare(optimizer)
         return optimizer
 
     def train(self, t, train_loader, valid_loader, train_transform, valid_transform, ncla=0):
@@ -110,7 +107,6 @@ class Appr(object):
 
             self.model.expand(ncla)
             self.model = self.model.to(device)
-            self.model = accelerator.prepare(self.model)
             self.shape_out = self.model.DM[-1].shape_out
             self.cur_task = len(self.shape_out)-1
 
@@ -128,16 +124,12 @@ class Appr(object):
 
         print(self.model.report())
         self.model = self.model.to(device)
-        self.model = accelerator.prepare(self.model)
         self.shape_out = self.model.DM[-1].shape_out
         self.cur_task = len(self.shape_out)-1
 
         self.lamb = self.lambs[self.cur_task-1]
         print('lambda', self.lamb)
         print(self.log_name)
-
-        train_loader = accelerator.prepare(train_loader)
-        valid_loader = accelerator.prepare(valid_loader)
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, True)
         if not self.check_point['squeeze']:
@@ -152,11 +144,13 @@ class Appr(object):
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
-        # self.updateGPM(train_loader, valid_transform, self.thres)
+        self.updateGPM(train_loader, valid_transform, self.thres)
         self.check_point = None
         
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
+
+        self.model.get_old_parameters(t)
 
         print('number of neurons:', end=' ')
         for m in self.model.DM:
@@ -174,7 +168,6 @@ class Appr(object):
         lr = self.check_point['lr']
         patience = self.check_point['patience']
         self.optimizer = self.check_point['optimizer']
-        self.optimizer = self._get_optimizer(lr)
         start_epoch = self.check_point['epoch'] + 1
         squeeze = self.check_point['squeeze']
 
@@ -248,10 +241,9 @@ class Appr(object):
             loss += self.model.group_lasso_reg() * self.lamb
                 
         self.optimizer.zero_grad()
-        # loss.backward() 
-        accelerator.backward(loss)
-        # if t > 1:
-        #     self.model.project_gradient(t-1)
+        loss.backward() 
+        if t > 1:
+            self.model.project_gradient()
         self.optimizer.step()
 
     def eval_batch(self, t, images, targets):
@@ -328,8 +320,8 @@ class Appr(object):
                 sval_total = (S**2).sum()
                 sval_ratio = (S**2)/sval_total
                 r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
-                plt.hist(sval_ratio.detach().cpu().numpy(), bins=100) 
-                plt.show()
+                # plt.hist(sval_ratio.detach().cpu().numpy(), bins=100) 
+                # plt.show()
                 m.feature = U[:, :r]
             else:
                 return

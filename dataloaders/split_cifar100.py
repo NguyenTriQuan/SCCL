@@ -33,8 +33,6 @@ def get(args, pc_valid=0.10):
     train_data = train_data.permute(0, 3, 1, 2)/255.0
     test_data = test_data.permute(0, 3, 1, 2)/255.0
 
-    # train_data = (train_data - mean.view(1,-1,1,1))/std.view(1,-1,1,1)
-    # test_data = (test_data - mean.view(1,-1,1,1))/std.view(1,-1,1,1)
     n_old = 0
     for t in range(tasknum):
         data[t]={}

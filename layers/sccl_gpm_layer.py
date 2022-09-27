@@ -42,7 +42,7 @@ class _DynamicLayer(nn.Module):
             self.base_out_features = out_features
             self.out_features = 0
             
-        bias = False # Alert fix later
+        # bias = False # Alert fix later
         if bias:
             self.bias = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features))])
         else:
@@ -54,7 +54,7 @@ class _DynamicLayer(nn.Module):
         self.norm_type = norm_type
 
         if norm_type:
-            self.norm_layer = DynamicNorm(self.out_features, affine=False, track_running_stats=False, norm_type=norm_type)
+            self.norm_layer = DynamicNorm(self.out_features, affine=True, track_running_stats=True, norm_type=norm_type)
         else:
             self.norm_layer = None
 

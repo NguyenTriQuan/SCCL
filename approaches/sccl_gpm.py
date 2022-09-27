@@ -144,7 +144,10 @@ class Appr(object):
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
-        self.updateGPM(train_loader, valid_transform, self.thres)
+        # self.updateGPM(train_loader, valid_transform, self.thres)
+        # self.check_point['model'] = self.model
+        # torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+
         self.check_point = None
         
 

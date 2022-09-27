@@ -31,7 +31,7 @@ class MLP(torch.nn.Module):
         else:
             self.fc3=torch.nn.Linear(unitN,taskcla[0][1])
 
-    def forward(self,t,x):
+    def forward(self, x, t):
         h=x.view(x.size(0),-1)
         h=self.drop(F.relu(self.fc1(h)))
         h=self.drop(F.relu(self.fc2(h)))
@@ -83,7 +83,7 @@ class VGG8(nn.Module):
             self.last.append(torch.nn.Linear(int(256*mul),n))
         self.relu = torch.nn.ReLU()
 
-    def forward(self, t, x):
+    def forward(self, x, t):
         h=self.relu(self.conv1(x))
         h=self.relu(self.conv2(h))
         h=self.drop1(self.MaxPool(h))
@@ -129,7 +129,7 @@ class Alexnet(torch.nn.Module):
 
         return
 
-    def forward(self,t,x):
+    def forward(self, x, t):
         h=self.maxpool(self.drop1(self.relu(self.conv1(x))))
         h=self.maxpool(self.drop1(self.relu(self.conv2(h))))
         h=self.maxpool(self.drop2(self.relu(self.conv3(h))))
@@ -181,7 +181,7 @@ class VGG(nn.Module):
                 m.bias.data.zero_()
 
 
-    def forward(self, t, x):
+    def forward(self, x, t):
         for m in self.layers:
             x = m(x)
         return self.last[t](x)

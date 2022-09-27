@@ -8,10 +8,12 @@ from torch.distributions import Bernoulli, LogNormal
 import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
-from sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class _DynamicModel(nn.Module):
     """docstring for ClassName"""
@@ -29,13 +31,9 @@ class _DynamicModel(nn.Module):
             params += m.get_optim_params()
         return params
 
-    def get_old_parameters(self, t):
+    def get_parameters(self, t):
         for m in self.DM:
             m.get_old_parameters(t)
-
-    def update_old_parameters(self, t):
-        for m in self.DM:
-            m.update_old_parameters(t)
 
     def expand(self, new_class):
         self.DM[0].expand(add_in=0, add_out=None)
@@ -59,6 +57,9 @@ class _DynamicModel(nn.Module):
         return total_reg/total_strength
 
     def forward(self, input, t=-1):
+        if t == -1:
+            t = len(self.DM[-1].shape_out)-1
+
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
                 input = module(input, t)
@@ -104,10 +105,13 @@ class _DynamicModel(nn.Module):
 
         return model_count, layers_count
 
-    def project_gradient(self):
-        for m in self.DM[:-1]:
-            m.project_gradient()
+    def project_gradient(self, t):
+        for m in self.DM:
+            m.project_gradient(t)
 
+    def get_feature(self, threshold):
+        for m in self.DM:
+            m.get_feature(threshold)
 
     def report(self):
         for m in self.DM:

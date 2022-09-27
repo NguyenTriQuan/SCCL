@@ -12,7 +12,7 @@ import importlib
 # from comet_ml import Experiment
 import json
 
-device = 'cuda'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 args = get_args()
 tstart = time.time()
@@ -87,6 +87,7 @@ for t, ncla in taskcla[start_task:]:
 
     if 'sccl' in args.approach:
         appr.train(task+1, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
+        # appr.train(task+1, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
     else:
         appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'])
     print('-' * 100)
@@ -97,7 +98,6 @@ for t, ncla in taskcla[start_task:]:
             if args.cil:
                 test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
             else:
-                appr.model.get_old_parameters(u+1)
                 test_loss, test_acc = appr.eval(u+1, data[u]['test_loader'], data['valid_transform'])
         else:
             test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data['valid_transform'])
@@ -110,6 +110,9 @@ for t, ncla in taskcla[start_task:]:
     print('Avg acc={:5.2f}%'.format(100*sum(acc[t])/(t+1)))
     print('Save at ' + f'../result_data/{appr.log_name}.txt')
     np.savetxt(f'../result_data/{appr.log_name}.txt', acc, '%.4f')
+    # appr.test(data[0]['test_loader'], data['valid_transform'])
+    print('lipchiz norm 2', naive_lip(appr.model, inputsize, t, n_iter=10, ord=2))
+    print('lipchiz norm inf', naive_lip(appr.model, inputsize, t, n_iter=10, ord='inf'))
 
 # Done
 print('*' * 100)

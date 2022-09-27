@@ -15,14 +15,14 @@ import kornia as K
 import time
 import csv
 from utils import *
-from sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import networks.sccl_gpm_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from gmm_torch.gmm import GaussianMixture
 # from pykeops.torch import LazyTensor
 
-device = 'cuda'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 import sys
 
@@ -89,8 +89,8 @@ class Appr(object):
     def _get_optimizer(self,lr=None):
         if lr is None: lr=self.lr
 
-        params = self.model.get_optim_params()
-        # params = self.model.parameters()
+        # params = self.model.get_optim_params()
+        params = self.model.parameters()
 
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
@@ -149,8 +149,6 @@ class Appr(object):
         
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
-
-        self.model.get_old_parameters(t)
 
         print('number of neurons:', end=' ')
         for m in self.model.DM:
@@ -234,6 +232,8 @@ class Appr(object):
     def train_batch(self, t, images, targets, squeeze):
         outputs = self.model.forward(images, t=t)
         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+        if self.args.cil:
+            targets -= sum(self.shape_out[:t])
 
         loss = self.ce(outputs, targets)
 
@@ -243,13 +243,18 @@ class Appr(object):
         self.optimizer.zero_grad()
         loss.backward() 
         if t > 1:
-            self.model.project_gradient()
+            self.model.project_gradient(t)
         self.optimizer.step()
 
     def eval_batch(self, t, images, targets):
-        outputs = self.model.forward(images, t=t)
-        outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-                        
+        if t is None:
+            outputs = self.model.forward(images, t=self.cur_task)
+        else:
+            outputs = self.model.forward(images, t=t)
+            outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+            if self.args.cil:
+                targets -= sum(self.shape_out[:t])
+
         loss=self.ce(outputs,targets)
         values,indices=outputs.max(1)
         hits=(indices==targets).float()
@@ -285,6 +290,17 @@ class Appr(object):
                 
         return total_loss/total_num,total_acc/total_num
 
+    def test(self, data_loader, valid_transform):
+        self.model.eval()
+
+        for images, targets in data_loader:
+            images=images.to(device)
+            targets=targets.to(device)
+            if valid_transform:
+                images = valid_transform(images)
+
+            outputs = self.model.forward(images, t=self.cur_task)
+            print(outputs)
 
     def updateGPM (self, data_loader, valid_transform, threshold): 
         # Collect activations by forward pass
@@ -296,68 +312,17 @@ class Appr(object):
             if N >= self.val_batch_size:
                 break
         self.model.eval()
-        inputs = torch.cat(inputs, dim=0).to(device)
+        inputs = torch.cat(inputs, dim=0).to(device)[:self.val_batch_size]
         if valid_transform:
             images = valid_transform(images)
         outputs  = self.model(inputs, t=self.cur_task)
-        
-        for i, m in enumerate(self.model.DM[:-1]):
-            if isinstance(m, DynamicConv2D):
-                k = 0
-                batch_size, n_channels, s, _ = m.act.shape
-                mat = torch.zeros((m.kernel_size[0]*m.kernel_size[1]*m.in_features, s*s*batch_size)).to(device)
-                for kk in range(batch_size):
-                    for ii in range(m.kernel_size[0]):
-                        for jj in range(m.kernel_size[1]):
-                            mat[:,k]=m.act[kk,:,ii:m.kernel_size[0]+ii,jj:m.kernel_size[1]+jj].reshape(-1) 
-                            k +=1
-            else:
-                mat = m.act.T
 
-            if self.cur_task == 1:
-                U, S, Vh = torch.linalg.svd(mat, full_matrices=False)
-                # criteria (Eq-5)
-                sval_total = (S**2).sum()
-                sval_ratio = (S**2)/sval_total
-                r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
-                # plt.hist(sval_ratio.detach().cpu().numpy(), bins=100) 
-                # plt.show()
-                m.feature = U[:, :r]
-            else:
-                return
-                U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
-                sval_total = (S1**2).sum()
-                # Projected Representation (Eq-8)
-                m.feature = torch.cat([m.feature, torch.zeros((m.feature.shape[0], m.shape_out[-1]-m.shape_out[-2])).to(device)], dim=1)
-                act_hat = mat - torch.mm(torch.mm(m.feature, m.feature.T), mat)
-                U, S, Vh = torch.linalg.svd(act_hat, full_matrices=False)
-                # criteria (Eq-9)
-                sval_hat = (S**2).sum()
-                sval_ratio = (S**2)/sval_total               
-                accumulated_sval = (sval_total-sval_hat)/sval_total
-                r = 0
-                for ii in range (sval_ratio.shape[0]):
-                    if accumulated_sval < threshold:
-                        accumulated_sval += sval_ratio[ii]
-                        r += 1
-                    else:
-                        break
-                if r == 0:
-                    print ('Skip Updating GPM for layer: {}'.format(i+1)) 
-                    continue
-                # update GPM
-                Ui = torch.cat([m.feature, U[:, 0: r]])  
-                if Ui.shape[1] > Ui.shape[0] :
-                    m.feature = Ui[:, 0: Ui.shape[0]]
-                else:
-                    m.feature = Ui
-
-            m.projection_matrix = torch.mm(m.feature, m.feature.T)
+        self.model.get_feature(threshold)
 
         print('-'*40)
         print('Gradient Constraints Summary')
         print('-'*40)
-        for i, m in enumerate(self.model.DM[:-1]):
+        for i, m in enumerate(self.model.DM):
             print ('Layer {} : {}/{}'.format(i+1, m.feature.shape[1], m.feature.shape[0]))
         print('-'*40)
 

@@ -273,10 +273,10 @@ def print_optimizer_config(optim):
 ########################################################################################################################
 def copy_model(model):
     for module_ in model.net:
-        if isinstance(module_, ModuleList):
+        if isinstance(module_, nn.ModuleList):
             for linear_ in module_:
                 linear_.clean()
-        if isinstance(module_, ReLU) or isinstance(module_, Linear) or isinstance(module_, Conv2d) or isinstance(module_, MaxPool2d) or isinstance(module_, Dropout):
+        if isinstance(module_, nn.ReLU) or isinstance(module_, nn.Linear) or isinstance(module_, nn.Conv2d) or isinstance(module_, nn.MaxPool2d) or isinstance(module_, nn.Dropout):
             module_.clean()
 
     return deepcopy(model)
@@ -331,9 +331,6 @@ def fisher_matrix_diag(t,x,y,model,criterion,sbatch=20, split = False, args=None
         b=torch.LongTensor(np.arange(i,np.min([i+sbatch,x.size(0)]))).cuda()
         images=x[b]
         target=y[b]
-        
-        if args.experiment == 'split_CUB200':
-            images = feature_extractor(images)
         
         # Forward and backward
         model.zero_grad()
@@ -476,15 +473,15 @@ class logger(object):
             raise ValueError('{} isn''t a file'.format(path))
 
 
-def naive_lip(model: nn.Module, n_iter: int = 10, eps=1e-3, n_samples=100):
+def naive_lip(model: nn.Module, input_size, t, n_iter: int = 10, eps=1e-3, n_samples=256, ord='inf'):
     lip = -1
     for i in range(n_iter):
-        x1 = torch.randn(n_samples, 3, 32, 32).to(device)
-        alpha = ((torch.rand(n_samples, 3, 32, 32) * 2 - 1) * eps).to(device)
+        x1 = torch.randn([n_samples] + list(input_size)).to(device)
+        alpha = ((torch.rand([n_samples] + list(input_size)) * 2 - 1) * eps).to(device)
 
-        y1, y2 = model(x1), model(x1 + alpha)
-        denominator = torch.linalg.vector_norm(alpha.view(n_samples, -1), ord=2, dim=1)
-        numerator = torch.linalg.vector_norm((y2-y1).view(n_samples, -1), ord=2, dim=1)
+        y1, y2 = model(x1, t), model(x1 + alpha, t)
+        denominator = torch.linalg.vector_norm(alpha.view(n_samples, -1), ord=float(ord), dim=1)
+        numerator = torch.linalg.vector_norm((y2-y1).view(n_samples, -1), ord=float(ord), dim=1)
         lip = max(lip, torch.div(numerator, denominator).max().item())
 
     return lip

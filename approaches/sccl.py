@@ -14,7 +14,7 @@ import kornia as K
 import time
 import csv
 from utils import *
-from sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import networks.sccl_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms

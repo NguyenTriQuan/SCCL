@@ -66,7 +66,7 @@ def get(args, pc_valid=0.10):
     test_data = test_data.permute(0, 3, 1, 2)/255.0
 
     n_old = 10
-    for t in range(tasknum):
+    for t in range(1, tasknum):
         data[t]={}
         data[t]['name']='cifar100-'+str(task_order[t]+1)
         data[t]['ncla']=10

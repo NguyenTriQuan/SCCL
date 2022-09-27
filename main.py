@@ -111,8 +111,13 @@ for t, ncla in taskcla[start_task:]:
     print('Save at ' + f'../result_data/{appr.log_name}.txt')
     np.savetxt(f'../result_data/{appr.log_name}.txt', acc, '%.4f')
     # appr.test(data[0]['test_loader'], data['valid_transform'])
-    print('lipchiz norm 2', naive_lip(appr.model, inputsize, t, n_iter=10, ord=2))
-    print('lipchiz norm inf', naive_lip(appr.model, inputsize, t, n_iter=10, ord='inf'))
+    if 'sccl' in args.approach:
+        print('lipchiz norm 2', naive_lip(appr.model, inputsize, task+1, n_iter=200, ord=2))
+        print('lipchiz norm inf', naive_lip(appr.model, inputsize, task+1, n_iter=200, ord='inf'))
+    else:
+        print('lipchiz norm 2', naive_lip(appr.model, inputsize, task, n_iter=200, ord=2))
+        print('lipchiz norm inf', naive_lip(appr.model, inputsize, task, n_iter=200, ord='inf'))
+
 
 # Done
 print('*' * 100)

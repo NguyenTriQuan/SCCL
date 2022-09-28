@@ -18,8 +18,8 @@ class Appr(object):
         Net = getattr(network, args.arch)
         self.model = Net(inputsize, taskcla).to(device)
 
-        self.log_name = '{}_{}_{}_{}_mul_{}_lr_{}_batch_{}_epoch_{}'.format(args.date, args.experiment, args.approach, args.seed, 
-                                                                                args.mul, args.lr, 
+        self.log_name = '{}_{}_{}_{}_{}_lr_{}_batch_{}_epoch_{}'.format(args.date, args.experiment, args.approach, args.arch, 
+                                                                                args.seed, args.lr, 
                                                                              args.batch_size, args.nepochs)
         # self.logger = utils.logger(file_name=self.log_name, resume=False, path='../result_data/csv_data/', data_format='csv')
 

@@ -362,13 +362,15 @@ class DynamicConv2D(_DynamicConvNd):
 
     def get_mat(self):
         k = 0
-        batch_size, n_channels, s, _ = self.act.shape
+        batch_size = self.out_features - 1
+        s = compute_conv_output_size(self.act.shape[-1], self.kernel_size[0], self.stride[0], self.padding[0], self.dilation[0])
         mat = torch.zeros((self.kernel_size[0]*self.kernel_size[1]*self.in_features, s*s*batch_size)).to(device)
         for kk in range(batch_size):
-            for ii in range(self.kernel_size[0]):
-                for jj in range(self.kernel_size[1]):
+            for ii in range(s):
+                for jj in range(s):
                     mat[:,k]=self.act[kk,:,ii:self.kernel_size[0]+ii,jj:self.kernel_size[1]+jj].reshape(-1) 
                     k +=1
+
         return mat
 
 

@@ -473,18 +473,30 @@ class logger(object):
             raise ValueError('{} isn''t a file'.format(path))
 
 
-def naive_lip(model: nn.Module, input_size, t, n_iter: int = 10, eps=1e-3, n_samples=256, ord='inf'):
-    lip = -1
+def naive_lip(model: nn.Module, input_size, t, n_iter: int = 10, eps=1e-3, n_samples=256):
+    lip_2 = -1
+    lip_max = -1
+    lip_max_2 = -1
+    lip_2_max = -1
     for i in range(n_iter):
         x1 = torch.randn([n_samples] + list(input_size)).to(device)
         alpha = ((torch.rand([n_samples] + list(input_size)) * 2 - 1) * eps).to(device)
 
         y1, y2 = model(x1, t), model(x1 + alpha, t)
-        denominator = torch.linalg.vector_norm(alpha.view(n_samples, -1), ord=float(ord), dim=1)
-        numerator = torch.linalg.vector_norm((y2-y1).view(n_samples, -1), ord=float(ord), dim=1)
-        lip = max(lip, torch.div(numerator, denominator).max().item())
+        beta = y2-y1
 
-    return lip
+        denominator_2 = torch.linalg.vector_norm(alpha.view(n_samples, -1), ord=float(2), dim=1)
+        numerator_2 = torch.linalg.vector_norm(beta.view(n_samples, -1), ord=float(2), dim=1)
+        lip_2 = max(lip_2, torch.div(numerator_2, denominator_2).max().item())
+
+        denominator_max = torch.linalg.vector_norm(alpha.view(n_samples, -1), ord=float('inf'), dim=1)
+        numerator_max = torch.linalg.vector_norm(beta.view(n_samples, -1), ord=float('inf'), dim=1)
+        lip_max = max(lip_max, torch.div(numerator_max, denominator_max).max().item())
+
+        lip_max_2 = max(lip_max_2, torch.div(numerator_max, denominator_2).max().item())
+        lip_2_max = max(lip_2_max, torch.div(numerator_2, denominator_max).max().item())
+
+    return lip_2, lip_max, lip_max_2, lip_2_max
 
 def KMeans(x, K=2, Niter=10, verbose=False, use_cuda=True):
     """Implements Lloyd's algorithm for the Euclidean metric."""

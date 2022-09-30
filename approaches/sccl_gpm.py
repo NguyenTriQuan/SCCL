@@ -138,15 +138,14 @@ class Appr(object):
 
         self.prune(t, train_loader, valid_transform, thres=self.thres)
 
-
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
-        # self.updateGPM(train_loader, valid_transform, self.thres)
-        # self.check_point['model'] = self.model
-        # torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+        self.updateGPM(train_loader, valid_transform, self.thres)
+        self.check_point['model'] = self.model
+        torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
         self.check_point = None
         
@@ -192,8 +191,6 @@ class Appr(object):
                 valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 
-                # s_H = self.model.s_H()
-                # print('s_H={:.1e}'.format(s_H), end='')
                 # Adapt lr
                 if squeeze:
                     if train_acc >= best_acc:
@@ -303,7 +300,10 @@ class Appr(object):
                 images = valid_transform(images)
 
             outputs = self.model.forward(images, t=self.cur_task)
+            for m in self.model.DM:
+                print(m.act)
             print(outputs)
+            break
 
     def updateGPM (self, data_loader, valid_transform, threshold): 
         # Collect activations by forward pass
@@ -335,8 +335,8 @@ class Appr(object):
         loss,acc=self.eval(t,data_loader,valid_transform)
         loss, acc = round(loss, 3), round(acc, 3)
         print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
-        pre_prune_acc = acc
-        # pre_prune_loss = loss
+        # pre_prune_acc = acc
+        pre_prune_loss = loss
         prune_ratio = np.ones(len(self.model.DM)-1)
         step = 0
         pre_sum = 0
@@ -372,10 +372,10 @@ class Appr(object):
                         m.mask = (norm>values[k])
                         loss, acc = self.eval(t, data_loader, valid_transform)
                         loss, acc = round(loss, 3), round(acc, 3)
-                        post_prune_acc = acc
-                        # post_prune_loss = loss
-                        # if  post_prune_loss <= pre_prune_loss:
-                        if pre_prune_acc <= post_prune_acc:
+                        # post_prune_acc = acc
+                        post_prune_loss = loss
+                        if  post_prune_loss <= pre_prune_loss:
+                        # if pre_prune_acc <= post_prune_acc:
                             # k is satisfy, try smaller k
                             high = k
                             # pre_prune_loss = post_prune_loss

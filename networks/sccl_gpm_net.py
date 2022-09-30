@@ -110,7 +110,8 @@ class _DynamicModel(nn.Module):
             m.project_gradient(t)
 
     def get_feature(self, threshold):
-        for m in self.DM:
+        thresholds = [0.95, 0.99, 0.99]
+        for i, m in enumerate(self.DM):
             m.get_feature(threshold)
 
     def report(self):
@@ -181,17 +182,17 @@ class VGG8(_DynamicModel):
             # Custom_Dropout(0.5),
             ])
 
-        self.smid = size
+        s = size
         for m in self.layers:
-            if isinstance(m, DynamicConv2D) or isinstance(m, nn.MaxPool2d):
-                try:
-                    self.smid = compute_conv_output_size(self.smid, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
-                except:
-                    self.smid = compute_conv_output_size(self.smid, m.kernel_size, m.stride, m.padding, m.dilation)
+            if isinstance(m, DynamicConv2D):
+                s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
+                m.s = s
+            elif isinstance(m, nn.MaxPool2d):
+                s = compute_conv_output_size(s, m.kernel_size, m.stride, m.padding, m.dilation)
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(128*self.smid*self.smid, 256, smid=self.smid, norm_type=norm_type),
+            DynamicLinear(128*s*s, 256, norm_type=norm_type),
             nn.ReLU(),
             DynamicLinear(256, 0)
             ])
@@ -211,17 +212,17 @@ class VGG(_DynamicModel):
 
         self.layers = make_layers(cfg, nchannels, norm_type=norm_type)
 
-        self.smid = size
+        s = size
         for m in self.layers:
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.MaxPool2d):
-                try:
-                    self.smid = compute_conv_output_size(self.smid, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
-                except:
-                    self.smid = compute_conv_output_size(self.smid, m.kernel_size, m.stride, m.padding, m.dilation)
+            if isinstance(m, DynamicConv2D):
+                s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
+                m.s = s
+            elif isinstance(m, nn.MaxPool2d):
+                s = compute_conv_output_size(s, m.kernel_size, m.stride, m.padding, m.dilation)
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(512*self.smid*self.smid, 4096, smid=self.smid),
+            DynamicLinear(512*s*s, 4096),
             nn.ReLU(True),
             DynamicLinear(4096, 4096),
             nn.ReLU(True),
@@ -299,17 +300,17 @@ class Alexnet(_DynamicModel):
             nn.Dropout(0.5),
             ])
 
-        self.smid = size
+        s = size
         for m in self.layers:
-            if isinstance(m, DynamicConv2D) or isinstance(m, nn.MaxPool2d):
-                try:
-                    self.smid = compute_conv_output_size(self.smid, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
-                except:
-                    self.smid = compute_conv_output_size(self.smid, m.kernel_size, m.stride, m.padding, m.dilation)
+            if isinstance(m, DynamicConv2D):
+                s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
+                m.s = s
+            elif isinstance(m, nn.MaxPool2d):
+                s = compute_conv_output_size(s, m.kernel_size, m.stride, m.padding, m.dilation)
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(256*self.smid*self.smid, 2048),
+            DynamicLinear(256*s*s, 2048),
             nn.ReLU(),
             DynamicLinear(2048, 2048),
             nn.ReLU(),

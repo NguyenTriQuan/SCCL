@@ -86,8 +86,9 @@ for t, ncla in taskcla[start_task:]:
             appr.sbatch = 256
 
     if 'sccl' in args.approach:
-        appr.train(task+1, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
-        # appr.train(task+1, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
+        # appr.train(task+1, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
+        appr.train(task+1, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
+        # appr.train(1, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
     else:
         appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'])
     print('-' * 100)
@@ -99,24 +100,26 @@ for t, ncla in taskcla[start_task:]:
                 test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
             else:
                 test_loss, test_acc = appr.eval(u+1, data[u]['test_loader'], data['valid_transform'])
+                # test_loss, test_acc = appr.eval(1, data[u]['test_loader'], data['valid_transform'])
         else:
             test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data['valid_transform'])
 
         print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
         acc[t, u] = test_acc
         lss[t, u] = test_loss
+        # appr.test(data[u]['test_loader'], data['valid_transform'])
 
     # Save
     print('Avg acc={:5.2f}%'.format(100*sum(acc[t])/(t+1)))
     print('Save at ' + f'../result_data/{appr.log_name}.txt')
     np.savetxt(f'../result_data/{appr.log_name}.txt', acc, '%.4f')
-    # appr.test(data[0]['test_loader'], data['valid_transform'])
-    if 'sccl' in args.approach:
-        lip_2, lip_max, lip_max_2, lip_2_max = naive_lip(appr.model, inputsize, task+1, n_iter=200)
-    else:
-        lip_2, lip_max, lip_max_2, lip_2_max = naive_lip(appr.model, inputsize, task, n_iter=200)
 
-    print(f'Lipschitz norm: L2/L2: {lip_2}, max/max: {lip_max}, max/L2: {lip_max_2}, L2/max: {lip_2_max} ')
+    # if 'sccl' in args.approach:
+    #     lip_2, lip_max, lip_max_2, lip_2_max = naive_lip(appr.model, inputsize, task+1, n_iter=200)
+    # else:
+    #     lip_2, lip_max, lip_max_2, lip_2_max = naive_lip(appr.model, inputsize, task, n_iter=200)
+
+    # print(f'Lipschitz norm: L2/L2: {lip_2}, max/max: {lip_max}, max/L2: {lip_max_2}, L2/max: {lip_2_max} ')
 
 
 # Done

@@ -185,14 +185,14 @@ class VGG8(_DynamicModel):
         s = size
         for m in self.layers:
             if isinstance(m, DynamicConv2D):
-                s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
                 m.s = s
+                s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
             elif isinstance(m, nn.MaxPool2d):
                 s = compute_conv_output_size(s, m.kernel_size, m.stride, m.padding, m.dilation)
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(128*s*s, 256, norm_type=norm_type),
+            DynamicLinear(128*s*s, 256, norm_type=norm_type, s=s),
             nn.ReLU(),
             DynamicLinear(256, 0)
             ])
@@ -215,14 +215,14 @@ class VGG(_DynamicModel):
         s = size
         for m in self.layers:
             if isinstance(m, DynamicConv2D):
-                s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
                 m.s = s
+                s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
             elif isinstance(m, nn.MaxPool2d):
                 s = compute_conv_output_size(s, m.kernel_size, m.stride, m.padding, m.dilation)
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(512*s*s, 4096),
+            DynamicLinear(512*s*s, 4096, s=s),
             nn.ReLU(True),
             DynamicLinear(4096, 4096),
             nn.ReLU(True),
@@ -303,14 +303,14 @@ class Alexnet(_DynamicModel):
         s = size
         for m in self.layers:
             if isinstance(m, DynamicConv2D):
-                s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
                 m.s = s
+                s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
             elif isinstance(m, nn.MaxPool2d):
                 s = compute_conv_output_size(s, m.kernel_size, m.stride, m.padding, m.dilation)
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(256*s*s, 2048),
+            DynamicLinear(256*s*s, 2048, s=s),
             nn.ReLU(),
             DynamicLinear(2048, 2048),
             nn.ReLU(),

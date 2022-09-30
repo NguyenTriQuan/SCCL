@@ -196,7 +196,7 @@ class _DynamicLayer(nn.Module):
 
             for m in self.next_layer:
                 if isinstance(m, DynamicLinear) and isinstance(self, DynamicConv2D):
-                    mask_in = self.mask.view(-1,1,1).expand(self.mask.size(0),m.smid,m.smid).contiguous().view(-1)
+                    mask_in = self.mask.view(-1,1,1).expand(self.mask.size(0),m.s,m.s).contiguous().view(-1)
                 else:
                     mask_in = self.mask
 
@@ -368,7 +368,7 @@ class DynamicConv2D(_DynamicConvNd):
         weight = torch.cat([self.next_layer[0].weight[t], self.next_layer[0].bwt_weight[t]], dim=0)
         if isinstance(self.next_layer[0], DynamicLinear):
             weight = weight.view(self.next_layer[0].weight[t].shape[0] + self.next_layer[0].bwt_weight[t].shape[0], 
-                                self.weight[t].shape[0], self.s, self.s)
+                                self.weight[t].shape[0], self.next_layer[0].s, self.next_layer[0].s)
 
         norm = weight.norm(2, dim=(0,2,3))
         return norm

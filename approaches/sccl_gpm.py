@@ -104,7 +104,6 @@ class Appr(object):
 
         if self.check_point is None:
             print('Training new task')
-
             self.model.expand(ncla)
             self.model = self.model.to(device)
             self.shape_out = self.model.DM[-1].shape_out
@@ -300,8 +299,8 @@ class Appr(object):
                 images = valid_transform(images)
 
             outputs = self.model.forward(images, t=self.cur_task)
-            for m in self.model.DM:
-                print(m.act)
+            # for m in self.model.DM:
+            #     print(m.act)
             print(outputs)
             break
 

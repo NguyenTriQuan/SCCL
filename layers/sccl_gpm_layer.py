@@ -56,7 +56,7 @@ class _DynamicLayer(nn.Module):
         self.norm_type = norm_type
 
         if norm_type:
-            self.norm_layer = DynamicNorm(self.out_features, affine=False, track_running_stats=True, norm_type=norm_type)
+            self.norm_layer = DynamicNorm(self.out_features, affine=False, track_running_stats=False, norm_type=norm_type)
         else:
             self.norm_layer = None
 
@@ -119,45 +119,42 @@ class _DynamicLayer(nn.Module):
         return params - torch.mm(params.view(sz,-1), self.projection_matrix).view(params.size())
 
     def get_feature(self, threshold):
+        mat = self.get_mat()
         if self.feature is None:
-            mat = self.get_mat()
             U, S, Vh = torch.linalg.svd(mat, full_matrices=False)
             # criteria (Eq-5)
             sval_ratio = S**2
             sval_ratio = sval_ratio/sval_ratio.sum()
 
-            r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
+            r = (torch.cumsum(sval_ratio, dim=0) <= threshold).sum().item() #+1 
             self.feature = U[:, :r]
+            print(sval_ratio)
 
-            # self.feature = U[:, sval_ratio > threshold]
-            # print(U.T)
-        # else:
-        #     U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
-        #     sval_total = (S1**2).sum()
-        #     # Projected Representation (Eq-8)
-        #     m.feature = torch.cat([m.feature, torch.zeros((m.feature.shape[0], m.shape_out[-1]-m.shape_out[-2])).to(device)], dim=1)
-        #     act_hat = mat - torch.mm(torch.mm(m.feature, m.feature.T), mat)
-        #     U, S, Vh = torch.linalg.svd(act_hat, full_matrices=False)
-        #     # criteria (Eq-9)
-        #     sval_hat = (S**2).sum()
-        #     sval_ratio = (S**2)/sval_total               
-        #     accumulated_sval = (sval_total-sval_hat)/sval_total
-        #     r = 0
-        #     for ii in range (sval_ratio.shape[0]):
-        #         if accumulated_sval < threshold:
-        #             accumulated_sval += sval_ratio[ii]
-        #             r += 1
-        #         else:
-        #             break
-        #     if r == 0:
-        #         print ('Skip Updating GPM for layer: {}'.format(i+1)) 
-        #         return
-        #     # update GPM
-        #     Ui = torch.cat([m.feature, U[:, 0: r]])  
-        #     if Ui.shape[1] > Ui.shape[0] :
-        #         m.feature = Ui[:, 0: Ui.shape[0]]
-        #     else:
-        #         m.feature = Ui
+        else:
+            U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
+            sval_total = (S1**2).sum()
+            # Projected Representation (Eq-8)
+            self.feature = torch.cat([self.feature, 
+                            torch.zeros(self.shape_in[-1]-self.shape_in[-2], self.feature.shape[1]).to(device)], dim=0)
+            act_hat = mat - torch.mm(torch.mm(self.feature, self.feature.T), mat)
+            U, S, Vh = torch.linalg.svd(act_hat, full_matrices=False)
+            # criteria (Eq-9)
+            sval_hat = (S**2).sum()
+            sval_ratio = (S**2)/sval_total               
+            accumulated_sval = (sval_total-sval_hat)/sval_total
+            r = 0
+            for ii in range (sval_ratio.shape[0]):
+                if accumulated_sval <= threshold:
+                    accumulated_sval += sval_ratio[ii]
+                    r += 1
+                else:
+                    break
+            if r == 0:
+                return
+            # update GPM
+            self.feature = torch.cat([self.feature, U[:, 0: r]], dim=1)  
+            if self.feature.shape[1] > self.feature.shape[0] :
+                self.feature = self.feature[:, 0: self.feature.shape[0]]
 
         self.projection_matrix = torch.mm(self.feature, self.feature.T)
 
@@ -233,6 +230,7 @@ class _DynamicLayer(nn.Module):
             nn.init.uniform_(self.weight[-1], -bound, bound)
             nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
             nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
+            # nn.init.uniform_(self.bwt_weight[-1], 0, 0)
 
         # if self.projection_matrix is not None:
         #     self.fwt_weight[-1].data = self.project(self.fwt_weight[-1].data)
@@ -301,9 +299,7 @@ class DynamicLinear(_DynamicLayer):
         return norm
 
     def get_mat(self):
-        # batch_size = min(self.in_features, self.act.shape[0])
-        batch_size = self.act.shape[0]
-        return self.act[:batch_size].T
+        return self.act.T
             
         
 class _DynamicConvNd(_DynamicLayer):
@@ -375,7 +371,6 @@ class DynamicConv2D(_DynamicConvNd):
 
     def get_mat(self):
         k = 0
-        # batch_size = min(self.in_features, self.act.shape[0])
         batch_size = self.act.shape[0]
         s = compute_conv_output_size(self.act.shape[-1], self.kernel_size[0], self.stride[0], self.padding[0], self.dilation[0])
         mat = torch.zeros((self.kernel_size[0]*self.kernel_size[1]*self.in_features, s*s*batch_size)).to(device)

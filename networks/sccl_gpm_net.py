@@ -110,9 +110,9 @@ class _DynamicModel(nn.Module):
             m.project_gradient(t)
 
     def get_feature(self, threshold):
-        thresholds = [0.95, 0.99, 0.99]
-        for i, m in enumerate(self.DM):
-            m.get_feature(threshold)
+        self.DM[0].get_feature(threshold)
+        for i, m in enumerate(self.DM[1:]):
+            m.get_feature(1.0)
 
     def report(self):
         for m in self.DM:
@@ -132,7 +132,7 @@ class MLP(_DynamicModel):
         super(MLP, self).__init__()
         self.mul = mul
         self.input_size = input_size
-        N = 400
+        N = 100
         self.layers = nn.ModuleList([
             nn.Flatten(),
             # nn.Dropout(0.25),

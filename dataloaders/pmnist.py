@@ -42,21 +42,17 @@ def get(args, pc_valid=0.0):
         data[t]['ncla'] = 10
         permutation = torch.randperm(28*28)
 
-        if args.cil:
-            train_targets += n_old
-
         images = train_data.view(train_data.shape[0], -1)[:, permutation].view(train_data.shape[0], 1, 28, 28)
-        data[t]['train_loader'] = DataLoader(TensorDataset(images, train_targets), batch_size=args.batch_size, shuffle=True)
-        data[t]['valid_loader'] = DataLoader(TensorDataset(images, train_targets), batch_size=args.val_batch_size, shuffle=False)
+        data[t]['train_loader'] = DataLoader(TensorDataset(images, train_targets + n_old), batch_size=args.batch_size, shuffle=True)
+        data[t]['valid_loader'] = DataLoader(TensorDataset(images, train_targets + n_old), batch_size=args.val_batch_size, shuffle=False)
 
         #test
         images = test_data.view(test_data.shape[0], -1)[:, permutation].view(test_data.shape[0], 1, 28, 28)
+
+        data[t]['test_loader'] = DataLoader(TensorDataset(images, test_targets + n_old), batch_size=args.val_batch_size, shuffle=False)
+
         if args.cil:
-            train_targets += n_old
-
-        data[t]['test_loader'] = DataLoader(TensorDataset(images, test_targets), batch_size=args.val_batch_size, shuffle=False)
-
-        n_old += 10
+            n_old += 10
 
     if args.augment:
         data['train_transform'] = torch.nn.Sequential(

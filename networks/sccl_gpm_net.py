@@ -68,40 +68,20 @@ class _DynamicModel(nn.Module):
 
         return input
 
-    def compute_model_size(self, t=-1):
+    def count_params(self, t=-1):
+        if t == -1:
+            t = len(self.DM[-1].shape_out)-1
         model_count = 0
         layers_count = []
+        gpm_count = 0
         for m in self.DM:
-            temp_count = 0
-            for p in m.weight[:t]:
-                temp_count += p.numel()
-            temp_count += m.weight[t].numel()
+            count = m.count_params(t)
+            model_count += count
+            layers_count.append(count)
+            if m.projection_matrix is not None:
+                gpm_count += m.projection_matrix.numel() + m.feature.numel()
 
-            for p in m.fwt_weight[:t]:
-                temp_count += p.numel()
-            temp_count += m.fwt_weight[t].numel()
-
-            for p in m.bwt_weight[:t]:
-                temp_count += p.numel()
-            temp_count += m.bwt_weight[t].numel()
-
-            if m.bias is not None:
-                for p in m.bias[:t]:
-                    temp_count += p.numel()
-                temp_count += m.bias[t].numel()
-
-            if m.norm_layer is not None:
-                if m.norm_layer.affine:
-                    for p in m.norm_layer.weight[:t]:
-                        temp_count += p.numel()
-                    temp_count += m.norm_layer.weight[t].numel()
-
-                    for p in m.norm_layer.bias[:t]:
-                        temp_count += p.numel()
-                    temp_count += m.norm_layer.bias[t].numel()
-
-            model_count += temp_count
-            layers_count.append(temp_count)
+        print('GPM params:', gpm_count)
 
         return model_count, layers_count
 

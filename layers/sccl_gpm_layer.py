@@ -44,7 +44,7 @@ class _DynamicLayer(nn.Module):
             self.base_out_features = out_features
             self.out_features = 0
             
-        bias = False # Alert fix later
+        # bias = False # Alert fix later
         if bias:
             self.bias = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features))])
         else:
@@ -56,7 +56,7 @@ class _DynamicLayer(nn.Module):
         self.norm_type = norm_type
 
         if norm_type:
-            self.norm_layer = DynamicNorm(self.out_features, affine=False, track_running_stats=False, norm_type=norm_type)
+            self.norm_layer = DynamicNorm(self.out_features, affine=True, track_running_stats=True, norm_type=norm_type)
         else:
             self.norm_layer = None
 
@@ -64,19 +64,30 @@ class _DynamicLayer(nn.Module):
         self.s = s
         self.mask = None
         
-        self.old_weight = nn.Parameter(torch.empty(0), requires_grad=True)
-        self.old_bias = nn.Parameter(torch.empty(0), requires_grad=True) if self.bias else None
         self.projection_matrix = None
         self.feature = None 
 
     def get_optim_params(self):
-        params = [self.weight[-1], self.fwt_weight[-1], self.bwt_weight[-1]]
+        params = []
+        for i in range(len(self.weight)):
+            params += [self.weight[i], self.fwt_weight[i], self.bwt_weight[i]]
         if self.bias:
             params += [self.bias[-1]]
         if self.norm_layer:
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
         return params
+
+    def count_params(self, t):
+        count = 0
+        for i in range(t+1):
+            count += self.weight[i].numel() + self.fwt_weight[i].numel() + self.bwt_weight[i].numel()
+            if self.bias:
+                count += self.bias[i].numel()
+            if self.norm_layer:
+                if self.norm_layer.affine:
+                    count += self.norm_layer.weight[i].numel() + self.norm_layer.bias[i].numel()
+        return count
 
     def get_reg(self):
         reg = 0
@@ -128,7 +139,6 @@ class _DynamicLayer(nn.Module):
 
             r = (torch.cumsum(sval_ratio, dim=0) <= threshold).sum().item() #+1 
             self.feature = U[:, :r]
-            print(sval_ratio)
 
         else:
             U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
@@ -160,7 +170,6 @@ class _DynamicLayer(nn.Module):
 
     def project_gradient(self, t):
         weight_grad = torch.empty(0).to(device)
-
         for i in range(1, t):
             weight_grad = torch.cat([torch.cat([weight_grad, self.fwt_weight[i].grad], dim=0), 
                                 torch.cat([self.bwt_weight[i].grad, self.weight[i].grad], dim=0)], dim=1)

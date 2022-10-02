@@ -90,9 +90,8 @@ class _DynamicModel(nn.Module):
             m.project_gradient(t)
 
     def get_feature(self, threshold):
-        self.DM[0].get_feature(threshold)
-        for i, m in enumerate(self.DM[1:]):
-            m.get_feature(1.0)
+        for i, m in enumerate(self.DM):
+            m.get_feature(threshold)
 
     def report(self):
         for m in self.DM:

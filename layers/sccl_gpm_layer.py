@@ -144,8 +144,6 @@ class _DynamicLayer(nn.Module):
             U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
             sval_total = (S1**2).sum()
             # Projected Representation (Eq-8)
-            self.feature = torch.cat([self.feature, 
-                            torch.zeros(self.shape_in[-1]-self.shape_in[-2], self.feature.shape[1]).to(device)], dim=0)
             act_hat = mat - torch.mm(torch.mm(self.feature, self.feature.T), mat)
             U, S, Vh = torch.linalg.svd(act_hat, full_matrices=False)
             # criteria (Eq-9)
@@ -308,6 +306,9 @@ class DynamicLinear(_DynamicLayer):
         return norm
 
     def get_mat(self):
+        if self.feature is not None:
+            padding = torch.zeros(self.shape_in[-1]-self.shape_in[-2], self.feature.shape[1]).to(device)
+            self.feature = torch.cat([self.feature, padding], dim=0)
         return self.act.T
             
         
@@ -379,6 +380,9 @@ class DynamicConv2D(_DynamicConvNd):
         return norm
 
     def get_mat(self):
+        if self.feature is not None:
+            padding = torch.zeros(self.kernel_size[0]*self.kernel_size[1]*(self.shape_in[-1]-self.shape_in[-2]), self.feature.shape[1])
+            self.feature = torch.cat([self.feature, padding.to(device)], dim=0)
         k = 0
         batch_size = self.act.shape[0]
         s = compute_conv_output_size(self.act.shape[-1], self.kernel_size[0], self.stride[0], self.padding[0], self.dilation[0])
@@ -388,7 +392,6 @@ class DynamicConv2D(_DynamicConvNd):
                 for jj in range(s):
                     mat[:,k]=self.act[kk,:,ii:self.kernel_size[0]+ii,jj:self.kernel_size[1]+jj].reshape(-1) 
                     k +=1
-
         return mat
 
 

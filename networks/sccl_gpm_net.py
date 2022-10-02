@@ -79,7 +79,7 @@ class _DynamicModel(nn.Module):
             model_count += count
             layers_count.append(count)
             if m.projection_matrix is not None:
-                gpm_count += m.projection_matrix.numel() + m.feature.numel()
+                gpm_count += m.feature.numel()
 
         print('GPM params:', gpm_count)
 

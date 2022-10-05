@@ -97,11 +97,7 @@ class _DynamicLayer(nn.Module):
         weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
         norm = weight.norm(2, dim=norm_dim)
         if self.bias is not None:
-            norm = norm**2 + self.bias[t]**2
-        # if self.norm_layer:
-        #         if self.norm_layer.affine:
-        #             norm += self.norm_layer.weight[-1][self.norm_layer.shape[-2]:]**2 + self.norm_layer.bias[-1][self.norm_layer.shape[-2]:]**2
-                    
+            norm = norm**2 + self.bias[t]**2     
         return norm ** 0.5
 
     def norm_out(self, t=-1):
@@ -253,9 +249,9 @@ class _DynamicLayer(nn.Module):
         # temp = F.cosine_similarity(weight_grad.view(-1), weight_grad_projected.view(-1), dim=0)
         # print(temp.item(), math.acos(temp.item())/math.pi)
         for i in range(1, t): 
-            self.weight[i].grad.data = weight_grad_projected[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]].clone()
-            self.fwt_weight[i].grad.data = weight_grad_projected[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]].clone()
-            self.bwt_weight[i].grad.data = weight_grad_projected[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]].clone()
+            self.weight[i].grad.data = weight_grad_projected[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]]
+            self.fwt_weight[i].grad.data = weight_grad_projected[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]]
+            self.bwt_weight[i].grad.data = weight_grad_projected[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]]
 
         # if self.fwt_weight[t].numel() != 0:
         #     self.fwt_weight[t].grad.data = self.project(self.fwt_weight[t].grad.data)
@@ -387,19 +383,18 @@ class _DynamicLayer(nn.Module):
             self.weight[-1].data *= aux.view(view_in)
             self.fwt_weight[-1].data *= aux.view(view_in)
             self.bias[-1].data *= aux
-            # if self.norm_layer:
-            #     if self.norm_layer.affine:
-            #         self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux
-            #         self.norm_layer.bias[-1].data[self.norm_layer.shape[-2]:] *= aux
             self.mask = (aux != 0)
 
             # group lasso weights out
             norm = self.norm_out(-1)
             aux = 1 - lamb * lr * strength / norm
             aux = F.threshold(aux, 0, 0, False)
+            self.mask *= (aux != 0)
+            if isinstance(self.next_layers[0], DynamicLinear) and isinstance(self, DynamicConv2D):
+                aux = aux.view(-1,1,1).expand(aux.size(0),self.next_layers[0].s,self.next_layers[0].s).contiguous().view(-1)
+                view_out = (1, -1)
             self.next_layers[0].weight[-1].data *= aux.view(view_out)
-            self.next_layers[0].bwt_weight[-1].data *= aux.view(view_out)      
-            self.mask *= (aux != 0)              
+            self.next_layers[0].bwt_weight[-1].data *= aux.view(view_out)                    
 
             # group lasso affine weights
             if self.norm_layer:

@@ -277,17 +277,17 @@ class Alexnet(_DynamicModel):
         self.mul = mul
 
         self.layers = nn.ModuleList([
-            DynamicConv2D(ncha,64,kernel_size=size//8, first_layer=True),
+            DynamicConv2D(ncha,64,kernel_size=size//8, first_layer=True, norm_type=norm_type),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.MaxPool2d(2),
 
-            DynamicConv2D(64,128,kernel_size=size//10),
+            DynamicConv2D(64,128,kernel_size=size//10, norm_type=norm_type),
             nn.Dropout(0.2),
             nn.ReLU(),
             nn.MaxPool2d(2),
 
-            DynamicConv2D(128,256,kernel_size=2),
+            DynamicConv2D(128,256,kernel_size=2, norm_type=norm_type),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.MaxPool2d(2),
@@ -303,13 +303,13 @@ class Alexnet(_DynamicModel):
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(256*s*s, 2048, s=s),
+            DynamicLinear(256*s*s, 2048, s=s, norm_type=norm_type),
             nn.ReLU(),
-            # nn.Dropout(0.5),
-            DynamicLinear(2048, 2048),
+            nn.Dropout(0.5),
+            DynamicLinear(2048, 2048, norm_type=norm_type),
             nn.ReLU(),
-            # nn.Dropout(0.5),
-            DynamicLinear(2048, 0, last_layer=True)
+            nn.Dropout(0.5),
+            DynamicLinear(2048, 0, last_layer=True, norm_type=norm_type)
         ])
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):

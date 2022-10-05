@@ -21,6 +21,9 @@ import sys
 from gmm_torch.gmm import GaussianMixture
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def compute_conv_output_size(Lin,kernel_size,stride=1,padding=0,dilation=1):
+    return int(np.floor((Lin+2*padding-dilation*(kernel_size-1)-1)/float(stride)+1))
     
 class _DynamicLayer(nn.Module):
 

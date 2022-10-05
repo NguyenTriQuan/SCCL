@@ -14,6 +14,9 @@ from layers.sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 from utils import *
 import sys
 
+def compute_conv_output_size(Lin,kernel_size,stride=1,padding=0,dilation=1):
+    return int(np.floor((Lin+2*padding-dilation*(kernel_size-1)-1)/float(stride)+1))
+    
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class _DynamicModel(nn.Module):
@@ -302,10 +305,10 @@ class Alexnet(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(256*s*s, 2048, s=s),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             DynamicLinear(2048, 2048),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             DynamicLinear(2048, 0, last_layer=True)
         ])
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]

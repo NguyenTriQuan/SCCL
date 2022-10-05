@@ -73,17 +73,23 @@ class _DynamicModel(nn.Module):
             t = len(self.DM[-1].shape_out)-1
         model_count = 0
         layers_count = []
-        gpm_count = 0
+        print('num neurons:', end=' ')
         for m in self.DM:
+            print(m.out_features, end=' ')
             count = m.count_params(t)
             model_count += count
             layers_count.append(count)
-            if m.projection_matrix is not None:
-                gpm_count += m.feature.numel()
 
-        print('GPM params:', gpm_count)
+        print('num params:', model_count)
 
         return model_count, layers_count
+
+    def count_GPM(self):
+        gpm_count = 0
+        for m in self.DM:
+            if m.projection_matrix is not None:
+                gpm_count += m.feature.numel()
+        print('GPM count:', gpm_count)
 
     def project_gradient(self, t):
         for m in self.DM[:-1]:

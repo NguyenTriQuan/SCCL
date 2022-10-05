@@ -156,12 +156,8 @@ class Appr(object):
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 
-        print('number of neurons:', end=' ')
-        for m in self.model.DM:
-            print(m.out_features, end=' ')
-        print()
-        params = self.model.count_params()
-        print('num params', params)
+        self.model.count_params()
+        self.model.count_GPM()
 
         train_loss,train_acc=self.eval(t,train_loader,valid_transform)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
@@ -278,11 +274,7 @@ class Appr(object):
         
         if squeeze:
             self.model.squeeze(self.optimizer.state)
-        print('number of neurons:', end=' ')
-        for m in self.model.DM[:-1]:
-            print(m.out_features, end=' ')
-            # print(m.shape_in, m.shape_out, end=' ')
-        print()
+        self.model.count_params()
 
 
     def eval(self, t, data_loader, valid_transform):

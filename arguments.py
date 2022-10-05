@@ -61,12 +61,12 @@ def get_args():
                                  'SGD_momentum_decay', 
                                  'Adam'], 
                         help='(default=%(default)s)')
-    parser.add_argument('--ablation', default='None', type=str, required=False,
+    parser.add_argument('--ablation', default='full', type=str, required=False,
                         choices=['no_gpm', 
                                  'no_prune', 
                                  'no_dropout',
                                  'no_normalize'
-                                 'None'], 
+                                 'full'], 
                         help='(default=%(default)s)')
     parser.add_argument('--output', default='', type=str, required=False, help='(default=%(default)s)')
     parser.add_argument('--nepochs', default=100, type=int, required=False, help='(default=%(default)d)')

@@ -69,9 +69,10 @@ class Appr(object):
         self.get_name(self.tasknum+1)
 
     def get_name(self, t):
-        self.log_name = '{}_{}_{}_{}_lamb_{}_thres_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(self.experiment, self.approach, self.arch, self.seed,
-                                                                                '_'.join([str(lamb) for lamb in self.lambs[:t]]), self.threshold, 
-                                                                                self.lr, self.batch_size, self.nepochs, self.optim, self.fix, self.norm_type)
+        self.log_name = '{}_{}_{}_{}_{}_lamb_{}_thres_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(
+                                        self.experiment, self.approach, self.args.ablation, self.arch, self.seed,
+                                                '_'.join([str(lamb) for lamb in self.lambs[:t]]), self.threshold, 
+                                    self.lr, self.batch_size, self.nepochs, self.optim, self.fix, self.norm_type)
         
     def resume(self):
         for t in range(1, self.tasknum + 1):
@@ -90,8 +91,7 @@ class Appr(object):
     def _get_optimizer(self,lr=None):
         if lr is None: lr=self.lr
 
-        params = self.model.get_optim_params()
-        # params = self.model.parameters()
+        params = self.model.get_optim_params(self.args.ablation)
 
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
@@ -145,23 +145,13 @@ class Appr(object):
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
-        # print('number of neurons:', end=' ')
-        # for m in self.model.DM:
-        #     print(m.out_features, end=' ')
-        # print()
-        # params = self.model.count_params()
-        # print('num params', params)
-
-        self.updateGPM(train_loader, valid_transform, self.thresholds)
-        self.check_point['model'] = self.model
-        torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+        if self.args.ablation != 'no_gpm':
+            self.updateGPM(train_loader, valid_transform, self.thresholds)
+            self.check_point['model'] = self.model
+            torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
         self.check_point = None
 
-        # for m in self.model.DM:
-        #     print(m.weight[-1])
-        #     print(m.fwt_weight[-1])
-        #     print(m.bwt_weight[-1])
         
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):

@@ -116,10 +116,13 @@ class _DynamicLayer(nn.Module):
         norm = weight.norm(2, dim=norm_dim)
         return norm
 
-    def get_optim_params(self):
+    def get_optim_params(self, ablation):
         params = []
-        for i in range(len(self.weight)):
-            params += [self.weight[i], self.fwt_weight[i], self.bwt_weight[i]]
+        if ablation != 'no_gpm':
+            for i in range(len(self.weight)):
+                params += [self.weight[i], self.fwt_weight[i], self.bwt_weight[i]]
+        else:
+            params += [self.weight[-1], self.fwt_weight[-1], self.bwt_weight[-1]]
         if self.bias:
             params += [self.bias[-1]]
         if self.norm_layer:
@@ -342,10 +345,6 @@ class _DynamicLayer(nn.Module):
             bound = gain * math.sqrt(3.0/fan_in)
             nn.init.uniform_(self.weight[-1], -bound, bound)
             nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
-            if self.last_layer or len(self.weight) <= 2:
-                nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
-            else:
-                nn.init.uniform_(self.fwt_weight[-1], 0, 0)
             nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
 
         # if self.projection_matrix is not None:

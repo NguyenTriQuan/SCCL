@@ -42,7 +42,6 @@ class Appr(object):
         self.lr_patience = args.lr_patience 
         self.clipgrad = clipgrad
         self.optim = args.optimizer
-        self.thres = args.thres
         self.tasknum = args.tasknum
         self.fix = args.fix
         self.experiment = args.experiment
@@ -53,6 +52,8 @@ class Appr(object):
 
         self.args = args
         self.lambs = [float(i) for i in args.lamb.split('_')]
+        self.thresholds = [float(i) for i in args.threshold.split('_')]
+        self.threshold = args.threshold
         self.check_point = None
         
         if len(self.lambs) < args.tasknum:
@@ -69,7 +70,7 @@ class Appr(object):
 
     def get_name(self, t):
         self.log_name = '{}_{}_{}_{}_lamb_{}_thres_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(self.experiment, self.approach, self.arch, self.seed,
-                                                                                '_'.join([str(lamb) for lamb in self.lambs[:t]]), self.thres, 
+                                                                                '_'.join([str(lamb) for lamb in self.lambs[:t]]), self.threshold, 
                                                                                 self.lr, self.batch_size, self.nepochs, self.optim, self.fix, self.norm_type)
         
     def resume(self):
@@ -94,9 +95,11 @@ class Appr(object):
 
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
-                          weight_decay=0.0, momentum=0.9, nesterov=True)
+                          weight_decay=0.0, momentum=0.9)
+            # optimizer = torch.optim.SGD(params, lr=lr)
         elif self.optim == 'Adam':
             optimizer = torch.optim.Adam(params, lr=lr)
+            # optimizer = Adam_(self.model, lr=lr)
 
         return optimizer
 
@@ -135,18 +138,30 @@ class Appr(object):
             self.check_point = None
             return 
 
-        self.prune(t, train_loader, valid_transform)
+        # self.prune(t, train_loader, valid_transform)
 
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
-        self.updateGPM(train_loader, valid_transform, self.thres)
+        # print('number of neurons:', end=' ')
+        # for m in self.model.DM:
+        #     print(m.out_features, end=' ')
+        # print()
+        # params = self.model.count_params()
+        # print('num params', params)
+
+        self.updateGPM(train_loader, valid_transform, self.thresholds)
         self.check_point['model'] = self.model
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
         self.check_point = None
+
+        # for m in self.model.DM:
+        #     print(m.weight[-1])
+        #     print(m.fwt_weight[-1])
+        #     print(m.bwt_weight[-1])
         
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
@@ -178,7 +193,7 @@ class Appr(object):
         try:
             for e in range(start_epoch, self.nepochs):
                 clock0=time.time()
-                self.train_epoch(t, train_loader, train_transform, squeeze)
+                self.train_epoch(t, train_loader, train_transform, squeeze, lr)
             
                 clock1=time.time()
                 train_loss,train_acc=self.eval(t, train_loader, valid_transform)
@@ -228,7 +243,7 @@ class Appr(object):
         self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
         self.model = self.check_point['model']
 
-    def train_batch(self, t, images, targets, squeeze):
+    def train_batch(self, t, images, targets, squeeze, lr):
         outputs = self.model.forward(images, t=t)
         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
         if self.args.cil:
@@ -236,14 +251,16 @@ class Appr(object):
 
         loss = self.ce(outputs, targets)
 
-        if squeeze:
-            loss += self.model.group_lasso_reg() * self.lamb
+        # if squeeze:
+        #     loss += self.model.group_lasso_reg() * self.lamb
                 
         self.optimizer.zero_grad()
         loss.backward() 
-        if t > 1:
-            self.model.project_gradient(t)
+        self.model.project_gradient(t)
         self.optimizer.step()
+        if squeeze:
+            self.model.proximal_gradient_descent(lr, self.lamb)
+            
 
     def eval_batch(self, t, images, targets):
         if t is None:
@@ -260,14 +277,22 @@ class Appr(object):
 
         return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
 
-    def train_epoch(self, t, data_loader, train_transform, squeeze=True):
+    def train_epoch(self, t, data_loader, train_transform, squeeze, lr):
         self.model.train()
         for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
             if train_transform:
                 images = train_transform(images)
-            self.train_batch(t, images, targets, squeeze)
+            self.train_batch(t, images, targets, squeeze, lr)
+        
+        if squeeze:
+            self.model.squeeze(self.optimizer.state)
+        print('number of neurons:', end=' ')
+        for m in self.model.DM[:-1]:
+            print(m.out_features, end=' ')
+            # print(m.shape_in, m.shape_out, end=' ')
+        print()
 
 
     def eval(self, t, data_loader, valid_transform):
@@ -304,7 +329,7 @@ class Appr(object):
             print(outputs)
             break
 
-    def updateGPM (self, data_loader, valid_transform, threshold): 
+    def updateGPM (self, data_loader, valid_transform, thresholds): 
         # Collect activations by forward pass
         inputs = []
         N = 0
@@ -319,13 +344,14 @@ class Appr(object):
             images = valid_transform(images)
         outputs  = self.model(inputs, t=self.cur_task)
 
-        self.model.get_feature(threshold)
+        self.model.get_feature(thresholds)
 
         print('-'*40)
         print('Gradient Constraints Summary')
         print('-'*40)
         for i, m in enumerate(self.model.DM):
-            print ('Layer {} : {}/{}'.format(i+1, m.feature.shape[1], m.feature.shape[0]))
+            if m.feature is not None:
+                print ('Layer {} : {}/{}'.format(i+1, m.feature.shape[1], m.feature.shape[0]))
         print('-'*40)
 
 

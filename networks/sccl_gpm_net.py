@@ -1,3 +1,4 @@
+from tkinter.tix import Tree
 from turtle import forward
 from regex import D
 import torch
@@ -41,10 +42,9 @@ class _DynamicModel(nn.Module):
             m.expand(add_in=None, add_out=None)
         self.DM[-1].expand(add_in=None, add_out=new_class)
 
-    def squeeze(self):
+    def squeeze(self, optim_state):
         for m in self.DM[:-1]:
-            m.squeeze()
-            m.mask = None
+            m.squeeze(optim_state)
 
     def group_lasso_reg(self):
         total_reg = 0
@@ -86,12 +86,17 @@ class _DynamicModel(nn.Module):
         return model_count, layers_count
 
     def project_gradient(self, t):
-        for m in self.DM:
+        for m in self.DM[:-1]:
             m.project_gradient(t)
 
-    def get_feature(self, threshold):
-        for i, m in enumerate(self.DM):
-            m.get_feature(threshold)
+    def get_feature(self, thresholds):
+        self.DM[0].get_feature(thresholds[0])
+        for i, m in enumerate(self.DM[1:-1]):
+            m.get_feature(thresholds[-1])
+
+    def proximal_gradient_descent(self, lr, lamb):
+        for m in self.DM[:-1]:
+            m.proximal_gradient_descent(lr, lamb)
 
     def report(self):
         for m in self.DM:
@@ -111,7 +116,7 @@ class MLP(_DynamicModel):
         super(MLP, self).__init__()
         self.mul = mul
         self.input_size = input_size
-        N = 100
+        N = 400
         self.layers = nn.ModuleList([
             nn.Flatten(),
             # nn.Dropout(0.25),
@@ -119,12 +124,12 @@ class MLP(_DynamicModel):
             nn.ReLU(),
             DynamicLinear(N, N, bias=True, norm_type=norm_type),
             nn.ReLU(),
-            DynamicLinear(N, 0, bias=True),
+            DynamicLinear(N, 0, bias=True, last_layer=True),
             ])
         
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = [self.DM[i+1]]
+            m.next_layers = [self.DM[i+1]]
 
 class VGG8(_DynamicModel):
 
@@ -141,7 +146,7 @@ class VGG8(_DynamicModel):
             DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            # nn.Dropout(0.25),
+            nn.Dropout(0.25),
             # Custom_Dropout(0.25),
 
             DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
@@ -149,7 +154,7 @@ class VGG8(_DynamicModel):
             DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            # nn.Dropout(0.25),
+            nn.Dropout(0.25),
             # Custom_Dropout(0.25),
 
             DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
@@ -157,7 +162,7 @@ class VGG8(_DynamicModel):
             DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.5),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            # nn.Dropout(0.5),
+            nn.Dropout(0.5),
             # Custom_Dropout(0.5),
             ])
 
@@ -173,12 +178,12 @@ class VGG8(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(128*s*s, 256, norm_type=norm_type, s=s),
             nn.ReLU(),
-            DynamicLinear(256, 0)
+            DynamicLinear(256, 0, last_layer=True)
             ])
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = [self.DM[i+1]]
+            m.next_layers = [self.DM[i+1]]
 
 class VGG(_DynamicModel):
     '''
@@ -205,12 +210,12 @@ class VGG(_DynamicModel):
             nn.ReLU(True),
             DynamicLinear(4096, 4096),
             nn.ReLU(True),
-            DynamicLinear(4096, 0),
+            DynamicLinear(4096, 0, last_layer=True),
         ])
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = [self.DM[i+1]]
+            m.next_layers = [self.DM[i+1]]
 
 
 def make_layers(cfg, nchannels, norm_type=None, bias=True):
@@ -265,18 +270,18 @@ class Alexnet(_DynamicModel):
         self.layers = nn.ModuleList([
             DynamicConv2D(ncha,64,kernel_size=size//8, first_layer=True),
             nn.ReLU(),
-            nn.MaxPool2d(2),
             nn.Dropout(0.2),
+            nn.MaxPool2d(2),
 
             DynamicConv2D(64,128,kernel_size=size//10),
+            nn.Dropout(0.2),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.2),
 
             DynamicConv2D(128,256,kernel_size=2),
             nn.ReLU(),
-            nn.MaxPool2d(2),
             nn.Dropout(0.5),
+            nn.MaxPool2d(2),
             ])
 
         s = size
@@ -291,13 +296,15 @@ class Alexnet(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(256*s*s, 2048, s=s),
             nn.ReLU(),
+            nn.Dropout(0.5),
             DynamicLinear(2048, 2048),
             nn.ReLU(),
-            DynamicLinear(2048, 0)
+            nn.Dropout(0.5),
+            DynamicLinear(2048, 0, last_layer=True)
         ])
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = [self.DM[i+1]]
+            m.next_layers = [self.DM[i+1]]
 
 '''ResNet in PyTorch.
 
@@ -305,7 +312,6 @@ Reference:
 [1] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun
     Deep Residual Learning for Image Recognition. arXiv:1512.03385
 '''
-
 
 class BasicBlock(_DynamicModel):
     expansion = 1
@@ -328,7 +334,7 @@ class BasicBlock(_DynamicModel):
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = [self.DM[i+1]]
+            m.next_layers = [self.DM[i+1]]
 
 
     def forward(self, x, t):
@@ -348,7 +354,6 @@ class BasicBlock(_DynamicModel):
             out += x
 
         return F.relu(out)
-
 
 class Bottleneck(_DynamicModel):
     expansion = 4
@@ -374,7 +379,7 @@ class Bottleneck(_DynamicModel):
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
-            m.next_layer = [self.DM[i+1]]
+            m.next_layers = [self.DM[i+1]]
 
 
     def forward(self, x, t):
@@ -395,8 +400,6 @@ class Bottleneck(_DynamicModel):
 
         return F.relu(out)
 
-
-
 class ResNet(_DynamicModel):
     def __init__(self, block, num_blocks, norm_type=None):
         super(ResNet, self).__init__()
@@ -404,35 +407,45 @@ class ResNet(_DynamicModel):
 
         self.conv1 = DynamicConv2D(3, 64, kernel_size=3,
                                stride=1, padding=1, bias=False, norm_type=norm_type, first_layer=True)
-        self.layers = self._make_layer(block, 64, num_blocks[0], stride=1, norm_type=norm_type)
-        self.layers += self._make_layer(block, 128, num_blocks[1], stride=2, norm_type=norm_type)
-        self.layers += self._make_layer(block, 256, num_blocks[2], stride=2, norm_type=norm_type)
-        self.layers += self._make_layer(block, 512, num_blocks[3], stride=2, norm_type=norm_type)
-        self.linear = DynamicLinear(512*block.expansion, 0, smid=1)
+        self.blocks = self._make_layer(block, 64, num_blocks[0], stride=1, norm_type=norm_type)
+        self.blocks += self._make_layer(block, 128, num_blocks[1], stride=2, norm_type=norm_type)
+        self.blocks += self._make_layer(block, 256, num_blocks[2], stride=2, norm_type=norm_type)
+        self.blocks += self._make_layer(block, 512, num_blocks[3], stride=2, norm_type=norm_type)
+        self.linear = DynamicLinear(512*block.expansion, 0, smid=1, last_layer=True)
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
 
         m = self.conv1
         for block in self.layers:
-            m.next_layer = [block.layers[0]]
+            m.next_layers = [block.layers[0]]
             if block.shortcut:
-                m.next_layer.append(block.shortcut)
+                m.next_layers.append(block.shortcut)
             m = block.layers[-1]
-        m.next_layer = [self.linear]
+        m.next_layers = [self.linear]
+
+        # shortcut_layers = [self.conv1]
+        # for i, block in enumerate(self.blocks):
+        #     for shortcut_layer in shortcut_layers:
+        #         shortcut_layer.next_layers.append(block.layers[0])
+
+        #     if block.shortcut:
+        #         shortcut_layers = [block.shortcut]
+
+        #     shortcut_layers.append(block.layers[-1])
 
 
     def _make_layer(self, block, planes, num_blocks, stride, norm_type):
         strides = [stride] + [1]*(num_blocks-1)
-        layers = []
+        blocks = []
         for stride in strides:
-            layers.append(block(self.in_planes, planes, stride, norm_type))
+            blocks.append(block(self.in_planes, planes, stride, norm_type))
             self.in_planes = planes * block.expansion
-        return nn.ModuleList(layers)
+        return nn.ModuleList(blocks)
 
     def forward(self, x, t):
         out = F.relu(self.conv1(x, t))
-        for m in self.layers:
-            out = m(out, t)
+        for block in self.blocks:
+            out = block(out, t)
 
         out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)

@@ -15,11 +15,109 @@ import torchvision.transforms.functional as tvF
 import torchvision.transforms as transforms
 from torchvision import models
 import time
+from layers.sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 # from torchvision.models.resnet import *
 
 # resnet_model = models.resnet18(pretrained=True).cuda()
 # feature_extractor = nn.Sequential(*list(resnet_model.children())[:-4])
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+class AdamSP(Optimizer):
+    # sparse and projected Adam
+    def __init__(self, model, lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0, amsgrad=False, lr_scale=None):
+        if not 0.0 <= lr:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if not 0.0 <= eps:
+            raise ValueError("Invalid epsilon value: {}".format(eps))
+        if not 0.0 <= betas[0] < 1.0:
+            raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
+        if not 0.0 <= betas[1] < 1.0:
+            raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
+        self.model = model
+        defaults = dict(lr=lr, betas=betas, eps=eps,
+                        weight_decay=weight_decay, amsgrad=amsgrad)
+        self.lr_scale = lr_scale
+        super(AdamSP, self).__init__(model.parameters(), defaults)
+
+    def __setstate__(self, state):
+        super(AdamSP, self).__setstate__(state)
+        for group in self.param_groups:
+            group.setdefault('amsgrad', False)
+
+    def step(self, closure=None):
+        """Performs a single optimization step.
+
+        Arguments:
+            closure (callable, optional): A closure that reevaluates the model
+                and returns the loss.
+        """
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for m in self.model.DM:
+            for p in m.get_optim_params():
+                if p.grad is None:
+                    continue
+                grad = p.grad.data
+                if grad.is_sparse:
+                    raise RuntimeError('Adam does not support sparse gradients, please consider SparseAdam instead')
+                amsgrad = self.defaults['amsgrad']
+
+                state = self.state[p]
+
+                # State initialization
+                if len(state) == 0:
+                    state['step'] = 0
+                    # Exponential moving average of gradient values
+                    state['exp_avg'] = torch.zeros_like(p.data)
+                    # Exponential moving average of squared gradient values
+                    state['exp_avg_sq'] = torch.zeros_like(p.data)
+                    if amsgrad:
+                        # Maintains max of all exp. moving avg. of sq. grad. values
+                        state['max_exp_avg_sq'] = torch.zeros_like(p.data)
+
+                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
+                if amsgrad:
+                    max_exp_avg_sq = state['max_exp_avg_sq']
+                beta1, beta2 = self.defaults['betas']
+
+                state['step'] += 1
+
+                if self.defaults['weight_decay'] != 0:
+                    grad.add_(self.defaults['weight_decay'], p.data)
+
+                # Decay the first and second mogroupment running average coefficient
+                exp_avg.mul_(beta1).add_(1 - beta1, grad)
+                exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, grad, grad)
+                if amsgrad:
+                    # Maintains the maximum of all 2nd moment running avg. till now
+                    torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
+                    # Use the max. for normalizing running avg. of gradient
+                    denom = max_exp_avg_sq.sqrt().add_(self.defaults['eps'])
+                else:
+                    denom = exp_avg_sq.sqrt().add_(self.defaults['eps'])
+
+                bias_correction1 = 1 - beta1 ** state['step']
+                bias_correction2 = 1 - beta2 ** state['step']
+                                
+                step_size = self.defaults['lr'] * math.sqrt(bias_correction2) / bias_correction1
+                
+    #                 p.data.addcdiv_(-step_size, self.lr_scale[n] * exp_avg, denom)
+
+                if layer.projection_matrix is not None:
+                    p.grad.data = step_size * exp_avg/denom
+                    sz = p.grad.data.shape
+                    p.grad.data = p.grad.data - torch.mm(p.grad.data.view(sz[0], -1), layer.projection_matrix).view(sz)  
+                    p.data.add_(-p.grad.data)
+
+                    # p.data.add_(- self.defaults['lr'] * grad)
+                else:
+                    p.data.addcdiv_(-step_size, exp_avg, denom)
+                    # p.data.add_(- self.defaults['lr'] * grad)
+
+        return loss
 
 def _calculate_fan_in_and_fan_out(tensor):
     dimensions = tensor.dim()
@@ -45,8 +143,8 @@ def entropy(x):
 
 def gs_cal(t, x, y, criterion, model, sbatch=20):
     
-    # Init
     param_R = {}
+    # Init
     
     for name, param in model.named_parameters():
         if len(param.size()) <= 1:

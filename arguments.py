@@ -62,10 +62,10 @@ def get_args():
                                  'Adam'], 
                         help='(default=%(default)s)')
     parser.add_argument('--ablation', default='None', type=str, required=False,
-                        choices=['no_L1', 
-                                 'no_upper', 
-                                 'no_lower',
-                                 'no_sigma_normal',
+                        choices=['no_gpm', 
+                                 'no_prune', 
+                                 'no_dropout',
+                                 'no_normalize'
                                  'None'], 
                         help='(default=%(default)s)')
     parser.add_argument('--output', default='', type=str, required=False, help='(default=%(default)s)')
@@ -84,6 +84,7 @@ def get_args():
     parser.add_argument('--gamma', default=0.75, type=float, help='(default=%(default)f)')
     parser.add_argument('--smax', default=400, type=float, help='(default=%(default)f)')
     parser.add_argument('--lamb', default='0.0', type=str, help='(default=%(default)f)')
+    parser.add_argument('--threshold', default='0.0', type=str, help='(default=%(default)f)')
     parser.add_argument('--c', default='0.9', type=float, help='(default=%(default)f)')
     parser.add_argument('--date', type=str, default='', help='(default=%(default)s)')
     parser.add_argument('--tasknum', default=10, type=int, help='(default=%(default)s)')

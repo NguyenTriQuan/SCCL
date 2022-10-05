@@ -16,7 +16,7 @@ from arguments import get_args
 
 args = get_args()
 
-from bayes_layer import BayesianLinear, BayesianConv2D, _calculate_fan_in_and_fan_out
+from layers.bayes_layer import BayesianLinear, BayesianConv2D, _calculate_fan_in_and_fan_out
 
 class Appr(object):
     
@@ -61,7 +61,7 @@ class Appr(object):
         if len(args.parameter) >= 1:
             params = args.parameter.split(',')
             print('Setting parameters to', params)
-            self.lamb = float(para ,ms[0])
+            self.lamb = float(params[0])
 
         
 

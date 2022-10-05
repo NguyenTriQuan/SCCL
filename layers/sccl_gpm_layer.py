@@ -24,7 +24,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
 class _DynamicLayer(nn.Module):
 
-    def __init__(self, in_features, out_features, next_layer=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
+    def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
         super(_DynamicLayer, self).__init__()
 
         self.first_layer = first_layer
@@ -60,12 +60,61 @@ class _DynamicLayer(nn.Module):
         else:
             self.norm_layer = None
 
-        self.next_layer = next_layer
+        self.next_layers = next_layers # where output of this layer go
         self.s = s
         self.mask = None
         
         self.projection_matrix = None
         self.feature = None 
+
+    def forward(self, x, t):
+        self.act = x.detach()
+        weight, bias = self.get_parameters(t)
+
+        if weight.numel() == 0:
+            return None
+
+        if isinstance(self, DynamicLinear):
+            output = F.linear(x, weight, bias)
+            view = (1, -1)
+        else:
+            output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
+            view = (1, -1, 1, 1)
+
+        if self.norm_layer is not None:
+            output = self.norm_layer(output, t, self.dropout)
+
+        # if self.mask is not None:
+        #     output[:, self.shape_out[-2]:] = output[:, self.shape_out[-2]:] * self.mask.view(view)
+
+        return output
+
+    def norm_in(self, t=-1):
+        if isinstance(self, DynamicLinear):
+            norm_dim = (1)
+        else:
+            norm_dim = (1, 2, 3)
+        weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
+        norm = weight.norm(2, dim=norm_dim)
+        if self.bias is not None:
+            norm = norm**2 + self.bias[t]**2
+        # if self.norm_layer:
+        #         if self.norm_layer.affine:
+        #             norm += self.norm_layer.weight[-1][self.norm_layer.shape[-2]:]**2 + self.norm_layer.bias[-1][self.norm_layer.shape[-2]:]**2
+                    
+        return norm ** 0.5
+
+    def norm_out(self, t=-1):
+        weight = torch.cat([self.next_layers[0].weight[t], self.next_layers[0].bwt_weight[t]], dim=0)
+        if isinstance(self, DynamicLinear):
+            norm_dim = (0)
+        else:
+            norm_dim = (0, 2, 3)
+            if isinstance(self.next_layers[0], DynamicLinear):
+                weight = weight.view(self.next_layers[0].weight[t].shape[0] + self.next_layers[0].bwt_weight[t].shape[0], 
+                                    self.weight[t].shape[0], self.next_layers[0].s, self.next_layers[0].s)
+        norm = weight.norm(2, dim=norm_dim)
+        return norm
 
     def get_optim_params(self):
         params = []
@@ -125,9 +174,27 @@ class _DynamicLayer(nn.Module):
 
         return weight, bias
 
-    def project(self, params):
-        sz =  params.size(0)
-        return params - torch.mm(params.view(sz,-1), self.projection_matrix).view(params.size())
+    def get_mat(self):
+        if isinstance(self, DynamicLinear):
+            if self.feature is not None:
+                padding = torch.zeros(self.shape_in[-1]-self.shape_in[-2], self.feature.shape[1]).to(device)
+                self.feature = torch.cat([self.feature, padding], dim=0)
+            return self.act.T
+        else:
+            if self.feature is not None:
+                padding = torch.zeros(self.kernel_size[0]*self.kernel_size[1]*(self.shape_in[-1]-self.shape_in[-2]), self.feature.shape[1])
+                self.feature = torch.cat([self.feature, padding.to(device)], dim=0)
+
+            k = 0
+            batch_size = self.act.shape[0]
+            s = compute_conv_output_size(self.act.shape[-1], self.kernel_size[0], self.stride[0], self.padding[0], self.dilation[0])
+            mat = torch.zeros((self.kernel_size[0]*self.kernel_size[1]*self.in_features, s*s*batch_size)).to(device)
+            for kk in range(batch_size):
+                for ii in range(s):
+                    for jj in range(s):
+                        mat[:,k]=self.act[kk,:,ii:self.kernel_size[0]+ii,jj:self.kernel_size[1]+jj].reshape(-1) 
+                        k +=1
+            return mat
 
     def get_feature(self, threshold):
         mat = self.get_mat()
@@ -166,50 +233,86 @@ class _DynamicLayer(nn.Module):
 
         self.projection_matrix = torch.mm(self.feature, self.feature.T)
 
+    def project(self, params):
+        sz =  params.size(0)
+        return params - torch.mm(params.view(sz,-1), self.projection_matrix).view(params.size())
+
     def project_gradient(self, t):
+        if self.projection_matrix is None:
+            return
+
         weight_grad = torch.empty(0).to(device)
         for i in range(1, t):
             weight_grad = torch.cat([torch.cat([weight_grad, self.fwt_weight[i].grad], dim=0), 
                                 torch.cat([self.bwt_weight[i].grad, self.weight[i].grad], dim=0)], dim=1)
 
-        weight_grad = self.project(weight_grad)
+        weight_grad_projected = self.project(weight_grad)
+        # temp = F.cosine_similarity(weight_grad.view(-1), weight_grad_projected.view(-1), dim=0)
+        # print(temp.item(), math.acos(temp.item())/math.pi)
         for i in range(1, t): 
-            self.weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]].clone()
-            self.fwt_weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]].clone()
-            self.bwt_weight[i].grad.data = weight_grad[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]].clone()
+            self.weight[i].grad.data = weight_grad_projected[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]].clone()
+            self.fwt_weight[i].grad.data = weight_grad_projected[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]].clone()
+            self.bwt_weight[i].grad.data = weight_grad_projected[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]].clone()
 
         # if self.fwt_weight[t].numel() != 0:
         #     self.fwt_weight[t].grad.data = self.project(self.fwt_weight[t].grad.data)
 
-    def squeeze(self):
+    def squeeze(self, optim_state):
+        def apply_mask_out(param, mask_out):
+            param.data = param.data[mask_out].clone()
+            param.grad = None
+            param_states = optim_state[param]
+            for name, state in param_states.items():
+                if isinstance(state, torch.Tensor):
+                    param_states[name] = state[mask_out].clone()
+
+        def apply_mask_in(param, mask_in):
+            param.data = param.data[:, mask_in].clone()
+            param.grad = None
+            param_states = optim_state[param]
+            for name, state in param_states.items():
+                if isinstance(state, torch.Tensor):
+                    param_states[name] = state[:, mask_in].clone()
+
+
         if self.mask is not None:
             mask_out = self.mask
-            self.weight[-1].data = self.weight[-1].data[mask_out].clone()
-            self.weight[-1].grad = None
-            self.fwt_weight[-1].data = self.fwt_weight[-1].data[mask_out].clone()
-            self.fwt_weight[-1].grad = None 
+            apply_mask_out(self.weight[-1], mask_out)
+            apply_mask_out(self.fwt_weight[-1], mask_out)
 
             if self.bias:
-                self.bias[-1].data = self.bias[-1].data[mask_out].clone()
+                apply_mask_out(self.bias[-1], mask_out)
 
-            if self.norm_layer:
-                self.norm_layer.squeeze(mask_out)
-
-            self.out_features -= (mask_out.numel() - mask_out.sum()).item()
+            self.out_features = self.shape_out[-2] + self.weight[-1].shape[0]
             self.shape_out[-1] = self.out_features
 
-            for m in self.next_layer:
+            if self.norm_layer:
+                mask = torch.ones(self.norm_layer.shape[-2]).bool().to(device)
+                mask = torch.cat([mask, mask_out])
+                if self.norm_layer.affine:
+                    apply_mask_out(self.norm_layer.weight[-1], mask)
+                    apply_mask_out(self.norm_layer.bias[-1], mask)
+
+                if self.norm_layer.track_running_stats:
+                    self.norm_layer.running_mean[-1] = self.norm_layer.running_mean[-1][mask]
+                    self.norm_layer.running_var[-1] = self.norm_layer.running_var[-1][mask]
+
+                self.norm_layer.num_features = self.out_features
+                self.norm_layer.shape[-1] = self.out_features
+
+            for m in self.next_layers:
                 if isinstance(m, DynamicLinear) and isinstance(self, DynamicConv2D):
                     mask_in = self.mask.view(-1,1,1).expand(self.mask.size(0),m.s,m.s).contiguous().view(-1)
                 else:
                     mask_in = self.mask
 
-                m.weight[-1].data = m.weight[-1].data[:, mask_in].clone()
-                m.weight[-1].grad = None
-                m.bwt_weight[-1].data = m.bwt_weight[-1].data[:, mask_in].clone()
-                m.bwt_weight[-1].grad = None
-                m.in_features -= (mask_in.numel() - mask_in.sum()).item()
+                apply_mask_in(m.weight[-1], mask_in)
+                apply_mask_in(m.bwt_weight[-1], mask_in)
+
+                m.in_features = m.shape_in[-2] + m.weight[-1].shape[1]
                 m.shape_in[-1] = m.in_features
+            
+        self.mask = None
 
     def expand(self, add_in=None, add_out=None):
         if add_in is None:
@@ -226,8 +329,11 @@ class _DynamicLayer(nn.Module):
             self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in).to(device)))
             fan_in = self.in_features + add_in
         else:
+            # new neurons to new neurons
             self.weight.append(nn.Parameter(torch.Tensor(add_out, add_in // self.groups, *self.kernel_size).to(device)))
+            # old neurons to new neurons
             self.fwt_weight.append(nn.Parameter(torch.Tensor(add_out, self.in_features // self.groups, *self.kernel_size).to(device)))
+            # new neurons to old neurons
             self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in // self.groups, *self.kernel_size).to(device)))
             fan_in = (self.in_features + add_in) * np.prod(self.kernel_size)
 
@@ -236,8 +342,11 @@ class _DynamicLayer(nn.Module):
             bound = gain * math.sqrt(3.0/fan_in)
             nn.init.uniform_(self.weight[-1], -bound, bound)
             nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
+            if self.last_layer or len(self.weight) <= 2:
+                nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
+            else:
+                nn.init.uniform_(self.fwt_weight[-1], 0, 0)
             nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
-            # nn.init.uniform_(self.bwt_weight[-1], 0, 0)
 
         # if self.projection_matrix is not None:
         #     self.fwt_weight[-1].data = self.project(self.fwt_weight[-1].data)
@@ -259,63 +368,66 @@ class _DynamicLayer(nn.Module):
         
         self.mask = None
 
-    # def proximal_gradient_descent(self, lr, mu):
-    #     norm = self.get_importance()
-    #     aux = F.threshold(norm - mu * lr, 0, 0, False)
-    #     alpha = aux/(aux+mu*lr)
-        
+    def proximal_gradient_descent(self, lr, lamb):
+        if isinstance(self, DynamicLinear):
+            view_in = (-1, 1)
+            view_out = (1, -1)
+        else:
+            view_in = (-1, 1, 1, 1)
+            view_out = (1, -1, 1, 1)
+
+        with torch.no_grad():
+            strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
+            strength_out = self.next_layers[0].weight[-1].data.numel() + self.next_layers[0].bwt_weight[-1].data.numel()
+            strength = strength_in + strength_out
+
+            # group lasso weights in
+            norm = self.norm_in(-1)
+            aux = 1 - lamb * lr * strength / norm
+            aux = F.threshold(aux, 0, 0, False)
+            self.weight[-1].data *= aux.view(view_in)
+            self.fwt_weight[-1].data *= aux.view(view_in)
+            self.bias[-1].data *= aux
+            # if self.norm_layer:
+            #     if self.norm_layer.affine:
+            #         self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux
+            #         self.norm_layer.bias[-1].data[self.norm_layer.shape[-2]:] *= aux
+            self.mask = (aux != 0)
+
+            # group lasso weights out
+            norm = self.norm_out(-1)
+            aux = 1 - lamb * lr * strength / norm
+            aux = F.threshold(aux, 0, 0, False)
+            self.next_layers[0].weight[-1].data *= aux.view(view_out)
+            self.next_layers[0].bwt_weight[-1].data *= aux.view(view_out)      
+            self.mask *= (aux != 0)              
+
+            # group lasso affine weights
+            if self.norm_layer:
+                if self.norm_layer.affine:
+                    norm = self.norm_layer.weight[-1][self.norm_layer.shape[-2]:]**2 + self.norm_layer.bias[-1][self.norm_layer.shape[-2]:]**2
+                    norm = norm ** 0.5
+                    aux = 1 - lamb * lr * strength / norm
+                    aux = F.threshold(aux, 0, 0, False)
+                    self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux
+                    self.norm_layer.bias[-1].data[self.norm_layer.shape[-2]:] *= aux
+                    self.mask *= (aux != 0)
+                    
 
 class DynamicLinear(_DynamicLayer):
 
-    def __init__(self, in_features, out_features, next_layer=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
-        super(DynamicLinear, self).__init__(in_features, out_features, next_layer, bias, norm_type, s, first_layer, last_layer, dropout)
+    def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
+        super(DynamicLinear, self).__init__(in_features, out_features, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
         
         self.weight = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features, self.in_features))])
         self.fwt_weight = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features, 0))])
         self.bwt_weight = nn.ParameterList([nn.Parameter(torch.Tensor(0, self.in_features))])
-
-        
-    def forward(self, x, t):
-        self.act = x.detach()
-        weight, bias = self.get_parameters(t)
-
-        if weight.numel() == 0:
-            return None
-
-        output = F.linear(x, weight, bias)
-
-        if self.norm_layer is not None:
-            output = self.norm_layer(output, t, self.dropout)
-
-        if self.mask is not None:
-            output[:, self.shape_out[-2]:] = output[:, self.shape_out[-2]:] * self.mask.view(1, -1)
-
-        return output
-
-    def norm_in(self, t=-1):
-        weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
-        norm = weight.norm(2, dim=(1))
-        if self.bias is not None:
-            norm = (norm**2 + self.bias[t]**2)**(1/2)
-
-        return norm
-
-    def norm_out(self, t=-1):
-        weight = torch.cat([self.next_layer[0].weight[t], self.next_layer[0].bwt_weight[t]], dim=0)
-        norm = weight.norm(2, dim=0)
-        return norm
-
-    def get_mat(self):
-        if self.feature is not None:
-            padding = torch.zeros(self.shape_in[-1]-self.shape_in[-2], self.feature.shape[1]).to(device)
-            self.feature = torch.cat([self.feature, padding], dim=0)
-        return self.act.T
             
         
 class _DynamicConvNd(_DynamicLayer):
     def __init__(self, in_features, out_features, kernel_size, 
-                stride, padding, dilation, transposed, output_padding, groups, next_layer, bias, norm_type, s, first_layer, last_layer, dropout):
-        super(_DynamicConvNd, self).__init__(in_features, out_features, next_layer, bias, norm_type, s, first_layer, last_layer, dropout)
+                stride, padding, dilation, transposed, output_padding, groups, next_layers, bias, norm_type, s, first_layer, last_layer, dropout):
+        super(_DynamicConvNd, self).__init__(in_features, out_features, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
         if in_features % groups != 0:
             raise ValueError('in_channels must be divisible by groups')
         if out_features % groups != 0:
@@ -336,63 +448,13 @@ class _DynamicConvNd(_DynamicLayer):
 
 class DynamicConv2D(_DynamicConvNd):
     def __init__(self, in_features, out_features, kernel_size, 
-                stride=1, padding=0, dilation=1, groups=1, next_layer=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
+                stride=1, padding=0, dilation=1, groups=1, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
         kernel_size = _pair(kernel_size)
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
         super(DynamicConv2D, self).__init__(in_features, out_features, kernel_size, 
-                                            stride, padding, dilation, False, _pair(0), groups, next_layer, bias, norm_type, s, first_layer, last_layer, dropout)
-    
-    def forward(self, x, t):
-        self.act = x.detach()
-        weight, bias = self.get_parameters(t)
-
-        if weight.numel() == 0:
-            return None
-
-        output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
-
-        if self.norm_layer is not None:
-            output = self.norm_layer(output, t, self.dropout)
-
-        if self.mask is not None:
-            output[:, self.shape_out[-2]:] = output[:, self.shape_out[-2]:] * self.mask.view(1, -1, 1, 1)
-
-        return output
-
-
-    def norm_in(self, t=-1):
-        weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
-        norm = weight.norm(2, dim=(1,2,3))
-        if self.bias is not None:
-            norm = (norm**2 + self.bias[t]**2)**(1/2)
-
-        return norm
-
-    def norm_out(self, t=-1):
-        weight = torch.cat([self.next_layer[0].weight[t], self.next_layer[0].bwt_weight[t]], dim=0)
-        if isinstance(self.next_layer[0], DynamicLinear):
-            weight = weight.view(self.next_layer[0].weight[t].shape[0] + self.next_layer[0].bwt_weight[t].shape[0], 
-                                self.weight[t].shape[0], self.next_layer[0].s, self.next_layer[0].s)
-
-        norm = weight.norm(2, dim=(0,2,3))
-        return norm
-
-    def get_mat(self):
-        if self.feature is not None:
-            padding = torch.zeros(self.kernel_size[0]*self.kernel_size[1]*(self.shape_in[-1]-self.shape_in[-2]), self.feature.shape[1])
-            self.feature = torch.cat([self.feature, padding.to(device)], dim=0)
-        k = 0
-        batch_size = self.act.shape[0]
-        s = compute_conv_output_size(self.act.shape[-1], self.kernel_size[0], self.stride[0], self.padding[0], self.dilation[0])
-        mat = torch.zeros((self.kernel_size[0]*self.kernel_size[1]*self.in_features, s*s*batch_size)).to(device)
-        for kk in range(batch_size):
-            for ii in range(s):
-                for jj in range(s):
-                    mat[:,k]=self.act[kk,:,ii:self.kernel_size[0]+ii,jj:self.kernel_size[1]+jj].reshape(-1) 
-                    k +=1
-        return mat
+                                            stride, padding, dilation, False, _pair(0), groups, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
 
 
@@ -440,38 +502,9 @@ class DynamicNorm(nn.Module):
             self.running_mean.append(torch.zeros(self.num_features).to(device))
             self.running_var.append(torch.ones(self.num_features).to(device))
             self.num_batches_tracked = 0
-
-        self.strength = 2*add_num
-            
-
-    def squeeze(self, mask=None):
-        if mask is not None:
-            mask_temp = torch.ones(self.shape[-2]).bool().to(device)
-            mask = torch.cat([mask_temp, mask])
-            if self.affine:
-                self.weight[-1].data = self.weight[-1].data[mask].clone()
-                self.bias[-1].data = self.bias[-1].data[mask].clone()
-
-            self.num_features -= (mask.numel() - mask.sum()).item()
-            self.shape[-1] = self.num_features
-
-            if self.track_running_stats:
-                self.running_mean[-1] = self.running_mean[-1][mask]
-                self.running_var[-1] = self.running_var[-1][mask]
     
     def reg(self):
         return (self.weight[-1][self.shape[-2]:]**2 + self.bias[-1][self.shape[-2]:]**2) ** 1/2
-
-    def get_params(self, t):
-        if not self.affine:
-            return
-
-        self.old_weight.data = self.weight[0].data
-        self.old_bias.data = self.bias[0].data
-
-        for i in range(1, t+1):
-            self.old_weight.data = torch.cat([self.old_weight.data, self.weight[i].data])
-            self.old_bias.data = torch.cat([self.old_bias.data, self.bias[i].data])
 
     def batch_norm(self, input, t=-1):
 
@@ -551,9 +584,9 @@ class DynamicNorm(nn.Module):
         elif self.norm_type =='ln':
             output = self.layer_norm(input)
         elif self.norm_type =='bn_ln':
-            output = self.layer_norm(self.batch_norm(input, t) + input)
+            # output = self.layer_norm(self.batch_norm(input, t) + input)
+            output = self.batch_norm(input, t) + input
             # output = self.layer_norm(input) + self.batch_norm(input, t)
-            # output = self.layer_norm(self.batch_norm(F.dropout(input, dropout, self.training), t) + input)
 
         if self.affine:
             weight = self.weight[t]

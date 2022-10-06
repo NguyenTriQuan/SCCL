@@ -112,6 +112,8 @@ class Appr(object):
             self.shape_out = self.model.DM[-1].shape_out
             self.cur_task = len(self.shape_out)-1
 
+            self.get_sim(train_loader, valid_transform, t)
+
             self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
             try:
@@ -132,6 +134,7 @@ class Appr(object):
         self.lamb = self.lambs[self.cur_task-1]
         print('lambda', self.lamb)
         print(self.log_name)
+        self.model.squeeze(self.optimizer.state)
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, True)
         if not self.check_point['squeeze']:
@@ -321,13 +324,14 @@ class Appr(object):
             if N >= self.val_batch_size:
                 break
         self.model.eval()
+        self.model.track_input(True)
         inputs = torch.cat(inputs, dim=0).to(device)[:self.val_batch_size]
         if valid_transform:
             images = valid_transform(images)
         outputs  = self.model(inputs, t=self.cur_task)
 
         self.model.get_feature(thresholds)
-
+        self.model.track_input(False)
         print('-'*40)
         print('Gradient Constraints Summary')
         print('-'*40)
@@ -335,6 +339,37 @@ class Appr(object):
             if m.feature is not None:
                 print ('Layer {} : {}/{}'.format(i+1, m.feature.shape[1], m.feature.shape[0]))
         print('-'*40)
+
+    def get_sim(self, data_loader, valid_transform, t): 
+        # Collect activations by forward pass
+        inputs = []
+        labels = []
+        N = 0
+        for i, (images, targets) in enumerate(data_loader):
+            inputs.append(images)
+            labels.append(targets)
+            N += images.shape[0]
+            if N >= self.val_batch_size:
+                break
+        self.model.eval()
+        inputs = torch.cat(inputs, dim=0).to(device)[:self.val_batch_size]
+        labels = torch.cat(labels, dim=0).to(device)[:self.val_batch_size]
+        if valid_transform:
+            inputs = valid_transform(inputs)
+        outputs = self.model.forward(inputs, t=t)
+        outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+        if self.args.cil:
+            labels -= sum(self.shape_out[:t])
+
+        loss = self.ce(outputs, labels)
+
+        # if squeeze:
+        #     loss += self.model.group_lasso_reg() * self.lamb
+                
+        self.optimizer.zero_grad()
+        loss.backward() 
+        self.model.compute_project_similarity(t)
+
 
 
     def prune(self, t, data_loader, valid_transform, thres=0.0):

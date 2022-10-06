@@ -46,8 +46,10 @@ class _DynamicModel(nn.Module):
         self.DM[-1].expand(add_in=None, add_out=new_class)
 
     def squeeze(self, optim_state):
+        self.total_strength = 0
         for m in self.DM[:-1]:
             m.squeeze(optim_state)
+            self.total_strength += m.strength
 
     def group_lasso_reg(self):
         total_reg = 0
@@ -97,6 +99,10 @@ class _DynamicModel(nn.Module):
     def project_gradient(self, t):
         for m in self.DM[:-1]:
             m.project_gradient(t)
+    
+    def compute_project_similarity(self, t):
+        for m in self.DM[:-1]:
+            m.compute_project_similarity(t)
 
     def get_feature(self, thresholds):
         self.DM[0].get_feature(thresholds[0])
@@ -105,7 +111,12 @@ class _DynamicModel(nn.Module):
 
     def proximal_gradient_descent(self, lr, lamb):
         for m in self.DM[:-1]:
-            m.proximal_gradient_descent(lr, lamb)
+            m.proximal_gradient_descent(lr, lamb, self.total_strength)
+
+    def track_input(self, tracking):
+        for m in self.DM[:-1]:
+            m.act = None
+            m.track_input = tracking
 
     def report(self):
         for m in self.DM:
@@ -156,7 +167,6 @@ class VGG8(_DynamicModel):
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(0.25),
-            # Custom_Dropout(0.25),
 
             DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
@@ -164,7 +174,6 @@ class VGG8(_DynamicModel):
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(0.25),
-            # Custom_Dropout(0.25),
 
             DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
@@ -172,7 +181,6 @@ class VGG8(_DynamicModel):
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Dropout(0.5),
-            # Custom_Dropout(0.5),
             ])
 
         s = size
@@ -279,17 +287,17 @@ class Alexnet(_DynamicModel):
         self.layers = nn.ModuleList([
             DynamicConv2D(ncha,64,kernel_size=size//8, first_layer=True, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            # nn.Dropout(0.2),
             nn.MaxPool2d(2),
 
             DynamicConv2D(64,128,kernel_size=size//10, norm_type=norm_type),
-            nn.Dropout(0.2),
+            # nn.Dropout(0.2),
             nn.ReLU(),
             nn.MaxPool2d(2),
 
             DynamicConv2D(128,256,kernel_size=2, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             nn.MaxPool2d(2),
             ])
 
@@ -305,10 +313,10 @@ class Alexnet(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(256*s*s, 2048, s=s, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             DynamicLinear(2048, 2048, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             DynamicLinear(2048, 0, last_layer=True, norm_type=norm_type)
         ])
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]

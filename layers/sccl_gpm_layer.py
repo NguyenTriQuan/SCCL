@@ -24,7 +24,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def compute_conv_output_size(Lin,kernel_size,stride=1,padding=0,dilation=1):
     return int(np.floor((Lin+2*padding-dilation*(kernel_size-1)-1)/float(stride)+1))
-    
+
 class _DynamicLayer(nn.Module):
 
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
@@ -69,9 +69,12 @@ class _DynamicLayer(nn.Module):
         
         self.projection_matrix = None
         self.feature = None 
+        self.track_input = False
+        self.sim = [None]
 
     def forward(self, x, t):
-        self.act = x.detach()
+        if self.track_input:
+            self.act = x.detach()
         weight, bias = self.get_parameters(t)
 
         if weight.numel() == 0:
@@ -168,11 +171,23 @@ class _DynamicLayer(nn.Module):
         else:
             bias = None
 
-        for i in range(1, t+1):
+        for i in range(1, t):
             weight = torch.cat([torch.cat([weight, self.fwt_weight[i]], dim=0), 
                                 torch.cat([self.bwt_weight[i], self.weight[i]], dim=0)], dim=1)
             if self.bias:
                 bias = torch.cat([bias, self.bias[i]])
+
+        if self.training:
+            if self.sim[t] is not None:
+                if len(weight.shape) == 2:
+                    weight *= torch.normal(1, self.sim[t]).view(-1, 1)
+                else:
+                    weight *= torch.normal(1, self.sim[t]).view(-1, 1, 1, 1)
+
+        weight = torch.cat([torch.cat([weight, self.fwt_weight[t]], dim=0), 
+                            torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
+        if self.bias:
+            bias = torch.cat([bias, self.bias[t]])
 
         return weight, bias
 
@@ -248,16 +263,34 @@ class _DynamicLayer(nn.Module):
             weight_grad = torch.cat([torch.cat([weight_grad, self.fwt_weight[i].grad], dim=0), 
                                 torch.cat([self.bwt_weight[i].grad, self.weight[i].grad], dim=0)], dim=1)
 
-        weight_grad_projected = self.project(weight_grad)
+        weight_grad = self.project(weight_grad)
         # temp = F.cosine_similarity(weight_grad.view(-1), weight_grad_projected.view(-1), dim=0)
         # print(temp.item(), math.acos(temp.item())/math.pi)
         for i in range(1, t): 
-            self.weight[i].grad.data = weight_grad_projected[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]]
-            self.fwt_weight[i].grad.data = weight_grad_projected[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]]
-            self.bwt_weight[i].grad.data = weight_grad_projected[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]]
+            self.weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]]
+            self.fwt_weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]]
+            self.bwt_weight[i].grad.data = weight_grad[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]]
 
         # if self.fwt_weight[t].numel() != 0:
         #     self.fwt_weight[t].grad.data = self.project(self.fwt_weight[t].grad.data)
+
+    def compute_project_similarity(self, t):
+        if self.projection_matrix is None:
+            return
+
+        weight_grad = torch.empty(0).to(device)
+        for i in range(1, t):
+            weight_grad = torch.cat([torch.cat([weight_grad, self.fwt_weight[i].grad], dim=0), 
+                                torch.cat([self.bwt_weight[i].grad, self.weight[i].grad], dim=0)], dim=1)
+
+        weight_grad_update = self.project(weight_grad)
+        size = weight_grad.shape[0]
+        cos_sim = F.cosine_similarity(weight_grad.view(size, -1), weight_grad_update.view(size, -1), dim=1)
+        ang_dis = torch.arccos(cos_sim.detach()) / math.pi
+        self.sim[-1] = 1 / (1 - ang_dis)
+        print(weight_grad.view(size, -1).norm(2, 1))
+        print(weight_grad_update.view(size, -1).norm(2, 1))
+        print(ang_dis)
 
     def squeeze(self, optim_state):
         def apply_mask_out(param, mask_out):
@@ -315,6 +348,9 @@ class _DynamicLayer(nn.Module):
                 m.shape_in[-1] = m.in_features
             
         self.mask = None
+        strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
+        strength_out = self.next_layers[0].weight[-1].data.numel() + self.next_layers[0].bwt_weight[-1].data.numel()
+        self.strength = (strength_in + strength_out)
 
     def expand(self, add_in=None, add_out=None):
         if add_in is None:
@@ -342,6 +378,7 @@ class _DynamicLayer(nn.Module):
         if fan_in != 0:
             gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
             bound = gain * math.sqrt(3.0/fan_in)
+
             nn.init.uniform_(self.weight[-1], -bound, bound)
             nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
             nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
@@ -365,8 +402,9 @@ class _DynamicLayer(nn.Module):
         self.strength_out = self.weight[-1].data.numel() + self.bwt_weight[-1].data.numel()
         
         self.mask = None
+        self.sim.append(None)
 
-    def proximal_gradient_descent(self, lr, lamb):
+    def proximal_gradient_descent(self, lr, lamb, total_strength):
         if isinstance(self, DynamicLinear):
             view_in = (-1, 1)
             view_out = (1, -1)
@@ -375,10 +413,7 @@ class _DynamicLayer(nn.Module):
             view_out = (1, -1, 1, 1)
 
         with torch.no_grad():
-            strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
-            strength_out = self.next_layers[0].weight[-1].data.numel() + self.next_layers[0].bwt_weight[-1].data.numel()
-            strength = strength_in + strength_out
-
+            strength = self.strength / total_strength
             # group lasso weights in
             norm = self.norm_in(-1)
             aux = 1 - lamb * lr * strength / norm

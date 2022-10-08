@@ -62,11 +62,14 @@ def get_args():
                                  'Adam'], 
                         help='(default=%(default)s)')
     parser.add_argument('--ablation', default='full', type=str, required=False,
-                        choices=['no_gpm', 
-                                 'no_prune', 
-                                 'no_dropout',
-                                 'no_normalize'
-                                 'full'], 
+                        # choices=['no_gpm', 
+                        #          'no_prune', 
+                        #          'no_drop',
+                        #          'no_scale',
+                        #          'no_fwt',
+                        #          'no_bwt',
+                        #          'no_gpm_fwt',
+                        #          'full'], 
                         help='(default=%(default)s)')
     parser.add_argument('--output', default='', type=str, required=False, help='(default=%(default)s)')
     parser.add_argument('--nepochs', default=100, type=int, required=False, help='(default=%(default)d)')

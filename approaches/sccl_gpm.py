@@ -114,7 +114,7 @@ class Appr(object):
             self.shape_out = self.model.DM[-1].shape_out
             self.cur_task = len(self.shape_out)-1
 
-            self.get_sim(train_loader, valid_transform, t)
+            # self.get_sim(train_loader, valid_transform, t)
 
             self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 

@@ -259,8 +259,7 @@ class _DynamicLayer(nn.Module):
             # update GPM
             # self.feature = torch.cat([self.feature, U[:, 0: r]], dim=1)
             self.feature = torch.cat([self.feature, U[:, sval_ratio > 0]], dim=1)  
-            # if self.feature.shape[1] > self.feature.shape[0] :
-            #     self.feature = self.feature[:, 0: self.feature.shape[0]]
+            self.feature = self.feature[:, 0: self.feature.shape[0]]
 
         self.projection_matrix = torch.mm(self.feature, self.feature.T)
 

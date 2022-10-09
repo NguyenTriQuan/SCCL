@@ -1,4 +1,5 @@
 
+from pyexpat import features
 from re import S
 from tkinter.tix import InputOnly
 from traceback import print_tb
@@ -123,10 +124,10 @@ class _DynamicLayer(nn.Module):
 
     def get_optim_params(self, ablation='full'):
         params = []
-        if 'gpm' in ablation:
+        if 'gpm' in ablation or self.first_layer:
             params += [self.weight[-1], self.fwt_weight[-1], self.bwt_weight[-1]]
         else:
-            for i in range(len(self.weight)):
+            for i in range(self.cur_task+1):
                 params += [self.weight[i], self.fwt_weight[i], self.bwt_weight[i]]
         # params += [self.scale[-1]]
         if self.bias:
@@ -184,9 +185,10 @@ class _DynamicLayer(nn.Module):
         # if self.training:
         #     if self.sim[t] is not None:
         #         if len(weight.shape) == 2:
-        #             weight *= torch.normal(1, self.sim[t]).view(-1, 1)
+        #             std = self.sim[t].view(-1, 1).expand_as(weight)
         #         else:
-        #             weight *= torch.normal(1, self.sim[t]).view(-1, 1, 1, 1)
+        #             std = self.sim[t].view(-1, 1, 1, 1).expand_as(weight)
+        #         weight *= torch.normal(1, std)
 
         # if len(weight.shape) == 2:
         #     weight *= self.scale[-1].view(-1, 1)
@@ -230,9 +232,10 @@ class _DynamicLayer(nn.Module):
             sval_ratio = S**2
             sval_ratio = sval_ratio/sval_ratio.sum()
 
-            r = (torch.cumsum(sval_ratio, dim=0) <= threshold).sum().item() #+1 
-            self.feature = U[:, :r]
-            print(sval_ratio[:r])
+            # r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
+            # self.feature = U[:, :r]
+            self.feature = U[:, sval_ratio > 0]
+            # print(sval_ratio[:r])
 
         else:
             U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
@@ -243,18 +246,19 @@ class _DynamicLayer(nn.Module):
             # criteria (Eq-9)
             sval_hat = (S**2).sum()
             sval_ratio = (S**2)/sval_total               
-            accumulated_sval = (sval_total-sval_hat)/sval_total
-            r = 0
-            for ii in range (sval_ratio.shape[0]):
-                if accumulated_sval <= threshold:
-                    accumulated_sval += sval_ratio[ii]
-                    r += 1
-                else:
-                    break
-            if r == 0:
-                return
+            # accumulated_sval = (sval_total-sval_hat)/sval_total
+            # r = 0
+            # for ii in range (sval_ratio.shape[0]):
+            #     if accumulated_sval < threshold:
+            #         accumulated_sval += sval_ratio[ii]
+            #         r += 1
+            #     else:
+            #         break
+            # if r == 0:
+            #     return
             # update GPM
-            self.feature = torch.cat([self.feature, U[:, 0: r]], dim=1)  
+            # self.feature = torch.cat([self.feature, U[:, 0: r]], dim=1)
+            self.feature = torch.cat([self.feature, U[:, sval_ratio > 0]], dim=1)  
             if self.feature.shape[1] > self.feature.shape[0] :
                 self.feature = self.feature[:, 0: self.feature.shape[0]]
 
@@ -297,7 +301,7 @@ class _DynamicLayer(nn.Module):
         size = weight_grad.shape[0]
         cos_sim = F.cosine_similarity(weight_grad.view(size, -1), weight_grad_update.view(size, -1), dim=1)
         ang_dis = torch.arccos(cos_sim.detach()) / math.pi
-        p_dropout = ang_dis/2
+        p_dropout = ang_dis / 2
         self.sim[-1] = 1 / (1 - p_dropout)
         # print(weight_grad.view(size, -1).norm(2, 1))
         # print(weight_grad_update.view(size, -1).norm(2, 1))
@@ -411,7 +415,7 @@ class _DynamicLayer(nn.Module):
 
             # rescale old tasks params
             if 'scale' not in ablation:
-                weight, bias = self.get_parameters(len(self.weight)-2)
+                weight, bias = self.get_parameters(self.cur_task)
                 # mean = weight.mean()
                 std = weight.std()
                 bound_std = gain / math.sqrt(fan_in)

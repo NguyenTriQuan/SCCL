@@ -196,12 +196,14 @@ class Appr(object):
                 
                 # Adapt lr
                 if squeeze:
-                    if train_acc >= best_acc:
-                        best_acc = train_acc
-                        self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
-                        torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                        print(' *', end='')
-                        patience = self.lr_patience
+                    self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
+                    torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                    # if train_acc >= best_acc:
+                    #     best_acc = train_acc
+                    #     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
+                    #     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                    #     print(' *', end='')
+                    #     patience = self.lr_patience
 
                 else:
                     if valid_acc > best_acc:

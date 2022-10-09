@@ -98,7 +98,7 @@ class _DynamicModel(nn.Module):
         print('GPM count:', gpm_count)
 
     def project_gradient(self, t):
-        for m in self.DM[:-1]:
+        for m in self.DM[1:-1]:
             m.project_gradient(t)
     
     def compute_project_similarity(self, t):
@@ -106,7 +106,7 @@ class _DynamicModel(nn.Module):
             m.compute_project_similarity(t)
 
     def get_feature(self, thresholds):
-        self.DM[0].get_feature(thresholds[0])
+        # self.DM[0].get_feature(thresholds[0])
         for i, m in enumerate(self.DM[1:-1]):
             m.get_feature(thresholds[-1])
 

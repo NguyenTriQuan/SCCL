@@ -232,10 +232,10 @@ class _DynamicLayer(nn.Module):
             sval_ratio = S**2
             sval_ratio = sval_ratio/sval_ratio.sum()
 
-            # r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
-            # self.feature = U[:, :r]
+            r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
+            self.feature = U[:, :r]
 
-            self.feature = U[:, sval_ratio > 0]
+            # self.feature = U[:, sval_ratio > 0]
 
         else:
             U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
@@ -244,21 +244,19 @@ class _DynamicLayer(nn.Module):
             act_hat = mat - torch.mm(torch.mm(self.feature, self.feature.T), mat)
             U, S, Vh = torch.linalg.svd(act_hat, full_matrices=False)
             # criteria (Eq-9)
-            # sval_hat = (S**2).sum()
+            sval_hat = (S**2).sum()
             sval_ratio = (S**2)/sval_total               
-            # accumulated_sval = (sval_total-sval_hat)/sval_total
-            # r = 0
-            # for ii in range (sval_ratio.shape[0]):
-            #     if accumulated_sval < threshold:
-            #         accumulated_sval += sval_ratio[ii]
-            #         r += 1
-            #     else:
-            #         break
-            # if r == 0:
-            #     return
+            accumulated_sval = (sval_total-sval_hat)/sval_total
+            r = 0
+            for ii in range (sval_ratio.shape[0]):
+                if accumulated_sval < threshold:
+                    accumulated_sval += sval_ratio[ii]
+                    r += 1
+                else:
+                    break
             # # update GPM
-            # self.feature = torch.cat([self.feature, U[:, 0: r]], dim=1)
-            self.feature = torch.cat([self.feature, U[:, sval_ratio > 0]], dim=1)  
+            self.feature = torch.cat([self.feature, U[:, 0: r]], dim=1)
+            # self.feature = torch.cat([self.feature, U[:, sval_ratio > 0]], dim=1)  
             self.feature = self.feature[:, 0: self.feature.shape[0]]
 
         self.projection_matrix = torch.mm(self.feature, self.feature.T)

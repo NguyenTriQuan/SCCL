@@ -143,12 +143,16 @@ class MLP(_DynamicModel):
             # nn.Dropout(0.25),
             DynamicLinear(np.prod(input_size), N, first_layer=True, bias=True, norm_type=norm_type),
             nn.ReLU(),
+            nn.Dropout(0.25),
             DynamicLinear(N, N, bias=True, norm_type=norm_type),
             nn.ReLU(),
+            nn.Dropout(0.25),
             DynamicLinear(N, N, bias=True, norm_type=norm_type),
             nn.ReLU(),
+            nn.Dropout(0.25),
             DynamicLinear(N, N, bias=True, norm_type=norm_type),
             nn.ReLU(),
+            nn.Dropout(0.25),
             DynamicLinear(N, 0, bias=True, last_layer=True),
             ])
         

@@ -27,10 +27,9 @@ class Appr(object):
         self.sbatch = args.batch_size
         self.lr = args.lr
         self.lr_min = args.lr / 100
-        self.lr_factor = lr_factor
-        self.lr_patience = lr_patience
+        self.lr_factor = args.lr_factor
+        self.lr_patience = args.lr_patience
         self.clipgrad = clipgrad
-        self.split = True
 
         self.ce=torch.nn.CrossEntropyLoss()
         self.optimizer=self._get_optimizer()
@@ -46,7 +45,7 @@ class Appr(object):
             return torch.optim.Adam(self.model.parameters(), lr=lr)
 #         return torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
 
-    def train(self, t, train_loader, valid_loader, train_transform, valid_transform):
+    def train(self, train_loaders, valid_loaders, train_transform, valid_transform):
         best_acc = -np.inf
         best_model = utils.get_model(self.model)
         lr = self.lr
@@ -57,19 +56,21 @@ class Appr(object):
         for e in range(self.nepochs):
             # Train
             clock0=time.time()
-            
-            # CUB 200 xtrain_cropped = crop(x_train)
-            
-            self.train_epoch(t, train_loader, train_transform)
+                        
+            self.train_epoch(train_loaders, train_transform)
             
             clock1=time.time()
-            train_loss,train_acc=self.eval(t, train_loader, valid_transform)
+            train_losses,train_accs=self.eval(train_loaders, valid_transform)
+            train_loss = np.mean(train_losses)
+            train_acc = np.mean(train_accs)
             clock2=time.time()
             print('| Epoch {:3d}, time={:5.1f}ms/{:5.1f}ms | Train: loss={:.3f}, acc={:5.1f}% |'.format(
                 e+1,1000*self.sbatch*(clock1-clock0),
-                1000*self.sbatch*(clock2-clock1),train_loss,100*train_acc),end='')
-            # Valid
-            valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
+                1000*self.sbatch*(clock2-clock1),train_loss,100*train_acc,end=''))
+            # Valid)
+            valid_losses,valid_accs=self.eval(valid_loaders, valid_transform)
+            valid_loss = np.mean(valid_losses)
+            valid_acc = np.mean(valid_accs)
             print(' Valid: loss={:.3f}, acc={:5.1f}% |'.format(valid_loss,100*valid_acc),end='')
             
             #save log for current task & old tasks at every epoch
@@ -101,29 +102,27 @@ class Appr(object):
         utils.set_model_(self.model, best_model)
 
         # self.logger.save()
-        
-        # Update old
-        self.model_old = deepcopy(self.model)
-        self.model_old.eval()
-        utils.freeze_model(self.model_old) # Freeze the weights
         torch.save(self.model, '../result_data/trained_model/' + self.log_name + '.model')
 
         return
 
-    def train_epoch(self, t, data_loader, train_transform):
+    def train_epoch(self, data_loaders, train_transform):
         self.model.train()
-
         # Loop batches
-        for images, targets in data_loader:
-            images=images.to(device)
-            targets=targets.to(device)
-            if train_transform:
-                images = train_transform(images)
-            
-            # Forward current model
-            outputs = self.model.forward(images, t)
-            loss=self.ce(outputs,targets)
-
+        for batch_tasks in zip(*data_loaders):
+            i = 0
+            loss = 0
+            for batch_task in batch_tasks:
+                images, targets = batch_task
+                images=images.to(device)
+                targets=targets.to(device)
+                if train_transform:
+                    images = train_transform(images)
+                
+                # Forward current model
+                outputs = self.model.forward(images, i)
+                loss += self.ce(outputs,targets)
+                i += 1
             # Backward
             self.optimizer.zero_grad()
             loss.backward()
@@ -133,29 +132,32 @@ class Appr(object):
 
         return
 
-    def eval(self, t, data_loader, valid_transform):
-        total_loss=0
-        total_acc=0
-        total_num=0
+    def eval(self, data_loaders, valid_transform):
+        total_losses=[]
+        total_accs=[]
         self.model.eval()
-
-
         # Loop batches
-        for images, targets in data_loader:
-            images=images.to(device)
-            targets=targets.to(device)
-            if valid_transform:
-                images = valid_transform(images)
-            
-            # Forward
-            outputs = self.model.forward(images, t)
+        for i, data_loader in enumerate(data_loaders):
+            total_loss=0
+            total_acc=0
+            total_num=0
+            for images, targets in data_loader:
+                images=images.to(device)
+                targets=targets.to(device)
+                if valid_transform:
+                    images = valid_transform(images)
                 
-            loss=self.ce(outputs,targets)
-            _,pred=outputs.max(1)
-            hits=(pred==targets).float()
+                # Forward
+                outputs = self.model.forward(images, i)
+                    
+                loss=self.ce(outputs,targets)
+                _,pred=outputs.max(1)
+                hits=(pred==targets).float()
 
-            total_loss+=loss.data.cpu().numpy()*len(targets)
-            total_acc+=hits.sum().data.cpu().numpy()
-            total_num+=len(targets)
+                total_loss+=loss.data.cpu().numpy()*len(targets)
+                total_acc+=hits.sum().data.cpu().numpy()
+                total_num+=len(targets)
+            total_accs.append(total_acc/total_num)
+            total_losses.append(total_loss/total_num)
 
-        return total_loss/total_num,total_acc/total_num
+        return total_losses, total_accs

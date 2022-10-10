@@ -232,10 +232,10 @@ class _DynamicLayer(nn.Module):
             sval_ratio = S**2
             sval_ratio = sval_ratio/sval_ratio.sum()
 
-            r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
-            self.feature = U[:, :r]
+            # r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
+            # self.feature = U[:, :r]
 
-            # self.feature = U[:, sval_ratio > 0]
+            self.feature = U[:, sval_ratio > 0]
 
         else:
             U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
@@ -244,19 +244,19 @@ class _DynamicLayer(nn.Module):
             act_hat = mat - torch.mm(torch.mm(self.feature, self.feature.T), mat)
             U, S, Vh = torch.linalg.svd(act_hat, full_matrices=False)
             # criteria (Eq-9)
-            sval_hat = (S**2).sum()
+            # sval_hat = (S**2).sum()
             sval_ratio = (S**2)/sval_total               
-            accumulated_sval = (sval_total-sval_hat)/sval_total
-            r = 0
-            for ii in range (sval_ratio.shape[0]):
-                if accumulated_sval < threshold:
-                    accumulated_sval += sval_ratio[ii]
-                    r += 1
-                else:
-                    break
+            # accumulated_sval = (sval_total-sval_hat)/sval_total
+            # r = 0
+            # for ii in range (sval_ratio.shape[0]):
+            #     if accumulated_sval < threshold:
+            #         accumulated_sval += sval_ratio[ii]
+            #         r += 1
+            #     else:
+            #         break
             # # update GPM
-            self.feature = torch.cat([self.feature, U[:, 0: r]], dim=1)
-            # self.feature = torch.cat([self.feature, U[:, sval_ratio > 0]], dim=1)  
+            # self.feature = torch.cat([self.feature, U[:, 0: r]], dim=1)
+            self.feature = torch.cat([self.feature, U[:, sval_ratio > 0]], dim=1)  
             self.feature = self.feature[:, 0: self.feature.shape[0]]
 
         self.projection_matrix = torch.mm(self.feature, self.feature.T)
@@ -274,14 +274,19 @@ class _DynamicLayer(nn.Module):
             weight_grad = torch.cat([torch.cat([weight_grad, self.fwt_weight[i].grad], dim=0), 
                                 torch.cat([self.bwt_weight[i].grad, self.weight[i].grad], dim=0)], dim=1)
 
-        weight_grad = self.project(weight_grad)
+        weight_grad_update = self.project(weight_grad)
         # temp = F.cosine_similarity(weight_grad.view(-1), weight_grad_projected.view(-1), dim=0)
         # print(temp.item(), math.acos(temp.item())/math.pi)
         for i in range(1, t): 
-            self.weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]]
-            self.fwt_weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]]
-            self.bwt_weight[i].grad.data = weight_grad[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]]
+            self.weight[i].grad.data = weight_grad_update[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]]
+            self.fwt_weight[i].grad.data = weight_grad_update[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]]
+            self.bwt_weight[i].grad.data = weight_grad_update[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]]
 
+        # size = weight_grad.shape[0]
+        # cos_sim = F.cosine_similarity(weight_grad.view(size, -1), weight_grad_update.view(size, -1), dim=1)
+        # print(cos_sim.max().item(), end=' ')
+        # r = weight_grad.norm(2, dim=1).max()
+        # print(r.item(), end=' ')
         # if self.fwt_weight[t].numel() != 0:
         #     self.fwt_weight[t].grad.data = self.project(self.fwt_weight[t].grad.data)
 
@@ -411,26 +416,26 @@ class _DynamicLayer(nn.Module):
                 nn.init.uniform_(self.fwt_weight[-1], 0, 0)
 
             # rescale old tasks params
-            # if 'scale' not in ablation:
-            #     weight, bias = self.get_parameters(self.cur_task)
-            #     # mean = weight.mean()
-            #     std = weight.std()
-            #     bound_std = gain / math.sqrt(fan_in)
-            #     scale = bound_std / std
+            if 'scale' not in ablation:
+                weight, bias = self.get_parameters(self.cur_task)
+                # mean = weight.mean()
+                std = weight.std()
+                bound_std = gain / math.sqrt(fan_in)
+                scale = bound_std / std
 
-            #     for i in range(self.cur_task):
-            #         self.weight[i].data *= scale
-            #         self.fwt_weight[i].data *= scale
-            #         self.bwt_weight[i].data *= scale
-            #         if self.bias:
-            #             self.bias[i].data *= pre_scale * scale
-            #         if self.norm_layer:
-            #             if self.norm_layer.track_running_stats:
-            #                 for i in range(self.cur_task):
-            #                     self.norm_layer.running_mean[i].data *= pre_scale * scale
-            #                     self.norm_layer.running_var[i].data *= pre_scale * scale
+                for i in range(self.cur_task):
+                    self.weight[i].data *= scale
+                    self.fwt_weight[i].data *= scale
+                    self.bwt_weight[i].data *= scale
+                    if self.bias:
+                        self.bias[i].data *= pre_scale * scale
+                    if self.norm_layer:
+                        if self.norm_layer.track_running_stats:
+                            for i in range(self.cur_task):
+                                self.norm_layer.running_mean[i].data *= pre_scale * scale
+                                self.norm_layer.running_var[i].data *= pre_scale * scale
         
-            #     pre_scale *= scale
+                pre_scale *= scale
                 
 
         # if self.projection_matrix is not None:

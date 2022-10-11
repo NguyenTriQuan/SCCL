@@ -155,7 +155,7 @@ class Appr(object):
 
         self.check_point = None
         for m in self.model.DM:
-            print(m.fwt_weight[-1].sum())        
+            print(m.fwt_weight[-1].norm(2))        
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 
@@ -193,18 +193,12 @@ class Appr(object):
 
                 valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
-                
                 # Adapt lr
                 if squeeze:
                     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
                     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                    # if train_acc >= best_acc:
-                    #     best_acc = train_acc
-                    #     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
-                    #     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                    #     print(' *', end='')
-                    #     patience = self.lr_patience
-
+                    model_count, layers_count = self.model.count_params()
+                    self.logger.log_metric('num params', model_count, epoch=e)
                 else:
                     if valid_acc > best_acc:
                         best_acc = valid_acc
@@ -225,6 +219,10 @@ class Appr(object):
                             self.optimizer = self._get_optimizer(lr)
 
                 print()
+                self.logger.log_metrics({
+                    'train acc':train_acc,
+                    'valid acc':valid_acc
+                }, epoch=e)
 
         except KeyboardInterrupt:
             print('KeyboardInterrupt')
@@ -251,6 +249,10 @@ class Appr(object):
         self.optimizer.step()
         if squeeze:
             self.model.proximal_gradient_descent(lr, self.lamb)
+        
+        for i, m in enumerate(self.model.DM):
+            if m.projection_matrix is not None:
+                self.logger.log_metric(f'layer {i} sim', m.cos_sim)
             
 
     def eval_batch(self, t, images, targets):
@@ -279,7 +281,6 @@ class Appr(object):
         
         if squeeze:
             self.model.squeeze(self.optimizer.state)
-        self.model.count_params()
 
 
     def eval(self, t, data_loader, valid_transform):

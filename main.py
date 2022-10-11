@@ -9,17 +9,17 @@ from utils import *
 from arguments import get_args
 import importlib
 # import comet_ml at the top of your file
-# from comet_ml import Experiment
+from comet_ml import Experiment, ExistingExperiment
 import json
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+os.makedirs('../result_data/trained_model/', exist_ok=True)
+os.makedirs('../result_data/logger/', exist_ok=True)
 args = get_args()
 tstart = time.time()
 
 args.max_params = max(args.max_params, 0)
 args.max_mul = max(args.max_mul, 0)
-
 
 print('=' * 100)
 print('Arguments =')
@@ -49,17 +49,23 @@ appr = approach.Appr(inputsize=inputsize, taskcla=taskcla, args=args)
 
 start_task = args.start_task
 if args.resume:
+    with open(f'../result_data/logger/{appr.log_name}.json', 'r') as f:
+        KEY = json.load(f)
+
+    appr.logger = ExistingExperiment(
+        api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",
+        previous_experiment=KEY
+    )
     start_task = appr.resume()
-
-# experiment = Experiment(
-#     api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",
-#     project_name="sccl",
-#     workspace="nguyentriquan",
-# )
-# experiment.set_name(appr.log_name)
-# with open(f'{appr.log_name}.json', 'w') as file:
-#     json.dump(experiment.get_key(), file)
-
+else:
+    appr.logger = Experiment(
+        api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",
+        project_name="sccl",
+        workspace="nguyentriquan",
+    )
+    appr.logger.set_name(appr.log_name)
+    with open(f'../result_data/logger/{appr.log_name}.json', 'w') as f:
+        json.dump(appr.logger.get_key(), f)
 
 utils.print_optimizer_config(appr.optimizer)
 print('-' * 100)
@@ -79,7 +85,7 @@ if args.approach == 'joint':
     test_losses, test_accs = appr.eval(test_loaders, data['valid_transform'])
     for t in range(len(test_accs)):
         print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(t, data[t]['name'], test_losses[t], 100 * test_accs[t]))
-
+    print('Avg acc={:5.2f}%'.format(100*np.mean(test_accs)))
     sys.exit()
 
 for t, ncla in taskcla[start_task:]:

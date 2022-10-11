@@ -86,7 +86,7 @@ class _DynamicModel(nn.Module):
             model_count += count
             layers_count.append(count)
 
-        print('num params:', model_count)
+        print('|num params:', model_count, end=' | ')
 
         return model_count, layers_count
 
@@ -98,7 +98,7 @@ class _DynamicModel(nn.Module):
         print('GPM count:', gpm_count)
 
     def project_gradient(self, t):
-        for m in self.DM[1:-1]:
+        for m in self.DM[0:-1]:
             m.project_gradient(t)
     
     def compute_project_similarity(self, t):
@@ -106,7 +106,7 @@ class _DynamicModel(nn.Module):
             m.compute_project_similarity(t)
 
     def get_feature(self, thresholds):
-        # self.DM[0].get_feature(thresholds[0])
+        self.DM[0].get_feature(thresholds[0])
         for i, m in enumerate(self.DM[1:-1]):
             m.get_feature(thresholds[-1])
 
@@ -143,16 +143,10 @@ class MLP(_DynamicModel):
             # nn.Dropout(0.25),
             DynamicLinear(np.prod(input_size), N, first_layer=True, bias=True, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.25),
+            # nn.Dropout(0.25),
             DynamicLinear(N, N, bias=True, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.25),
-            DynamicLinear(N, N, bias=True, norm_type=norm_type),
-            nn.ReLU(),
-            nn.Dropout(0.25),
-            DynamicLinear(N, N, bias=True, norm_type=norm_type),
-            nn.ReLU(),
-            nn.Dropout(0.25),
+            # nn.Dropout(0.25),
             DynamicLinear(N, 0, bias=True, last_layer=True),
             ])
         

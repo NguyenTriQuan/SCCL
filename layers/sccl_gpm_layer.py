@@ -416,26 +416,26 @@ class _DynamicLayer(nn.Module):
                 nn.init.uniform_(self.fwt_weight[-1], 0, 0)
 
             # rescale old tasks params
-            # if 'scale' not in ablation:
-            #     weight, bias = self.get_parameters(self.cur_task)
-            #     # mean = weight.mean()
-            #     std = weight.std()
-            #     bound_std = gain / math.sqrt(fan_in)
-            #     scale = bound_std / std
+            if 'scale' not in ablation:
+                weight, bias = self.get_parameters(self.cur_task)
+                # mean = weight.mean()
+                std = weight.std()
+                bound_std = gain / math.sqrt(fan_in)
+                scale = bound_std / std
 
-            #     for i in range(self.cur_task):
-            #         self.weight[i].data *= scale
-            #         self.fwt_weight[i].data *= scale
-            #         self.bwt_weight[i].data *= scale
-            #         if self.bias:
-            #             self.bias[i].data *= pre_scale * scale
-            #         if self.norm_layer:
-            #             if self.norm_layer.track_running_stats:
-            #                 for i in range(self.cur_task):
-            #                     self.norm_layer.running_mean[i].data *= pre_scale * scale
-            #                     self.norm_layer.running_var[i].data *= pre_scale * scale
+                for i in range(self.cur_task):
+                    self.weight[i].data *= scale
+                    self.fwt_weight[i].data *= scale
+                    self.bwt_weight[i].data *= scale
+                    if self.bias:
+                        self.bias[i].data *= pre_scale * scale
+                    if self.norm_layer:
+                        if self.norm_layer.track_running_stats:
+                            for i in range(self.cur_task):
+                                self.norm_layer.running_mean[i].data *= pre_scale * scale
+                                self.norm_layer.running_var[i].data *= pre_scale * scale
         
-            #     pre_scale *= scale
+                pre_scale *= scale
                 
 
         # requires grad
@@ -443,8 +443,8 @@ class _DynamicLayer(nn.Module):
             self.weight[-2].requires_grad = False
             self.fwt_weight[-2].requires_grad = False
             self.bwt_weight[-2].requires_grad = False
-        if 'fwt' in ablation and not self.first_layer:
-            self.fwt_weight[-1].requires_grad = False
+        # if 'fwt' in ablation and not self.first_layer:
+        #     self.fwt_weight[-1].requires_grad = False
 
         self.in_features += add_in
         self.out_features += add_out

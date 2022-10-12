@@ -232,10 +232,10 @@ class _DynamicLayer(nn.Module):
             sval_ratio = S**2
             sval_ratio = sval_ratio/sval_ratio.sum()
 
-            r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
-            self.feature = U[:, :r]
+            # r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
+            # self.feature = U[:, :r]
 
-            # self.feature = U[:, sval_ratio > 0]
+            self.feature = U[:, sval_ratio > 0]
 
         else:
             U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
@@ -246,17 +246,17 @@ class _DynamicLayer(nn.Module):
             # criteria (Eq-9)
             sval_hat = (S**2).sum()
             sval_ratio = (S**2)/sval_total               
-            accumulated_sval = (sval_total-sval_hat)/sval_total
-            r = 0
-            for ii in range (sval_ratio.shape[0]):
-                if accumulated_sval < threshold:
-                    accumulated_sval += sval_ratio[ii]
-                    r += 1
-                else:
-                    break
+            # accumulated_sval = (sval_total-sval_hat)/sval_total
+            # r = 0
+            # for ii in range (sval_ratio.shape[0]):
+            #     if accumulated_sval < threshold:
+            #         accumulated_sval += sval_ratio[ii]
+            #         r += 1
+            #     else:
+            #         break
             # # update GPM
-            self.feature = torch.cat([self.feature, U[:, 0: r]], dim=1)
-            # self.feature = torch.cat([self.feature, U[:, sval_ratio > 0]], dim=1)  
+            # self.feature = torch.cat([self.feature, U[:, 0: r]], dim=1)
+            self.feature = torch.cat([self.feature, U[:, sval_ratio > 0]], dim=1)  
             self.feature = self.feature[:, 0: self.feature.shape[0]]
 
         self.projection_matrix = torch.mm(self.feature, self.feature.T)
@@ -289,9 +289,6 @@ class _DynamicLayer(nn.Module):
         # print(cos_sim.max().item(), end=' ')
         # r = weight_grad.norm(2, dim=1).max()
         # print(r.item(), end=' ')
-
-        # if self.fwt_weight[t].numel() != 0:
-        #     self.fwt_weight[t].grad.data = self.project(self.fwt_weight[t].grad.data)
 
     def compute_project_similarity(self, t):
         if self.projection_matrix is None:
@@ -441,16 +438,13 @@ class _DynamicLayer(nn.Module):
             #     pre_scale *= scale
                 
 
-        # if self.projection_matrix is not None:
-        #     self.fwt_weight[-1].data = self.project(self.fwt_weight[-1].data)
-
         # requires grad
         if 'gpm' in ablation:
             self.weight[-2].requires_grad = False
             self.fwt_weight[-2].requires_grad = False
             self.bwt_weight[-2].requires_grad = False
-        # if 'fwt' in ablation and not self.first_layer:
-        #     self.fwt_weight[-1].requires_grad = False
+        if 'fwt' in ablation and not self.first_layer:
+            self.fwt_weight[-1].requires_grad = False
 
         self.in_features += add_in
         self.out_features += add_out

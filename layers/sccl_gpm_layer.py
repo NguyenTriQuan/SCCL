@@ -54,7 +54,7 @@ class _DynamicLayer(nn.Module):
         else:
             self.register_parameter("bias", None)
 
-        # self.scale = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features))])
+        self.scale = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features))])
 
         self.shape_in = [self.in_features]
         self.shape_out = [self.out_features]
@@ -86,16 +86,11 @@ class _DynamicLayer(nn.Module):
 
         if isinstance(self, DynamicLinear):
             output = F.linear(x, weight, bias)
-            view = (1, -1)
         else:
             output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
-            view = (1, -1, 1, 1)
 
         if self.norm_layer is not None:
             output = self.norm_layer(output, t, self.dropout)
-
-        # if self.mask is not None:
-        #     output[:, self.shape_out[-2]:] = output[:, self.shape_out[-2]:] * self.mask.view(view)
 
         return output
 
@@ -129,7 +124,7 @@ class _DynamicLayer(nn.Module):
         else:
             for i in range(self.cur_task+1):
                 params += [self.weight[i], self.fwt_weight[i], self.bwt_weight[i]]
-        # params += [self.scale[-1]]
+        params += [self.scale[-1]]
         if self.bias:
             params += [self.bias[-1]]
         if self.norm_layer:
@@ -176,11 +171,22 @@ class _DynamicLayer(nn.Module):
         else:
             bias = None
 
+        if isinstance(self, DynamicLinear):
+            view = (-1, 1)
+        else:
+            view = (-1, 1, 1, 1)
+
         for i in range(1, t):
             weight = torch.cat([torch.cat([weight, self.fwt_weight[i]], dim=0), 
                                 torch.cat([self.bwt_weight[i], self.weight[i]], dim=0)], dim=1)
+
+            if len(weight.shape) == 2:
+                weight *= self.scale[i].view(view)
+            elif len(weight.shape) == 4:
+                weight *= self.scale[i].view(view)
+
             if self.bias:
-                bias = torch.cat([bias, self.bias[i]])
+                bias = torch.cat([bias, self.bias[i]]) * self.scale[i]
 
         # if self.training:
         #     if self.sim[t] is not None:
@@ -189,11 +195,6 @@ class _DynamicLayer(nn.Module):
         #         else:
         #             std = self.sim[t].view(-1, 1, 1, 1).expand_as(weight)
         #         weight *= torch.normal(1, std)
-
-        # if len(weight.shape) == 2:
-        #     weight *= self.scale[-1].view(-1, 1)
-        # elif len(weight.shape) == 4:
-        #     weight *= self.scale[-1].view(-1, 1, 1, 1)
 
         weight = torch.cat([torch.cat([weight, self.fwt_weight[t]], dim=0), 
                             torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
@@ -414,9 +415,10 @@ class _DynamicLayer(nn.Module):
             # init
             gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
             bound = gain * math.sqrt(3.0/fan_in)
-
+            nn.init.uniform_(self.bias[-1], -1/math.sqrt(fan_in), 1/math.sqrt(fan_in))
             nn.init.uniform_(self.weight[-1], -bound, bound)
-            nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
+            # nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
+            nn.init.uniform_(self.bwt_weight[-1], 0, 0)
 
             if 'fwt' not in ablation or self.first_layer:
                 nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
@@ -424,26 +426,26 @@ class _DynamicLayer(nn.Module):
                 nn.init.uniform_(self.fwt_weight[-1], 0, 0)
 
             # rescale old tasks params
-            if 'scale' not in ablation:
+            if 'scale' not in ablation and self.cur_task > 0:
                 weight, bias = self.get_parameters(self.cur_task)
-                # mean = weight.mean()
-                std = weight.std()
+                std = weight.view(weight.shape[0], -1).std(1)
                 bound_std = gain / math.sqrt(fan_in)
                 scale = bound_std / std
 
-                for i in range(self.cur_task):
-                    self.weight[i].data *= scale
-                    self.fwt_weight[i].data *= scale
-                    self.bwt_weight[i].data *= scale
-                    if self.bias:
-                        self.bias[i].data *= pre_scale * scale
-                    if self.norm_layer:
-                        if self.norm_layer.track_running_stats:
-                            for i in range(self.cur_task):
-                                self.norm_layer.running_mean[i].data *= pre_scale * scale
-                                self.norm_layer.running_var[i].data *= pre_scale * scale
+                self.scale.append(nn.Parameter(scale.to(device)))
+                # for i in range(self.cur_task):
+                #     self.weight[i].data *= scale
+                #     self.fwt_weight[i].data *= scale
+                #     self.bwt_weight[i].data *= scale
+                #     if self.bias:
+                #         self.bias[i].data *= pre_scale * scale
+                #     if self.norm_layer:
+                #         if self.norm_layer.track_running_stats:
+                #             for i in range(self.cur_task):
+                #                 self.norm_layer.running_mean[i].data *= pre_scale * scale
+                #                 self.norm_layer.running_var[i].data *= pre_scale * scale
         
-                pre_scale *= scale
+                # pre_scale *= scale
                 
 
         # requires grad

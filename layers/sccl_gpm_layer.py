@@ -180,10 +180,11 @@ class _DynamicLayer(nn.Module):
             weight = torch.cat([torch.cat([weight, self.fwt_weight[i]], dim=0), 
                                 torch.cat([self.bwt_weight[i], self.weight[i]], dim=0)], dim=1)
 
-            weight *= self.scale[i].view(view)
+            # weight *= self.scale[i].view(view)
 
             if self.bias:
-                bias = torch.cat([bias, self.bias[i]]) * self.scale[i]
+                bias = torch.cat([bias, self.bias[i]]) 
+                # bias *= self.scale[i]
 
         # if self.training:
         #     if self.sim[t] is not None:

@@ -15,7 +15,7 @@ import torchvision.transforms.functional as tvF
 import torchvision.transforms as transforms
 from torchvision import models
 import time
-from layers.sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+# from layers.sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 # from torchvision.models.resnet import *
 
 # resnet_model = models.resnet18(pretrained=True).cuda()

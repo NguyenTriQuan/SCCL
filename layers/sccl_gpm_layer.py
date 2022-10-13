@@ -180,10 +180,7 @@ class _DynamicLayer(nn.Module):
             weight = torch.cat([torch.cat([weight, self.fwt_weight[i]], dim=0), 
                                 torch.cat([self.bwt_weight[i], self.weight[i]], dim=0)], dim=1)
 
-            if len(weight.shape) == 2:
-                weight *= self.scale[i].view(view)
-            elif len(weight.shape) == 4:
-                weight *= self.scale[i].view(view)
+            weight *= self.scale[i].view(view)
 
             if self.bias:
                 bias = torch.cat([bias, self.bias[i]]) * self.scale[i]
@@ -417,8 +414,8 @@ class _DynamicLayer(nn.Module):
             bound = gain * math.sqrt(3.0/fan_in)
             nn.init.uniform_(self.bias[-1], -1/math.sqrt(fan_in), 1/math.sqrt(fan_in))
             nn.init.uniform_(self.weight[-1], -bound, bound)
-            # nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
-            nn.init.uniform_(self.bwt_weight[-1], 0, 0)
+            nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
+            # nn.init.uniform_(self.bwt_weight[-1], 0, 0)
 
             if 'fwt' not in ablation or self.first_layer:
                 nn.init.uniform_(self.fwt_weight[-1], -bound, bound)

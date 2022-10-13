@@ -97,9 +97,10 @@ class _DynamicModel(nn.Module):
                 gpm_count += m.feature.numel()
         print('GPM count:', gpm_count)
 
-    def project_gradient(self, t):
-        for m in self.DM[0:-1]:
-            m.project_gradient(t)
+    def project_gradient(self):
+        self.DM[0].project_gradient()
+        # for m in self.DM[0:-1]:
+        #     m.project_gradient(t)
     
     def compute_project_similarity(self, t):
         for m in self.DM[:-1]:
@@ -168,22 +169,22 @@ class VGG8(_DynamicModel):
             nn.ReLU(),
             DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
-            nn.MaxPool2d(2),
             nn.Dropout(0.25),
+            nn.MaxPool2d(2),
 
             DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
-            nn.MaxPool2d(2),
             nn.Dropout(0.25),
+            nn.MaxPool2d(2),
 
             DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.5),
             nn.ReLU(),
+            nn.Dropout(0.25),
             nn.MaxPool2d(2),
-            nn.Dropout(0.5),
             ])
 
         s = size
@@ -198,6 +199,7 @@ class VGG8(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(128*s*s, 256, norm_type=norm_type, s=s),
             nn.ReLU(),
+            nn.Dropout(0.5),
             DynamicLinear(256, 0, last_layer=True)
             ])
 

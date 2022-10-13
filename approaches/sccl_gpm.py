@@ -245,7 +245,7 @@ class Appr(object):
                 
         self.optimizer.zero_grad()
         loss.backward() 
-        self.model.project_gradient(t)
+        self.model.project_gradient()
         self.optimizer.step()
         if squeeze:
             self.model.proximal_gradient_descent(lr, self.lamb)

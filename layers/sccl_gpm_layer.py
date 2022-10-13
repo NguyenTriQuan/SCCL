@@ -265,30 +265,38 @@ class _DynamicLayer(nn.Module):
         sz =  params.size(0)
         return torch.mm(params.view(sz,-1), self.projection_matrix).view(params.size())
 
-    def project_gradient(self, t):
-        if self.projection_matrix is None:
+    # def project_gradient(self, t):
+    #     if self.projection_matrix is None:
+    #         return
+
+    #     weight_grad = torch.empty(0).to(device)
+    #     for i in range(1, t):
+    #         weight_grad = torch.cat([torch.cat([weight_grad, self.fwt_weight[i].grad], dim=0), 
+    #                             torch.cat([self.bwt_weight[i].grad, self.weight[i].grad], dim=0)], dim=1)
+
+    #     weight_grad_projected = self.project(weight_grad)
+    #     size = weight_grad.shape[0]
+    #     cos_sim = F.cosine_similarity(weight_grad.view(size, -1), weight_grad_projected.view(size, -1), dim=1)
+    #     self.cos_sim = cos_sim.detach().mean().item()
+
+    #     weight_grad -= weight_grad_projected
+
+    #     for i in range(1, t): 
+    #         self.weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]]
+    #         self.fwt_weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]]
+    #         self.bwt_weight[i].grad.data = weight_grad[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]]
+
+    def project_gradient(self):
+        if self.projection_matrix is None or not self.first_layer:
             return
 
-        weight_grad = torch.empty(0).to(device)
-        for i in range(1, t):
-            weight_grad = torch.cat([torch.cat([weight_grad, self.fwt_weight[i].grad], dim=0), 
-                                torch.cat([self.bwt_weight[i].grad, self.weight[i].grad], dim=0)], dim=1)
-
-        weight_grad_projected = self.project(weight_grad)
-        size = weight_grad.shape[0]
-        cos_sim = F.cosine_similarity(weight_grad.view(size, -1), weight_grad_projected.view(size, -1), dim=1)
-        self.cos_sim = cos_sim.detach().mean().item()
-
-        weight_grad -= weight_grad_projected
-
-        for i in range(1, t): 
-            self.weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, self.shape_in[i-1]: self.shape_in[i]]
-            self.fwt_weight[i].grad.data = weight_grad[self.shape_out[i-1]: self.shape_out[i]][:, : self.shape_in[i-1]]
-            self.bwt_weight[i].grad.data = weight_grad[: self.shape_out[i-1]][:, self.shape_in[i-1]: self.shape_in[i]]
-
-        # print(cos_sim.max().item(), end=' ')
-        # r = weight_grad.norm(2, dim=1).max()
-        # print(r.item(), end=' ')
+        self.cos_sim = []
+        for i in range(1, self.cur_task):
+            sz =  self.fwt_weight[i].size(0)
+            projected_grad = torch.mm(self.fwt_weight[i].grad.data.view(sz,-1), self.projection_matrix[i]).view(self.fwt_weight[i].size())
+            cos_sim = F.cosine_similarity(self.fwt_weight[i].grad.data.view(sz, -1), projected_grad.view(sz, -1), dim=1)
+            self.cos_sim.append(cos_sim.detach().mean().item())
+            self.fwt_weight[i].grad.data -= projected_grad
 
     def compute_project_similarity(self, t):
         if self.projection_matrix is None:

@@ -119,8 +119,9 @@ class _DynamicLayer(nn.Module):
     def get_optim_params(self, ablation='full'):
         params = []
         params += [self.weight[-1], self.fwt_weight[-1], self.bwt_weight[-1]]
-        for i in range(1, self.cur_task):
-            params += [self.bwt_scale[-1][i], self.fwt_scale[-1][i]]
+        if 'scale' not in ablation and not self.last_layer:
+            for i in range(1, self.cur_task):
+                params += [self.bwt_scale[-1][i], self.fwt_scale[-1][i]]
         if self.bias:
             params += [self.bias[-1]]
         if self.norm_layer:
@@ -141,7 +142,7 @@ class _DynamicLayer(nn.Module):
 
 
     def get_parameters(self, t):
-        weight = torch.empty(0).to(device)
+        weight = torch.empty_like(self.weight[0]).to(device)
 
         if isinstance(self, DynamicLinear):
             view = (-1, 1)
@@ -193,15 +194,16 @@ class _DynamicLayer(nn.Module):
             apply_mask_out(self.weight[-1], mask_out)
             apply_mask_out(self.fwt_weight[-1], mask_out)
 
-            if self.bias:
-                apply_mask_out(self.bias[-1], mask_out)
-
             self.out_features = self.shape_out[-2] + self.weight[-1].shape[0]
             self.shape_out[-1] = self.out_features
 
+            mask = torch.ones(self.shape_out[-2]).bool().to(device)
+            mask = torch.cat([mask, mask_out])
+
+            if self.bias:
+                apply_mask_out(self.bias[-1], mask)
+
             if self.norm_layer:
-                mask = torch.ones(self.norm_layer.shape[-2]).bool().to(device)
-                mask = torch.cat([mask, mask_out])
                 if self.norm_layer.affine:
                     apply_mask_out(self.norm_layer.weight[-1], mask)
                     apply_mask_out(self.norm_layer.bias[-1], mask)
@@ -272,23 +274,23 @@ class _DynamicLayer(nn.Module):
                 nn.init.uniform_(self.fwt_weight[-1], 0, 0)
 
             # rescale old tasks params
-            if 'scale' not in ablation and self.cur_task > 0:
+            if 'scale' not in ablation and self.cur_task > 0 and not self.last_layer:
                 bound_std = gain / math.sqrt(fan_in)
-                self.bwt_scale.append([1])
-                self.fwt_scale.append([1])
+                self.bwt_scale.append([torch.ones(1).to(device)])
+                self.fwt_scale.append([torch.ones(1).to(device)])
                 for i in range(1, self.cur_task+1):
                     if self.bwt_weight[i].numel() == 0:
-                        self.bwt_scale[-1].append(1)
+                        self.bwt_scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                     else:
                         bwt_std = self.bwt_weight[i].view(self.bwt_weight[i].shape[0], -1).std(1)
                         self.bwt_scale[-1].append(nn.Parameter(bound_std/bwt_std.to(device)))
-                        
+
                     weight = torch.cat([self.fwt_weight[i], self.weight[i]], dim=1)
                     fwt_std = weight.view(weight.shape[0], -1).std(1)
                     self.fwt_scale[-1].append(nn.Parameter(bound_std/fwt_std.to(device)))
             else:
-                self.bwt_scale.append([1 for _ in range(self.cur_task+1)])
-                self.fwt_scale.append([1 for _ in range(self.cur_task+1)])
+                self.bwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
+                self.fwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
 
         # requires grad
         if 'gpm' in ablation:
@@ -334,7 +336,7 @@ class _DynamicLayer(nn.Module):
             self.weight[-1].data *= aux.view(view_in)
             self.fwt_weight[-1].data *= aux.view(view_in)
             if self.bias:
-                self.bias[-1].data *= aux
+                self.bias[-1].data[self.shape_out[-2]:] *= aux
             self.mask = (aux != 0)
 
             # group lasso weights out

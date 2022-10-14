@@ -54,7 +54,8 @@ class _DynamicLayer(nn.Module):
         else:
             self.register_parameter("bias", None)
 
-        self.scale = nn.ParameterList([nn.Parameter(torch.Tensor(self.out_features))])
+        self.bwt_scale = [None]
+        self.fwt_scale = [None]
 
         self.shape_in = [self.in_features]
         self.shape_out = [self.out_features]
@@ -100,10 +101,9 @@ class _DynamicLayer(nn.Module):
         else:
             norm_dim = (1, 2, 3)
         weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
-        norm = weight.norm(2, dim=norm_dim)
         if self.bias is not None:
-            norm = norm**2 + self.bias[t]**2     
-        return norm ** 0.5
+            weight = torch.cat([weight, self.bias[t][self.shape_out[-2]:, None]], dim=1)
+        return weight.norm(2, dim=norm_dim)
 
     def norm_out(self, t=-1):
         weight = torch.cat([self.next_layers[0].weight[t], self.next_layers[0].bwt_weight[t]], dim=0)
@@ -114,8 +114,7 @@ class _DynamicLayer(nn.Module):
             if isinstance(self.next_layers[0], DynamicLinear):
                 weight = weight.view(self.next_layers[0].weight[t].shape[0] + self.next_layers[0].bwt_weight[t].shape[0], 
                                     self.weight[t].shape[0], self.next_layers[0].s, self.next_layers[0].s)
-        norm = weight.norm(2, dim=norm_dim)
-        return norm
+        return weight.norm(2, dim=norm_dim)
 
     def get_optim_params(self, ablation='full'):
         params = []
@@ -166,10 +165,6 @@ class _DynamicLayer(nn.Module):
 
     def get_parameters(self, t):
         weight = torch.empty(0).to(device)
-        if self.bias:
-            bias = torch.empty(0).to(device)
-        else:
-            bias = None
 
         if isinstance(self, DynamicLinear):
             view = (-1, 1)
@@ -177,14 +172,12 @@ class _DynamicLayer(nn.Module):
             view = (-1, 1, 1, 1)
 
         for i in range(1, t):
+            self.bwt_weight[i] *= self.bwt_scale[t][i].view(view)
+            self.fwt_weight[i] *= self.fwt_scale[t][i].view(view)
+            self.weight[i] *= self.fwt_scale[t][i].view(view)
             weight = torch.cat([torch.cat([weight, self.fwt_weight[i]], dim=0), 
                                 torch.cat([self.bwt_weight[i], self.weight[i]], dim=0)], dim=1)
 
-            # weight *= self.scale[i].view(view)
-
-            if self.bias:
-                bias = torch.cat([bias, self.bias[i]]) 
-                # bias *= self.scale[i]
 
         # if self.training:
         #     if self.sim[t] is not None:
@@ -197,7 +190,9 @@ class _DynamicLayer(nn.Module):
         weight = torch.cat([torch.cat([weight, self.fwt_weight[t]], dim=0), 
                             torch.cat([self.bwt_weight[t], self.weight[t]], dim=0)], dim=1)
         if self.bias:
-            bias = torch.cat([bias, self.bias[t]])
+            bias = self.bias[t]
+        else:
+            bias = None
 
         return weight, bias
 
@@ -376,7 +371,7 @@ class _DynamicLayer(nn.Module):
         strength_out = self.next_layers[0].weight[-1].data.numel() + self.next_layers[0].bwt_weight[-1].data.numel()
         self.strength = (strength_in + strength_out)
 
-    def expand(self, add_in=None, add_out=None, ablation='full', pre_scale=1):
+    def expand(self, add_in=None, add_out=None, ablation='full'):
         if add_in is None:
             add_in = self.base_in_features
         if add_out is None:
@@ -399,11 +394,6 @@ class _DynamicLayer(nn.Module):
             self.bwt_weight.append(nn.Parameter(torch.Tensor(self.out_features, add_in // self.groups, *self.kernel_size).to(device)))
             fan_in = np.prod(self.kernel_size)
 
-        if self.bias:
-            self.bias.append(nn.Parameter(torch.Tensor(add_out).uniform_(0, 0).to(device)))
-
-        # self.scale.append(nn.Parameter(torch.Tensor(self.out_features).uniform_(1, 1).to(device)))
-
         if 'fwt' not in ablation or self.first_layer:
             fan_in *= (self.in_features + add_in)
         else:
@@ -413,7 +403,6 @@ class _DynamicLayer(nn.Module):
             # init
             gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
             bound = gain * math.sqrt(3.0/fan_in)
-            nn.init.uniform_(self.bias[-1], -1/math.sqrt(fan_in), 1/math.sqrt(fan_in))
             nn.init.uniform_(self.weight[-1], -bound, bound)
             nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
             # nn.init.uniform_(self.bwt_weight[-1], 0, 0)
@@ -425,25 +414,18 @@ class _DynamicLayer(nn.Module):
 
             # rescale old tasks params
             if 'scale' not in ablation and self.cur_task > 0:
-                weight, bias = self.get_parameters(self.cur_task)
-                std = weight.view(weight.shape[0], -1).std(1)
                 bound_std = gain / math.sqrt(fan_in)
-                scale = bound_std / std
-
-                self.scale.append(nn.Parameter(scale.to(device)))
-                # for i in range(self.cur_task):
-                #     self.weight[i].data *= scale
-                #     self.fwt_weight[i].data *= scale
-                #     self.bwt_weight[i].data *= scale
-                #     if self.bias:
-                #         self.bias[i].data *= pre_scale * scale
-                #     if self.norm_layer:
-                #         if self.norm_layer.track_running_stats:
-                #             for i in range(self.cur_task):
-                #                 self.norm_layer.running_mean[i].data *= pre_scale * scale
-                #                 self.norm_layer.running_var[i].data *= pre_scale * scale
-        
-                # pre_scale *= scale
+                self.bwt_scale.append([None])
+                self.bwt_scale.append([None])
+                for i in range(1, self.cur_task+1):
+                    bwt_std = self.bwt_weight[i].view(self.bwt_weight[i].shape[0], -1).std(1)
+                    weight = torch.cat([self.fwt_weight[i], self.weight[i]], dim=1)
+                    fwt_std = weight.view(weight.shape[0], -1).std(1)
+                    self.bwt_scale[-1].append(nn.Parameter(bound_std/bwt_std.to(device)))
+                    self.fwt_scale[-1].append(nn.Parameter(bound_std/fwt_std.to(device)))
+            else:
+                self.bwt_scale.append(None)
+                self.bwt_scale.append(None)
                 
 
         # requires grad
@@ -451,14 +433,17 @@ class _DynamicLayer(nn.Module):
             self.weight[-2].requires_grad = False
             self.fwt_weight[-2].requires_grad = False
             self.bwt_weight[-2].requires_grad = False
-        # if 'fwt' in ablation and not self.first_layer:
-        #     self.fwt_weight[-1].requires_grad = False
+        if 'fwt' in ablation and not self.first_layer:
+            self.fwt_weight[-1].requires_grad = False
 
         self.in_features += add_in
         self.out_features += add_out
 
         self.shape_in.append(self.in_features)
         self.shape_out.append(self.out_features)
+
+        if self.bias:
+            self.bias.append(nn.Parameter(torch.Tensor(self.out_features).uniform_(0, 0).to(device)))
 
         if self.norm_layer:
             self.norm_layer.expand(add_out)
@@ -469,7 +454,6 @@ class _DynamicLayer(nn.Module):
         self.mask = None
         self.sim.append(None)
         self.cur_task += 1
-        return pre_scale
 
     def proximal_gradient_descent(self, lr, lamb, total_strength):
         if isinstance(self, DynamicLinear):

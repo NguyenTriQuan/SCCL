@@ -40,11 +40,10 @@ class _DynamicModel(nn.Module):
             m.get_old_parameters(t)
 
     def expand(self, new_class, ablation='full'):
-        pre_scale = 1
-        pre_scale = self.DM[0].expand(add_in=0, add_out=None, ablation=ablation, pre_scale=pre_scale)
+        self.DM[0].expand(add_in=0, add_out=None, ablation=ablation)
         for m in self.DM[1:-1]:
-            pre_scale = m.expand(add_in=None, add_out=None, ablation=ablation, pre_scale=pre_scale)
-        pre_scale = self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation, pre_scale=pre_scale)
+            m.expand(add_in=None, add_out=None, ablation=ablation)
+        self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
 
     def squeeze(self, optim_state):
         self.total_strength = 0

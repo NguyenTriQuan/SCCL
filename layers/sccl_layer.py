@@ -98,15 +98,13 @@ class _DynamicLayer(nn.Module):
     def norm_in(self, t=-1):
         if isinstance(self, DynamicLinear):
             norm_dim = (1)
-            view = (-1, 1)
         else:
             norm_dim = (1, 2, 3)
-            view = (-1, 1, 1, 1)
         weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
+        norm = weight.norm(2, dim=norm_dim)
         if self.bias is not None:
-            bias = self.bias[t][self.shape_out[-2]:].view(view)
-            weight = torch.cat([weight, bias], dim=1)
-        return weight.norm(2, dim=norm_dim)
+            norm = (norm ** 2 + self.bias[t][self.shape_out[-2]:] ** 2) ** 0.5
+        return norm
 
     def norm_out(self, t=-1):
         weight = torch.cat([self.next_layers[0].weight[t], self.next_layers[0].bwt_weight[t]], dim=0)

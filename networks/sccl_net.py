@@ -406,7 +406,7 @@ class ResNet(_DynamicModel):
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
 
         m = self.conv1
-        for block in self.layers:
+        for block in self.blocks:
             m.next_layers = [block.layers[0]]
             if block.shortcut:
                 m.next_layers.append(block.shortcut)
@@ -446,7 +446,7 @@ class ResNet(_DynamicModel):
         # share masks between skip connection layers
         share_mask = self.conv1.mask
 
-        for i, block in enumerate(self.layers):
+        for i, block in enumerate(self.blocks):
             if block.shortcut:
                 share_mask = block.shortcut.mask
                             

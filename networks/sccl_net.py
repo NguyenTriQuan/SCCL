@@ -401,7 +401,7 @@ class ResNet(_DynamicModel):
         self.blocks += self._make_layer(block, 128, num_blocks[1], stride=2, norm_type=norm_type)
         self.blocks += self._make_layer(block, 256, num_blocks[2], stride=2, norm_type=norm_type)
         self.blocks += self._make_layer(block, 512, num_blocks[3], stride=2, norm_type=norm_type)
-        self.linear = DynamicLinear(512*block.expansion, 0, smid=1, last_layer=True)
+        self.linear = DynamicLinear(512*block.expansion, 0, last_layer=True)
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
 

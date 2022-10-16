@@ -229,9 +229,9 @@ class _DynamicLayer(nn.Module):
                 m.shape_in[-1] = m.in_features
             
         self.mask = None
-        strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
-        strength_out = self.next_layers[0].weight[-1].data.numel() + self.next_layers[0].bwt_weight[-1].data.numel()
-        self.strength = (strength_in + strength_out)
+        self.strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
+        self.strength_out = self.next_layers[0].weight[-1].data.numel() + self.next_layers[0].bwt_weight[-1].data.numel()
+        self.strength = (self.strength_in + self.strength_out)
 
     def expand(self, add_in=None, add_out=None, ablation='full'):
         if add_in is None:
@@ -333,10 +333,10 @@ class _DynamicLayer(nn.Module):
             view_out = (1, -1, 1, 1)
 
         with torch.no_grad():
-            strength = self.strength / total_strength
+            # strength = self.strength / total_strength
             # group lasso weights in
             norm = self.norm_in(-1)
-            aux = 1 - lamb * lr * strength / norm
+            aux = 1 - lamb * lr * self.strength_in / norm
             aux = F.threshold(aux, 0, 0, False)
             self.weight[-1].data *= aux.view(view_in)
             self.fwt_weight[-1].data *= aux.view(view_in)
@@ -346,7 +346,7 @@ class _DynamicLayer(nn.Module):
 
             # group lasso weights out
             norm = self.norm_out(-1)
-            aux = 1 - lamb * lr * strength / norm
+            aux = 1 - lamb * lr * self.strength_out / norm
             aux = F.threshold(aux, 0, 0, False)
             self.mask *= (aux != 0)
             if isinstance(self.next_layers[0], DynamicLinear) and isinstance(self, DynamicConv2D):
@@ -360,7 +360,7 @@ class _DynamicLayer(nn.Module):
                 if self.norm_layer.affine:
                     norm = self.norm_layer.weight[-1][self.norm_layer.shape[-2]:]**2 + self.norm_layer.bias[-1][self.norm_layer.shape[-2]:]**2
                     norm = norm ** 0.5
-                    aux = 1 - lamb * lr * strength / norm
+                    aux = 1 - lamb * lr * self.strength / norm
                     aux = F.threshold(aux, 0, 0, False)
                     self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux
                     self.norm_layer.bias[-1].data[self.norm_layer.shape[-2]:] *= aux

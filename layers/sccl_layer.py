@@ -287,8 +287,12 @@ class _DynamicLayer(nn.Module):
                         self.bwt_scale[-1].append(nn.Parameter(bound_std/bwt_std.to(device)))
 
                     weight = torch.cat([self.fwt_weight[i], self.weight[i]], dim=1)
-                    fwt_std = weight.view(weight.shape[0], -1).std(1)
-                    self.fwt_scale[-1].append(nn.Parameter(bound_std/fwt_std.to(device)))
+                    if weight.numel() == 0:
+                        self.fwt_scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                    else:
+                        fwt_std = weight.view(weight.shape[0], -1).std(1)
+                        self.fwt_scale[-1].append(nn.Parameter(bound_std/fwt_std.to(device)))
+                        
             else:
                 self.bwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
                 self.fwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])

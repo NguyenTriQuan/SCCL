@@ -227,8 +227,8 @@ class Appr(object):
             targets -= sum(self.shape_out[:t])
 
         loss = self.ce(outputs, targets)
-        if squeeze:
-            loss += self.lamb * self.model.group_lasso_reg()
+        # if squeeze:
+        #     loss += self.lamb * self.model.group_lasso_reg()
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()

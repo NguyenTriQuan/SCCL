@@ -267,7 +267,6 @@ class _DynamicLayer(nn.Module):
             bound = gain * math.sqrt(3.0/fan_in)
             nn.init.uniform_(self.weight[-1], -bound, bound)
             nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
-            # nn.init.uniform_(self.bwt_weight[-1], 0, 0)
 
             if 'fwt' not in ablation or self.first_layer:
                 nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
@@ -292,6 +291,8 @@ class _DynamicLayer(nn.Module):
                     else:
                         fwt_std = weight.view(weight.shape[0], -1).std(1)
                         self.fwt_scale[-1].append(nn.Parameter(bound_std/fwt_std.to(device)))
+
+                    print(self.bwt_scale[-1][-1].norm(2), self.fwt_scale[-1][-1].norm(2))
                         
             else:
                 self.bwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
@@ -324,6 +325,17 @@ class _DynamicLayer(nn.Module):
         self.sim.append(None)
         self.cur_task += 1
 
+    def get_reg(self):
+        reg = 0
+        reg += self.norm_in().sum() * self.strength_in
+        reg += self.norm_out().sum() * self.strength_out
+            
+        if self.norm_layer:
+            if self.norm_layer.affine:
+                reg += self.norm_layer.reg().sum() * self.strength
+
+        return reg
+
     def proximal_gradient_descent(self, lr, lamb, total_strength):
         if isinstance(self, DynamicLinear):
             view_in = (-1, 1)
@@ -337,20 +349,22 @@ class _DynamicLayer(nn.Module):
             strength_in = self.strength_in / total_strength
             strength_out = self.strength_out / total_strength
             # group lasso weights in
-            norm = self.norm_in(-1)
+            norm = self.norm_in()
             aux = 1 - lamb * lr * strength_in / norm
-            aux = F.threshold(aux, 0, 0, False)
+            # aux = F.threshold(aux, 0, 0, False)
+            self.mask = (aux > 0)
+
             self.weight[-1].data *= aux.view(view_in)
             self.fwt_weight[-1].data *= aux.view(view_in)
             if self.bias:
                 self.bias[-1].data[self.shape_out[-2]:] *= aux
-            self.mask = (aux != 0)
 
             # group lasso weights out
-            norm = self.norm_out(-1)
+            norm = self.norm_out()
             aux = 1 - lamb * lr * strength_out / norm
-            aux = F.threshold(aux, 0, 0, False)
-            self.mask *= (aux != 0)
+            # aux = F.threshold(aux, 0, 0, False)
+            self.mask *= (aux > 0)
+
             if isinstance(self.next_layers[0], DynamicLinear) and isinstance(self, DynamicConv2D):
                 aux = aux.view(-1,1,1).expand(aux.size(0),self.next_layers[0].s,self.next_layers[0].s).contiguous().view(-1)
                 view_out = (1, -1)
@@ -363,11 +377,12 @@ class _DynamicLayer(nn.Module):
                     norm = self.norm_layer.weight[-1][self.norm_layer.shape[-2]:]**2 + self.norm_layer.bias[-1][self.norm_layer.shape[-2]:]**2
                     norm = norm ** 0.5
                     aux = 1 - lamb * lr * strength / norm
-                    aux = F.threshold(aux, 0, 0, False)
+                    # aux = F.threshold(aux, 0, 0, False)
+                    self.mask *= (aux > 0)
+
                     self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux
                     self.norm_layer.bias[-1].data[self.norm_layer.shape[-2]:] *= aux
-                    self.mask *= (aux != 0)
-                    
+             
 
 class DynamicLinear(_DynamicLayer):
 

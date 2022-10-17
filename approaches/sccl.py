@@ -91,15 +91,11 @@ class Appr(object):
         if lr is None: lr=self.lr
 
         params = self.model.get_optim_params(self.ablation)
-        # scales = [m.scale[-1] for m in self.model.DM]
-        # optim_params = [{'params':params, 'lr':lr}, {'params':scales, 'lr':0.1}]
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
                           weight_decay=0.0, momentum=0.9)
-            # optimizer = torch.optim.SGD(params, lr=lr)
         elif self.optim == 'Adam':
             optimizer = torch.optim.Adam(params, lr=lr)
-            # optimizer = Adam_(self.model, lr=lr)
 
         return optimizer
 
@@ -146,7 +142,9 @@ class Appr(object):
 
         self.check_point = None
         for m in self.model.DM:
-            print(m.fwt_weight[-1].norm(2))        
+            print(f'weight: {m.weight[-1].norm(2).item()}, fwt: {m.fwt_weight[-1].norm(2).item()}, bwt: {m.bwt_weight[-1].norm(2).item()}')
+            # for i, p in enumerate(m.bwt_scale[-1]):
+            #     print(m.bwt_scale[-1][i].norm(2), m.fwt_scale[-1][i].norm(2))        
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 
@@ -222,20 +220,18 @@ class Appr(object):
         self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
         self.model = self.check_point['model']
 
-    def train_batch(self, t, images, targets, squeeze, lr):
+    def train_batch(self, t, images, targets, squeeze):
         outputs = self.model.forward(images, t=t)
         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
         if self.args.cil:
             targets -= sum(self.shape_out[:t])
 
         loss = self.ce(outputs, targets)
-                
+        if squeeze:
+            loss += self.lamb * self.model.group_lasso_reg()
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
-        if squeeze:
-            self.model.proximal_gradient_descent(lr, self.lamb)
-            
 
     def eval_batch(self, t, images, targets):
         if t is None:
@@ -254,14 +250,17 @@ class Appr(object):
 
     def train_epoch(self, t, data_loader, train_transform, squeeze, lr):
         self.model.train()
-        for images, targets in data_loader:
+        N = len(data_loader)
+        for i, (images, targets) in enumerate(data_loader):
             images=images.to(device)
             targets=targets.to(device)
             if train_transform:
                 images = train_transform(images)
-            self.train_batch(t, images, targets, squeeze, lr)
+                            
+            self.train_batch(t, images, targets, squeeze)
         
         if squeeze:
+            self.model.proximal_gradient_descent(lr, self.lamb)
             self.model.squeeze(self.optimizer.state)
 
 

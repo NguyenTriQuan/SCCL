@@ -46,11 +46,10 @@ class _DynamicModel(nn.Module):
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
 
     def squeeze(self, optim_state):
-        self.total_strength = 0
+        self.total_strength = 1e-9
         for m in self.DM[:-1]:
             m.squeeze(optim_state)
             self.total_strength += m.strength
-
 
     def forward(self, input, t=-1):
         if t == -1:
@@ -80,6 +79,14 @@ class _DynamicModel(nn.Module):
 
         return model_count, layers_count
 
+    def group_lasso_reg(self):
+        total_reg = 0
+        for i, m in enumerate(self.DM[:-1]):
+            reg = m.get_reg()
+            total_reg += reg
+                            
+        return total_reg/self.total_strength
+
     def proximal_gradient_descent(self, lr, lamb):
         for m in self.DM[:-1]:
             m.proximal_gradient_descent(lr, lamb, self.total_strength)
@@ -102,7 +109,7 @@ class MLP(_DynamicModel):
         super(MLP, self).__init__()
         self.mul = mul
         self.input_size = input_size
-        N = 100
+        N = 400
         self.layers = nn.ModuleList([
             nn.Flatten(),
             # nn.Dropout(0.25),
@@ -112,10 +119,6 @@ class MLP(_DynamicModel):
             DynamicLinear(N, N, bias=True, norm_type=norm_type),
             nn.ReLU(),
             # nn.Dropout(0.25),
-            DynamicLinear(N, N, bias=True, norm_type=norm_type),
-            nn.ReLU(),
-            DynamicLinear(N, N, bias=True, norm_type=norm_type),
-            nn.ReLU(),
             DynamicLinear(N, 0, bias=True, last_layer=True),
             ])
         
@@ -442,7 +445,7 @@ class ResNet(_DynamicModel):
         out = self.linear(out, t)
         return out
 
-    def squeeze(self):
+    def squeeze(self, optim_state):
         # share masks between skip connection layers
         share_mask = self.conv1.mask
 
@@ -453,9 +456,10 @@ class ResNet(_DynamicModel):
             share_mask += block.layers[-1].mask
             block.layers[-1].mask = share_mask
 
+        self.total_strength = 0
         for m in self.DM[:-1]:
-            m.squeeze()
-            m.mask = None
+            m.squeeze(optim_state)
+            self.total_strength += m.strength
 
 def ResNet18(input_size, norm_type=None):
     return ResNet(BasicBlock, [2, 2, 2, 2], norm_type)

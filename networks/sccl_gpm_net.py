@@ -46,7 +46,7 @@ class _DynamicModel(nn.Module):
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
 
     def squeeze(self, optim_state):
-        self.total_strength = 0
+        self.total_strength = 1e-9
         for m in self.DM[:-1]:
             m.squeeze(optim_state)
             self.total_strength += m.strength

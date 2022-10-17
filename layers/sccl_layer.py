@@ -26,6 +26,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def compute_conv_output_size(Lin,kernel_size,stride=1,padding=0,dilation=1):
     return int(np.floor((Lin+2*padding-dilation*(kernel_size-1)-1)/float(stride)+1))
 
+# class GetTopK(torch.autograd.Function):
+#     """Binarizes {0, 1} a real valued tensor."""
+
+#     @staticmethod
+#     def forward(ctx, params, threshold):
+#         outputs = params.clone()
+#         outputs[inputs.le(threshold)] = 0
+#         outputs[inputs.gt(threshold)] = 1
+#         return outputs
+
+#     @staticmethod
+#     def backward(ctx, grad_out):
+#         return grad_out, None
+
 class _DynamicLayer(nn.Module):
 
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
@@ -292,17 +306,16 @@ class _DynamicLayer(nn.Module):
                         fwt_std = weight.view(weight.shape[0], -1).std(1)
                         self.fwt_scale[-1].append(nn.Parameter(bound_std/fwt_std.to(device)))
 
-                    print(self.bwt_scale[-1][-1].norm(2), self.fwt_scale[-1][-1].norm(2))
+                    # print(self.bwt_scale[-1][-1].norm(2), self.fwt_scale[-1][-1].norm(2))
                         
             else:
                 self.bwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
                 self.fwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
 
         # requires grad
-        if 'gpm' in ablation:
-            self.weight[-2].requires_grad = False
-            self.fwt_weight[-2].requires_grad = False
-            self.bwt_weight[-2].requires_grad = False
+        self.weight[-2].requires_grad = False
+        self.fwt_weight[-2].requires_grad = False
+        self.bwt_weight[-2].requires_grad = False
         if 'fwt' in ablation and not self.first_layer:
             self.fwt_weight[-1].requires_grad = False
 
@@ -351,7 +364,7 @@ class _DynamicLayer(nn.Module):
             # group lasso weights in
             norm = self.norm_in()
             aux = 1 - lamb * lr * strength_in / norm
-            # aux = F.threshold(aux, 0, 0, False)
+            aux = F.threshold(aux, 0, 0, False)
             self.mask = (aux > 0)
 
             self.weight[-1].data *= aux.view(view_in)
@@ -362,7 +375,7 @@ class _DynamicLayer(nn.Module):
             # group lasso weights out
             norm = self.norm_out()
             aux = 1 - lamb * lr * strength_out / norm
-            # aux = F.threshold(aux, 0, 0, False)
+            aux = F.threshold(aux, 0, 0, False)
             self.mask *= (aux > 0)
 
             if isinstance(self.next_layers[0], DynamicLinear) and isinstance(self, DynamicConv2D):
@@ -377,7 +390,7 @@ class _DynamicLayer(nn.Module):
                     norm = self.norm_layer.weight[-1][self.norm_layer.shape[-2]:]**2 + self.norm_layer.bias[-1][self.norm_layer.shape[-2]:]**2
                     norm = norm ** 0.5
                     aux = 1 - lamb * lr * strength / norm
-                    # aux = F.threshold(aux, 0, 0, False)
+                    aux = F.threshold(aux, 0, 0, False)
                     self.mask *= (aux > 0)
 
                     self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux

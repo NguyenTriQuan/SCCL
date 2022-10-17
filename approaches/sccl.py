@@ -220,7 +220,7 @@ class Appr(object):
         self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
         self.model = self.check_point['model']
 
-    def train_batch(self, t, images, targets, squeeze):
+    def train_batch(self, t, images, targets, squeeze, lr):
         outputs = self.model.forward(images, t=t)
         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
         if self.args.cil:
@@ -232,6 +232,8 @@ class Appr(object):
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
+        if squeeze:
+            self.model.proximal_gradient_descent(lr, self.lamb)
 
     def eval_batch(self, t, images, targets):
         if t is None:
@@ -250,17 +252,15 @@ class Appr(object):
 
     def train_epoch(self, t, data_loader, train_transform, squeeze, lr):
         self.model.train()
-        N = len(data_loader)
         for i, (images, targets) in enumerate(data_loader):
             images=images.to(device)
             targets=targets.to(device)
             if train_transform:
                 images = train_transform(images)
                             
-            self.train_batch(t, images, targets, squeeze)
+            self.train_batch(t, images, targets, squeeze, lr)
         
         if squeeze:
-            self.model.proximal_gradient_descent(lr, self.lamb)
             self.model.squeeze(self.optimizer.state)
 
 

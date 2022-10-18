@@ -29,10 +29,10 @@ class _DynamicModel(nn.Module):
         for m in self.DM:
             m.restrict_gradients(t, requires_grad)
 
-    def get_optim_params(self, ablation):
+    def get_optim_params(self, t, ablation='full'):
         params = []
         for m in self.DM:
-            params += m.get_optim_params(ablation)
+            params += m.get_optim_params(t, ablation)
         return params
 
     def get_parameters(self, t):

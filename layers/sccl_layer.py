@@ -68,8 +68,8 @@ class _DynamicLayer(nn.Module):
         else:
             self.register_parameter("bias", None)
 
-        self.bwt_scale = [None]
-        self.fwt_scale = [None]
+        self.bwt_scale = [[]]
+        self.fwt_scale = [[]]
 
         self.shape_in = [self.in_features]
         self.shape_out = [self.out_features]
@@ -101,12 +101,16 @@ class _DynamicLayer(nn.Module):
 
         if isinstance(self, DynamicLinear):
             output = F.linear(x, weight, bias)
+            view = (1, -1)
         else:
             output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
+            view = (1, -1, 1, 1)
 
         if self.norm_layer is not None:
             output = self.norm_layer(output, t, self.dropout)
 
+        if self.mask is not None:
+            output[:, self.shape_out[-2]:] = output[:, self.shape_out[-2]:] * self.mask.view(view)
         return output
 
     def norm_in(self, t=-1):
@@ -131,30 +135,31 @@ class _DynamicLayer(nn.Module):
                                     self.weight[t].shape[0], self.next_layers[0].s, self.next_layers[0].s)
         return weight.norm(2, dim=norm_dim)
 
-    def get_optim_params(self, ablation='full'):
+    def get_optim_params(self, t, ablation='full'):
         params = []
-        params += [self.weight[-1], self.fwt_weight[-1], self.bwt_weight[-1]]
+        params += [self.weight[t], self.fwt_weight[t], self.bwt_weight[t]]
         if 'scale' not in ablation and not self.last_layer:
-            for i in range(1, self.cur_task):
-                params += [self.bwt_scale[-1][i], self.fwt_scale[-1][i]]
+            for i in range(1, t):
+                params += [self.bwt_scale[t][i], self.fwt_scale[t][i]]
         if self.bias:
-            params += [self.bias[-1]]
+            params += [self.bias[t]]
         if self.norm_layer:
             if self.norm_layer.affine:
-                params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
+                params += [self.norm_layer.weight[t], self.norm_layer.bias[t]]
         return params
 
     def count_params(self, t):
         count = 0
         for i in range(t+1):
             count += self.weight[i].numel() + self.fwt_weight[i].numel() + self.bwt_weight[i].numel()
+            for j in range(len(self.fwt_scale[i])):
+                count += self.fwt_scale[i][j].numel() + self.bwt_scale[i][j].numel()
             if self.bias:
                 count += self.bias[i].numel()
             if self.norm_layer:
                 if self.norm_layer.affine:
                     count += self.norm_layer.weight[i].numel() + self.norm_layer.bias[i].numel()
         return count
-
 
     def get_parameters(self, t):
         weight = torch.empty_like(self.weight[0]).to(device)
@@ -312,10 +317,6 @@ class _DynamicLayer(nn.Module):
                 self.bwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
                 self.fwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
 
-        # requires grad
-        self.weight[-2].requires_grad = False
-        self.fwt_weight[-2].requires_grad = False
-        self.bwt_weight[-2].requires_grad = False
         if 'fwt' in ablation and not self.first_layer:
             self.fwt_weight[-1].requires_grad = False
 
@@ -345,9 +346,18 @@ class _DynamicLayer(nn.Module):
             
         if self.norm_layer:
             if self.norm_layer.affine:
-                reg += self.norm_layer.reg().sum() * self.strength
+                reg += self.norm_layer.norm().sum() * self.strength_in
 
         return reg
+
+    def get_importance(self):
+        norm = self.norm_in() 
+        norm *= self.norm_out()
+        if self.norm_layer:
+            if self.norm_layer.affine:
+                norm *= self.norm_layer.norm()
+
+        return norm
 
     def proximal_gradient_descent(self, lr, lamb, total_strength):
         if isinstance(self, DynamicLinear):
@@ -387,9 +397,8 @@ class _DynamicLayer(nn.Module):
             # group lasso affine weights
             if self.norm_layer:
                 if self.norm_layer.affine:
-                    norm = self.norm_layer.weight[-1][self.norm_layer.shape[-2]:]**2 + self.norm_layer.bias[-1][self.norm_layer.shape[-2]:]**2
-                    norm = norm ** 0.5
-                    aux = 1 - lamb * lr * strength / norm
+                    norm = self.norm_layer.norm()
+                    aux = 1 - lamb * lr * strength_in / norm
                     aux = F.threshold(aux, 0, 0, False)
                     self.mask *= (aux > 0)
 
@@ -486,8 +495,8 @@ class DynamicNorm(nn.Module):
             self.running_var.append(torch.ones(self.num_features).to(device))
             self.num_batches_tracked = 0
     
-    def reg(self):
-        return (self.weight[-1][self.shape[-2]:]**2 + self.bias[-1][self.shape[-2]:]**2) ** 1/2
+    def norm(self, t=-1):
+        return (self.weight[t][self.shape[t-1]:]**2 + self.bias[t][self.shape[t-1]:]**2) ** 0.5
 
     def batch_norm(self, input, t=-1):
 

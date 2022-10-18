@@ -49,23 +49,23 @@ appr = approach.Appr(inputsize=inputsize, taskcla=taskcla, args=args)
 
 start_task = args.start_task
 if args.resume:
-    with open(f'../result_data/logger/{appr.log_name}.json', 'r') as f:
-        KEY = json.load(f)
+    # with open(f'../result_data/logger/{appr.log_name}.json', 'r') as f:
+    #     KEY = json.load(f)
 
-    appr.logger = ExistingExperiment(
-        api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",
-        previous_experiment=KEY
-    )
+    # appr.logger = ExistingExperiment(
+    #     api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",
+    #     previous_experiment=KEY
+    # )
     start_task = appr.resume()
-else:
-    appr.logger = Experiment(
-        api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",
-        project_name="sccl",
-        workspace="nguyentriquan",
-    )
-    appr.logger.set_name(appr.log_name)
-    with open(f'../result_data/logger/{appr.log_name}.json', 'w') as f:
-        json.dump(appr.logger.get_key(), f)
+# else:
+#     appr.logger = Experiment(
+#         api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",
+#         project_name="sccl",
+#         workspace="nguyentriquan",
+#     )
+#     appr.logger.set_name(appr.log_name)
+#     with open(f'../result_data/logger/{appr.log_name}.json', 'w') as f:
+#         json.dump(appr.logger.get_key(), f)
 
 utils.print_optimizer_config(appr.optimizer)
 print('-' * 100)

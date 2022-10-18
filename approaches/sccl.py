@@ -50,6 +50,7 @@ class Appr(object):
         self.seed = args.seed
         self.norm_type = args.norm_type
         self.ablation = args.ablation
+        self.logger = None
 
         self.args = args
         self.lambs = [float(i) for i in args.lamb.split('_')]
@@ -59,11 +60,10 @@ class Appr(object):
             self.lambs = [self.lambs[-1] if i>=len(self.lambs) else self.lambs[i] for i in range(args.tasknum)]
 
         print('lambs:', self.lambs)
-
-        self.ce = torch.nn.CrossEntropyLoss()
-        self.optimizer = self._get_optimizer()
         self.shape_out = self.model.DM[-1].shape_out
         self.cur_task = len(self.shape_out)-1
+        self.ce = torch.nn.CrossEntropyLoss()
+        self.optimizer = self._get_optimizer()
 
         self.get_name(self.tasknum+1)
 
@@ -87,10 +87,11 @@ class Appr(object):
                 continue
         return 0
 
-    def _get_optimizer(self,lr=None):
+    def _get_optimizer(self, lr=None, t=None):
         if lr is None: lr=self.lr
+        if t is None: t=self.cur_task
 
-        params = self.model.get_optim_params(self.ablation)
+        params = self.model.get_optim_params(t, self.ablation)
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
                           weight_decay=0.0, momentum=0.9)
@@ -134,6 +135,8 @@ class Appr(object):
         if not self.check_point['squeeze']:
             self.check_point = None
             return 
+
+        self.prune(t, train_loader, valid_transform, thres=0.0)
 
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
@@ -186,7 +189,8 @@ class Appr(object):
                     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
                     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
                     model_count, layers_count = self.model.count_params()
-                    self.logger.log_metric('num params', model_count, epoch=e)
+                    if self.logger is not None:
+                        self.logger.log_metric('num params', model_count, epoch=e)
                 else:
                     if valid_acc > best_acc:
                         best_acc = valid_acc
@@ -207,10 +211,11 @@ class Appr(object):
                             self.optimizer = self._get_optimizer(lr)
 
                 print()
-                self.logger.log_metrics({
-                    'train acc':train_acc,
-                    'valid acc':valid_acc
-                }, epoch=e)
+                if self.logger is not None:
+                    self.logger.log_metrics({
+                        'train acc':train_acc,
+                        'valid acc':valid_acc
+                    }, epoch=e)
 
         except KeyboardInterrupt:
             print('KeyboardInterrupt')
@@ -227,13 +232,13 @@ class Appr(object):
             targets -= sum(self.shape_out[:t])
 
         loss = self.ce(outputs, targets)
-        # if squeeze:
-        #     loss += self.lamb * self.model.group_lasso_reg()
+        if squeeze:
+            loss += self.lamb * self.model.group_lasso_reg()
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
-        if squeeze:
-            self.model.proximal_gradient_descent(lr, self.lamb)
+        # if squeeze:
+        #     self.model.proximal_gradient_descent(lr, self.lamb)
 
     def eval_batch(self, t, images, targets):
         if t is None:
@@ -260,8 +265,8 @@ class Appr(object):
                             
             self.train_batch(t, images, targets, squeeze, lr)
         
-        if squeeze:
-            self.model.squeeze(self.optimizer.state)
+        # if squeeze:
+        #     self.model.squeeze(self.optimizer.state)
 
 
     def eval(self, t, data_loader, valid_transform):
@@ -283,7 +288,103 @@ class Appr(object):
                 
         return total_loss/total_num,total_acc/total_num
 
+    def prune(self, t, data_loader, valid_transform, thres=0.0):
+
+        loss,acc=self.eval(t,data_loader,valid_transform)
+        loss, acc = round(loss, 3), round(acc, 3)
+        print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
+        # pre_prune_acc = acc
+        pre_prune_loss = loss
+        prune_ratio = np.ones(len(self.model.DM)-1)
+        step = 0
+        pre_sum = 0
+        for i in range(0, len(self.model.DM)-1):
+            m = self.model.DM[i]
+            m.mask = torch.ones(m.shape_out[-1]-m.shape_out[-2]).bool().cuda()
+        while True:
+            t1 = time.time()
+            # fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))
+            print('Pruning ratio:', end=' ')
+            for i in range(0, len(self.model.DM)-1):
+                m = self.model.DM[i]
+                mask_temp = m.mask
+                norm = m.get_importance()
+
+                low = 0 
+                if m.mask is None:
+                    high = norm.shape[0]
+                else:
+                    high = int(sum(m.mask))
+
+                # axs[i].hist(norm[m.mask].detach().cpu().numpy(), bins=100)
+                # axs[i].set_title(f'layer {i+1}')
+                if norm.shape[0] != 0:
+                    values, indices = norm.sort(descending=True)
+                    loss,acc=self.eval(t,data_loader,valid_transform)
+                    loss, acc = round(loss, 3), round(acc, 3)
+                    pre_prune_loss = loss
+
+                    while True:
+                        k = (high+low)//2
+                        # Select top-k biggest norm
+                        m.mask = (norm>values[k])
+                        loss, acc = self.eval(t, data_loader, valid_transform)
+                        loss, acc = round(loss, 3), round(acc, 3)
+                        # post_prune_acc = acc
+                        post_prune_loss = loss
+                        if  post_prune_loss <= pre_prune_loss:
+                        # if pre_prune_acc <= post_prune_acc:
+                            # k is satisfy, try smaller k
+                            high = k
+                            # pre_prune_loss = post_prune_loss
+                        else:
+                            # k is not satisfy, try bigger k
+                            low = k
+
+                        if k == (high+low)//2:
+                            break
+
+
+                if high == norm.shape[0]:
+                    # not found any k satisfy, keep all neurons
+                    m.mask = mask_temp
+                else:
+                    # found k = high is the smallest k satisfy
+                    m.mask = (norm>values[high])
+
+                # remove neurons 
+                # m.squeeze()
+
+                if m.mask is None:
+                    prune_ratio[i] = 0.0
+                else:
+                    mask_count = int(sum(m.mask))
+                    total_count = m.mask.numel()
+                    prune_ratio[i] = 1.0 - mask_count/total_count
+
+                print('{:.3f}'.format(prune_ratio[i]), end=' ')
+                # m.mask = None
+
+            # fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
+            # plt.show()
+            loss,acc=self.eval(t,data_loader,valid_transform)
+            print('| Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
+
+            step += 1
+            if sum(prune_ratio) == pre_sum:
+                break
+            pre_sum = sum(prune_ratio)
+
+        self.model.squeeze(self.optimizer.state)
+
+        loss,acc=self.eval(t,data_loader,valid_transform)
+        print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
+
+        self.model.count_params()
+
     def test(self, data_loader, valid_transform):
+        total_acc=0
+        total_num=0
         self.model.eval()
 
         for images, targets in data_loader:
@@ -292,8 +393,34 @@ class Appr(object):
             if valid_transform:
                 images = valid_transform(images)
 
-            outputs = self.model.forward(images, t=self.cur_task)
-            print(outputs)
-            break
+            grad_sums = []
+            outputs = []
+            for t in range(1, self.cur_task+1):
+                self.model.zero_grad()
+                # for p in self.model.get_optim_params(t, self.ablation):
+                #     p.grad = None
+                output = self.model.forward(images, t=t)
+                output = output[:, self.shape_out[t-1]:self.shape_out[t]]
+                outputs.append(output)
+                loss = torch.sum(output.norm(2, dim = -1))
+                loss.backward()
+                grad_sum = 0
+                # for p in self.model.get_optim_params(t, self.ablation):
+                #     if p.grad is not None:
+                #         if p.grad.numel() != 0:
+                #             grad_sum += p.grad.data.abs().mean().item()
 
+                for p in [self.model.DM[-1].weight[t], self.model.DM[-1].fwt_weight[t]]:
+                    if p.grad is not None:
+                        if p.grad.numel() != 0:
+                            grad_sum += p.grad.data.abs().mean().item()
+                grad_sums.append(grad_sum)
+            # print(grad_sums, np.argmax(grad_sums))
+            outputs = outputs[np.argmax(grad_sums)]
+            values,indices=outputs.max(1)
+            hits=(indices==targets).float()
+            hits = hits.sum().data.cpu().numpy()
+            total_acc += hits
+            total_num += len(targets)
 
+        print(total_acc/total_num)

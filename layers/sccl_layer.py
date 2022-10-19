@@ -33,7 +33,7 @@ class _DynamicLayer(nn.Module):
 
         self.first_layer = first_layer
         self.last_layer = last_layer
-        self.dropout = 0.5
+        self.dropout = 0.2
         if first_layer:
             self.base_in_features = 0
             self.in_features = in_features
@@ -116,14 +116,20 @@ class _DynamicLayer(nn.Module):
     def get_optim_params(self, t, ablation='full'):
         params = []
         params += [self.weight[t], self.fwt_weight[t], self.bwt_weight[t]]
-        if 'scale' not in ablation and not self.last_layer:
-            for i in range(1, t):
-                params += [self.bwt_scale[t][i], self.fwt_scale[t][i]]
+        # if 'scale' not in ablation and not self.last_layer:
+        #     for i in range(1, t):
+        #         params += [self.bwt_scale[t][i], self.fwt_scale[t][i]]
         if self.bias:
             params += [self.bias[t]]
         if self.norm_layer:
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[t], self.norm_layer.bias[t]]
+        return params
+
+    def get_optim_scales(self, t):
+        params = []
+        for i in range(1, t):
+            params += [self.bwt_scale[t][i], self.fwt_scale[t][i]]
         return params
 
     def count_params(self, t):
@@ -385,7 +391,6 @@ class DynamicLinear(_DynamicLayer):
         self.dim_in = (1)
         self.dim_out = (0)
 
-        self.forward_function = F.linear
             
         
 class _DynamicConvNd(_DynamicLayer):
@@ -424,7 +429,6 @@ class DynamicConv2D(_DynamicConvNd):
         self.view_out = (1, -1, 1, 1)
         self.dim_in = (1, 2, 3)
         self.dim_out = (0, 2, 3)
-        self.forward_function = F.conv2d
 
 
 class DynamicNorm(nn.Module):

@@ -35,6 +35,12 @@ class _DynamicModel(nn.Module):
             params += m.get_optim_params(t, ablation)
         return params
 
+    def get_optim_scales(self, t):
+        params = []
+        for m in self.DM:
+            params += m.get_optim_scales(t)
+        return params
+
     def get_all_params(self):
         params = []
         for m in self.DM:

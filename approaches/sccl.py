@@ -37,6 +37,7 @@ class Appr(object):
         self.batch_size = args.batch_size
         self.val_batch_size = args.val_batch_size
         self.lr = args.lr
+        self.lr_rho = args.lr_rho
         self.lr_min = lr/100
         self.lr_factor = args.lr_factor
         self.lr_patience = args.lr_patience 
@@ -93,11 +94,14 @@ class Appr(object):
         if t is None: t=self.cur_task
 
         params = self.model.get_optim_params(t, self.ablation)
+        scales = self.model.get_optim_scales(t)
+
+        optim_params = [{'params': params, 'lr':lr}, {'params': scales, 'lr':self.lr_rho*lr}]
         if self.optim == 'SGD':
-            optimizer = torch.optim.SGD(params, lr=lr,
+            optimizer = torch.optim.SGD(optim_params, lr=lr,
                           weight_decay=0.0, momentum=0.9)
         elif self.optim == 'Adam':
-            optimizer = torch.optim.Adam(params, lr=lr)
+            optimizer = torch.optim.Adam(optim_params, lr=lr)
 
         return optimizer
 

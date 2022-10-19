@@ -54,7 +54,7 @@ def get(args, pc_valid=0.0):
             labels += n_old
 
         data[t]['train_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.batch_size, shuffle=True)
-        data[t]['valid_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.batch_size, shuffle=False)
+        data[t]['valid_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.val_batch_size, shuffle=False)
 
         #test
         ids = (test_targets//2 == task_order[t])

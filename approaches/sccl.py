@@ -66,6 +66,7 @@ class Appr(object):
         self.optimizer = self._get_optimizer()
 
         self.get_name(self.tasknum+1)
+        # self.grad_sum = [1]
 
     def get_name(self, t):
         self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(
@@ -136,7 +137,7 @@ class Appr(object):
             self.check_point = None
             return 
 
-        self.prune(t, train_loader, valid_transform, thres=0.0)
+        # self.prune(t, train_loader, valid_transform, thres=0.0)
 
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
@@ -147,7 +148,9 @@ class Appr(object):
         for m in self.model.DM:
             print(f'weight: {m.weight[-1].norm(2).item()}, fwt: {m.fwt_weight[-1].norm(2).item()}, bwt: {m.bwt_weight[-1].norm(2).item()}')
             # for i, p in enumerate(m.bwt_scale[-1]):
-            #     print(m.bwt_scale[-1][i].norm(2), m.fwt_scale[-1][i].norm(2))        
+            #     print(m.bwt_scale[-1][i].norm(2), m.fwt_scale[-1][i].norm(2))
+
+        # self.get_grad(t, train_loader, valid_transform)        
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 
@@ -232,17 +235,42 @@ class Appr(object):
             targets -= sum(self.shape_out[:t])
 
         loss = self.ce(outputs, targets)
-        if squeeze:
-            loss += self.lamb * self.model.group_lasso_reg()
+        # if squeeze:
+        #     loss += self.lamb * self.model.group_lasso_reg()
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
-        # if squeeze:
-        #     self.model.proximal_gradient_descent(lr, self.lamb)
+        if squeeze:
+            self.model.proximal_gradient_descent(lr, self.lamb)
 
     def eval_batch(self, t, images, targets):
         if t is None:
             outputs = self.model.forward(images, t=self.cur_task)
+            # ratios = []
+            # outputs = []
+            # for t in range(1, self.cur_task+1):
+            #     for p in self.model.get_all_params():
+            #         p.grad = None
+            #     output = self.model.forward(images, t=t)
+            #     # mean = self.model.DM[-1].norm_layer.running_mean[t]
+            #     # var = self.model.DM[-1].norm_layer.running_var[t]
+            #     # output = (output - mean.view(1,-1)) / torch.sqrt(var.view(1,-1))
+            #     output = output[:, self.shape_out[t-1]:self.shape_out[t]]
+            #     loss = torch.sum(output.norm(2, dim=1))
+            #     # loss = entropy(output).sum()
+            #     loss.backward()
+            #     grad_sum = 0
+            #     for p in self.model.get_all_params():
+            #         if p.grad is not None:
+            #             if p.grad.numel() != 0:
+            #                 grad_sum += p.grad.data.abs().sum().item()
+            #     grad_sum = grad_sum / len(targets)
+            #     ratios.append(grad_sum/self.grad_sum[t])
+            #     # ratios.append(grad_sum)
+            #     outputs.append(output)
+
+            # # print(ratios)
+            # outputs = outputs[np.argmax(ratios)]
         else:
             outputs = self.model.forward(images, t=t)
             outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
@@ -265,8 +293,8 @@ class Appr(object):
                             
             self.train_batch(t, images, targets, squeeze, lr)
         
-        # if squeeze:
-        #     self.model.squeeze(self.optimizer.state)
+        if squeeze:
+            self.model.squeeze(self.optimizer.state)
 
 
     def eval(self, t, data_loader, valid_transform):
@@ -382,6 +410,36 @@ class Appr(object):
 
         self.model.count_params()
 
+    def get_grad(self, t, data_loader, valid_transform):
+        self.model.eval()
+
+        grad_sum = 0
+        num = 0
+        for images, targets in data_loader:
+            images=images.to(device)
+            targets=targets.to(device)
+            if valid_transform:
+                images = valid_transform(images)
+
+            for p in self.model.get_all_params():
+                p.grad = None
+            output = self.model.forward(images, t=t)
+            # mean = self.model.DM[-1].norm_layer.running_mean[t]
+            # var = self.model.DM[-1].norm_layer.running_var[t]
+            # output = (output - mean.view(1,-1)) / torch.sqrt(var.view(1,-1))
+            output = output[:, self.shape_out[t-1]:self.shape_out[t]]
+            loss = torch.sum(output.norm(2, dim=1))
+            # loss = entropy(output).sum()
+            loss.backward()
+            for p in self.model.get_all_params():
+                if p.grad is not None:
+                    if p.grad.numel() != 0:
+                        grad_sum += p.grad.data.abs().sum().item()
+            num += len(targets)
+        self.grad_sum.append(grad_sum/num)
+        print(self.grad_sum)
+
+
     def test(self, data_loader, valid_transform):
         total_acc=0
         total_num=0
@@ -413,7 +471,7 @@ class Appr(object):
                 for p in [self.model.DM[-1].weight[t], self.model.DM[-1].fwt_weight[t]]:
                     if p.grad is not None:
                         if p.grad.numel() != 0:
-                            grad_sum += p.grad.data.abs().mean().item()
+                            grad_sum += p.grad.data.abs()
                 grad_sums.append(grad_sum)
             # print(grad_sums, np.argmax(grad_sums))
             outputs = outputs[np.argmax(grad_sums)]

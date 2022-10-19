@@ -35,6 +35,12 @@ class _DynamicModel(nn.Module):
             params += m.get_optim_params(t, ablation)
         return params
 
+    def get_all_params(self):
+        params = []
+        for m in self.DM:
+            params += m.get_all_params()
+        return params
+
     def get_parameters(self, t):
         for m in self.DM:
             m.get_old_parameters(t)
@@ -94,14 +100,6 @@ class _DynamicModel(nn.Module):
     def report(self):
         for m in self.DM:
             print(m.__class__.__name__, m.in_features, m.out_features)
-
-class Custom_Dropout(nn.Module):
-    def __init__(self, p=0.0):
-        super(Custom_Dropout, self).__init__()
-        self.p = p
-    
-    def forward(self, x):
-        return (F.dropout(x, self.p, self.training) + F.dropout(x, self.p, self.training))/2
             
 class MLP(_DynamicModel):
 
@@ -140,22 +138,22 @@ class VGG8(_DynamicModel):
             nn.ReLU(),
             DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
-            nn.Dropout(0.25),
             nn.MaxPool2d(2),
+            # nn.Dropout(0.25),
 
             DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
-            nn.Dropout(0.25),
             nn.MaxPool2d(2),
+            # nn.Dropout(0.25),
 
             DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.5),
             nn.ReLU(),
-            nn.Dropout(0.5),
             nn.MaxPool2d(2),
+            # nn.Dropout(0.5),
             ])
 
         s = size
@@ -170,7 +168,6 @@ class VGG8(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(128*s*s, 256, norm_type=norm_type, s=s),
             nn.ReLU(),
-            # nn.Dropout(0.5),
             DynamicLinear(256, 0, last_layer=True)
             ])
 

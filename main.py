@@ -118,7 +118,7 @@ for t, ncla in taskcla[start_task:]:
                 test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
             else:
                 test_loss, test_acc = appr.eval(u+1, data[u]['test_loader'], data['valid_transform'])
-                # test_loss, test_acc = appr.eval(1, data[u]['test_loader'], data['valid_transform'])
+                # test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
         else:
             test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data['valid_transform'])
 

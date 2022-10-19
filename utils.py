@@ -15,6 +15,7 @@ import torchvision.transforms.functional as tvF
 import torchvision.transforms as transforms
 from torchvision import models
 import time
+import torch.nn.functional as F
 # from layers.sccl_gpm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 # from torchvision.models.resnet import *
 
@@ -41,8 +42,11 @@ def _calculate_fan_in_and_fan_out(tensor):
 
     return fan_in, fan_out
 
-def entropy(x):
-    return (-x*x.log()).sum()
+def entropy(x, exp=1):
+    y = F.softmax(x, dim=1)
+    y = y.pow(exp)
+    y = y/y.sum(1).view(-1,1).expand_as(y)
+    return (-y*y.log()).sum(1)
 
 def gs_cal(t, x, y, criterion, model, sbatch=20):
     

@@ -164,8 +164,8 @@ class _DynamicLayer(nn.Module):
         for i in range(1, t):
             bwt_scale = self.bwt_scale[t][i].view(self.view_in)
             fwt_scale = self.fwt_scale[t][i].view(self.view_in)
-            bwt_scale = F.dropout(bwt_scale, p=self.dropout, training=self.training)
-            fwt_scale = F.dropout(fwt_scale, p=self.dropout, training=self.training)
+            # bwt_scale = F.dropout(bwt_scale, p=self.dropout, training=self.training)
+            # fwt_scale = F.dropout(fwt_scale, p=self.dropout, training=self.training)
             weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_scale], dim=1), 
                                 torch.cat([self.fwt_weight[i], self.weight[i]], dim=1) * fwt_scale], dim=0)
 

@@ -127,9 +127,11 @@ class _DynamicLayer(nn.Module):
         params = []
         for i in range(1, t):
             num_in = self.bwt_weight[i].numel() / self.bwt_weight[i].shape[0]
+            if num_in == 0: num_in = 1
             params += [{'params':[self.bwt_scale[t][i]], 'lr':lr/num_in}]
 
             num_in = (self.fwt_weight[i].numel() + self.weight[i].numel()) / self.weight[i].shape[0]
+            if num_in == 0: num_in = 1
             params += [{'params':[self.fwt_scale[t][i]], 'lr':lr/num_in}]
         return params
 

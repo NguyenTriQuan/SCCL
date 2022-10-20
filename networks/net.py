@@ -73,8 +73,10 @@ class VGG8(nn.Module):
 #         s = compute_conv_output_size(s,3, padding=1) # 8
         s = s//2 # 4
         self.fc1 = nn.Linear(int(s*s*128*mul),int(256*mul)) # 2048
-        self.drop1 = nn.Dropout(0.25)
-        self.drop2 = nn.Dropout(0.5)
+        # self.drop1 = nn.Dropout(0.25)
+        # self.drop2 = nn.Dropout(0.5)
+        self.drop1 = nn.Dropout(0)
+        self.drop2 = nn.Dropout(0)
         self.MaxPool = torch.nn.MaxPool2d(2)
         
         self.last=torch.nn.ModuleList()

@@ -126,12 +126,18 @@ class _DynamicLayer(nn.Module):
     def get_optim_scales(self, t, lr):
         params = []
         for i in range(1, t):
-            num_in = self.bwt_weight[i].numel() / self.bwt_weight[i].shape[0]
-            if num_in == 0: num_in = 1
+            N = self.bwt_weight[i].numel()
+            if N == 0:
+                num_in = 1
+            else:
+                num_in = N / self.bwt_weight[i].shape[0]
             params += [{'params':[self.bwt_scale[t][i]], 'lr':lr/num_in}]
 
-            num_in = (self.fwt_weight[i].numel() + self.weight[i].numel()) / self.weight[i].shape[0]
-            if num_in == 0: num_in = 1
+            N = self.fwt_weight[i].numel() + self.weight[i].numel()
+            if N == 0:
+                num_in = 1
+            else:
+                num_in = N / self.weight[i].shape[0]
             params += [{'params':[self.fwt_scale[t][i]], 'lr':lr/num_in}]
         return params
 

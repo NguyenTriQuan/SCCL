@@ -116,9 +116,6 @@ class _DynamicLayer(nn.Module):
     def get_optim_params(self, t, ablation='full'):
         params = []
         params += [self.weight[t], self.fwt_weight[t], self.bwt_weight[t]]
-        # if 'scale' not in ablation and not self.last_layer:
-        #     for i in range(1, t):
-        #         params += [self.bwt_scale[t][i], self.fwt_scale[t][i]]
         if self.bias:
             params += [self.bias[t]]
         if self.norm_layer:
@@ -126,10 +123,14 @@ class _DynamicLayer(nn.Module):
                 params += [self.norm_layer.weight[t], self.norm_layer.bias[t]]
         return params
 
-    def get_optim_scales(self, t):
+    def get_optim_scales(self, t, lr):
         params = []
         for i in range(1, t):
-            params += [self.bwt_scale[t][i], self.fwt_scale[t][i]]
+            num_in = self.bwt_weight[i].numel() / self.bwt_weight[i].shape[0]
+            params += [{'params':[self.bwt_scale[t][i]], 'lr':lr/num_in}]
+
+            num_in = (self.fwt_weight[i].numel() + self.weight[i].numel()) / self.weight[i].shape[0]
+            params += [{'params':[self.fwt_scale[t][i]], 'lr':lr/num_in}]
         return params
 
     def count_params(self, t):

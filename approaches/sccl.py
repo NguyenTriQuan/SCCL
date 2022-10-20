@@ -94,9 +94,9 @@ class Appr(object):
         if t is None: t=self.cur_task
 
         params = self.model.get_optim_params(t, self.ablation)
-        scales = self.model.get_optim_scales(t)
+        scales = self.model.get_optim_scales(t, lr)
 
-        optim_params = [{'params': params, 'lr':lr}, {'params': scales, 'lr':self.lr_rho*lr}]
+        optim_params = [{'params': params, 'lr':lr}] + scales
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(optim_params, lr=lr,
                           weight_decay=0.0, momentum=0.9)

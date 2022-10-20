@@ -100,14 +100,14 @@ class _DynamicLayer(nn.Module):
         return output
 
     def norm_in(self, t=-1):
-        weight = torch.cat([self.weight[t], self.fwt_weight[t]], dim=1)
+        weight = torch.cat([self.fwt_weight[t], self.weight[t]], dim=1)
         norm = weight.norm(2, dim=self.dim_in)
         if self.bias is not None:
             norm = (norm ** 2 + self.bias[t][self.shape_out[-2]:] ** 2) ** 0.5
         return norm
 
     def norm_out(self, t=-1):
-        weight = torch.cat([self.next_layers[0].weight[t], self.next_layers[0].bwt_weight[t]], dim=0)
+        weight = torch.cat([self.next_layers[0].bwt_weight[t], self.next_layers[0].weight[t]], dim=0)
         if isinstance(self, DynamicConv2D) and isinstance(self.next_layers[0], DynamicLinear):
             weight = weight.view(self.next_layers[0].weight[t].shape[0] + self.next_layers[0].bwt_weight[t].shape[0], 
                                 self.weight[t].shape[0], self.next_layers[0].s, self.next_layers[0].s)
@@ -375,7 +375,7 @@ class _DynamicLayer(nn.Module):
             if self.norm_layer:
                 if self.norm_layer.affine:
                     norm = self.norm_layer.norm()
-                    aux = 1 - lamb * lr * strength_in / norm
+                    aux = 1 - lamb * lr * strength / norm
                     aux = F.threshold(aux, 0, 0, False)
                     self.mask *= (aux > 0)
 

@@ -161,8 +161,8 @@ class _DynamicLayer(nn.Module):
             bwt_mu = self.bwt_mu[t][i].view(self.view_in)
             fwt_mu = self.fwt_mu[t][i].view(self.view_in)
             
-            weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_sigma + bwt_mu], dim=1), 
-                                torch.cat([self.fwt_weight[i], self.weight[i]], dim=1) * fwt_sigma + fwt_mu], dim=0)
+            weight = torch.cat([torch.cat([weight, (self.bwt_weight[i] + bwt_mu) * bwt_sigma], dim=1), 
+                                (torch.cat([self.fwt_weight[i], self.weight[i]], dim=1) + fwt_mu) * fwt_sigma], dim=0)
 
         weight = torch.cat([torch.cat([weight, self.bwt_weight[t]], dim=1), 
                             torch.cat([self.fwt_weight[t], self.weight[t]], dim=1)], dim=0)
@@ -263,11 +263,17 @@ class _DynamicLayer(nn.Module):
 
         if fan_in != 0:
             # init
-            gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-            bound = gain * math.sqrt(3.0/fan_in)
-            nn.init.uniform_(self.weight[-1], -bound, bound)
-            nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
-            nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
+            # gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+            gain = torch.nn.init.calculate_gain('relu')
+            # bound = gain * math.sqrt(3.0/fan_in)
+            # nn.init.uniform_(self.weight[-1], -bound, bound)
+            # nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
+            # nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
+
+            bound_std = gain / math.sqrt(fan_in)
+            nn.init.normal_(self.weight[-1], 0, bound_std)
+            nn.init.normal_(self.fwt_weight[-1], 0, bound_std)
+            nn.init.normal_(self.bwt_weight[-1], 0, bound_std)
 
             # rescale old tasks params
             if 'scale' not in ablation and self.cur_task > 0 and not self.last_layer:
@@ -283,9 +289,9 @@ class _DynamicLayer(nn.Module):
                     else:
                         bwt_weight = self.bwt_weight[i].view(self.bwt_weight[i].shape[0], -1)
                         bwt_std = bwt_weight.std(1, unbiased=False)
-                        self.bwt_sigma[-1].append(nn.Parameter(bound_std/bwt_std.to(device)))
+                        self.bwt_sigma[-1].append(nn.Parameter(bound_std/bwt_std))
                         bwt_mean = bwt_weight.mean(1)
-                        self.bwt_mu[-1].append(nn.Parameter(-bwt_mean.to(device)))
+                        self.bwt_mu[-1].append(nn.Parameter(-bwt_mean))
 
                     weight = torch.cat([self.fwt_weight[i], self.weight[i]], dim=1)
                     if weight.numel() == 0:
@@ -293,9 +299,9 @@ class _DynamicLayer(nn.Module):
                     else:
                         weight = weight.view(weight.shape[0], -1)
                         fwt_std = weight.std(1, unbiased=False)
-                        self.fwt_sigma[-1].append(nn.Parameter(bound_std/fwt_std.to(device))) 
+                        self.fwt_sigma[-1].append(nn.Parameter(bound_std/fwt_std)) 
                         fwt_mean = weight.mean(1)
-                        self.fwt_mu[-1].append(nn.Parameter(-fwt_mean.to(device)))                       
+                        self.fwt_mu[-1].append(nn.Parameter(-fwt_mean))                       
             else:
                 self.bwt_sigma.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
                 self.fwt_sigma.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])

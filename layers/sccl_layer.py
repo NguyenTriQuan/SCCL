@@ -54,8 +54,11 @@ class _DynamicLayer(nn.Module):
         else:
             self.register_parameter("bias", None)
 
-        self.bwt_scale = [[]]
-        self.fwt_scale = [[]]
+        self.bwt_sigma = [[]]
+        self.fwt_sigma = [[]]
+
+        self.bwt_mu = [[]]
+        self.fwt_mu = [[]]
 
         self.shape_in = [self.in_features]
         self.shape_out = [self.out_features]
@@ -71,15 +74,9 @@ class _DynamicLayer(nn.Module):
         self.s = s
         self.mask = None
         
-        self.projection_matrix = None
-        self.feature = None 
-        self.track_input = False
-        self.sim = [None]
         self.cur_task = 0
 
     def forward(self, x, t):
-        if self.track_input:
-            self.act = x.detach()
         weight, bias = self.get_parameters(t)
 
         if weight.numel() == 0:
@@ -131,22 +128,22 @@ class _DynamicLayer(nn.Module):
                 num_in = 1
             else:
                 num_in = N / self.bwt_weight[i].shape[0]
-            params += [{'params':[self.bwt_scale[t][i]], 'lr':lr/num_in}]
+            params += [{'params':[self.bwt_sigma[t][i], self.bwt_mu[t][i]], 'lr':lr/num_in}]
 
             N = self.fwt_weight[i].numel() + self.weight[i].numel()
             if N == 0:
                 num_in = 1
             else:
                 num_in = N / self.weight[i].shape[0]
-            params += [{'params':[self.fwt_scale[t][i]], 'lr':lr/num_in}]
+            params += [{'params':[self.fwt_sigma[t][i], self.fwt_mu[t][i]], 'lr':lr/num_in}]
         return params
 
     def count_params(self, t):
         count = 0
         for i in range(1, t+1):
             count += self.weight[i].numel() + self.fwt_weight[i].numel() + self.bwt_weight[i].numel()
-            for j in range(len(self.fwt_scale[i])):
-                count += self.fwt_scale[i][j].numel() + self.bwt_scale[i][j].numel()
+            for j in range(len(self.fwt_mu[i])):
+                count += self.fwt_mu[i][j].numel() + self.bwt_mu[i][j].numel() + self.fwt_sigma[i][j].numel() + self.bwt_sigma[i][j].numel()
             if self.bias:
                 count += self.bias[i].numel()
             if self.norm_layer:
@@ -154,29 +151,18 @@ class _DynamicLayer(nn.Module):
                     count += self.norm_layer.weight[i].numel() + self.norm_layer.bias[i].numel()
         return count
 
-    def get_all_params(self):
-        params = []
-        for t in range(1, self.cur_task+1):
-            params += [self.weight[t], self.fwt_weight[t], self.bwt_weight[t]]
-            for i in range(1, t):
-                params += [self.bwt_scale[t][i], self.fwt_scale[t][i]]
-            if self.bias:
-                params += [self.bias[t]]
-            # if self.norm_layer:
-            #     if self.norm_layer.affine:
-            #         params += [self.norm_layer.weight[t], self.norm_layer.bias[t]]
-        return params
-
     def get_parameters(self, t):
         weight = torch.empty_like(self.weight[0]).to(device)
 
         for i in range(1, t):
-            bwt_scale = self.bwt_scale[t][i].view(self.view_in)
-            fwt_scale = self.fwt_scale[t][i].view(self.view_in)
-            # bwt_scale = F.dropout(bwt_scale, p=self.dropout, training=self.training)
-            # fwt_scale = F.dropout(fwt_scale, p=self.dropout, training=self.training)
-            weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_scale], dim=1), 
-                                torch.cat([self.fwt_weight[i], self.weight[i]], dim=1) * fwt_scale], dim=0)
+            bwt_sigma = self.bwt_sigma[t][i].view(self.view_in)
+            fwt_sigma = self.fwt_sigma[t][i].view(self.view_in)
+
+            bwt_mu = self.bwt_mu[t][i].view(self.view_in)
+            fwt_mu = self.fwt_mu[t][i].view(self.view_in)
+            
+            weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_sigma + bwt_mu], dim=1), 
+                                torch.cat([self.fwt_weight[i], self.weight[i]], dim=1) * fwt_sigma + fwt_mu], dim=0)
 
         weight = torch.cat([torch.cat([weight, self.bwt_weight[t]], dim=1), 
                             torch.cat([self.fwt_weight[t], self.weight[t]], dim=1)], dim=0)
@@ -243,8 +229,9 @@ class _DynamicLayer(nn.Module):
 
                 m.in_features = m.shape_in[-2] + m.weight[-1].shape[1]
                 m.shape_in[-1] = m.in_features
-            
-        self.mask = None
+  
+            self.mask = None
+
         self.strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
         self.strength_out = self.next_layers[0].weight[-1].data.numel() + self.next_layers[0].bwt_weight[-1].data.numel()
         self.strength = (self.strength_in + self.strength_out)
@@ -285,24 +272,35 @@ class _DynamicLayer(nn.Module):
             # rescale old tasks params
             if 'scale' not in ablation and self.cur_task > 0 and not self.last_layer:
                 bound_std = gain / math.sqrt(fan_in)
-                self.bwt_scale.append([torch.ones(1).to(device)])
-                self.fwt_scale.append([torch.ones(1).to(device)])
+                self.bwt_sigma.append([torch.ones(1).to(device)])
+                self.fwt_sigma.append([torch.ones(1).to(device)])
+                self.bwt_mu.append([torch.ones(1).to(device)])
+                self.fwt_mu.append([torch.ones(1).to(device)])
                 for i in range(1, self.cur_task+1):
                     if self.bwt_weight[i].numel() == 0:
-                        self.bwt_scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                        self.bwt_sigma[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                        self.bwt_mu[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                     else:
-                        bwt_std = self.bwt_weight[i].view(self.bwt_weight[i].shape[0], -1).std(1)
-                        self.bwt_scale[-1].append(nn.Parameter(bound_std/bwt_std.to(device)))
+                        bwt_weight = self.bwt_weight[i].view(self.bwt_weight[i].shape[0], -1)
+                        bwt_std = bwt_weight.std(1, unbiased=False)
+                        self.bwt_sigma[-1].append(nn.Parameter(bound_std/bwt_std.to(device)))
+                        bwt_mean = bwt_weight.mean(1)
+                        self.bwt_mu[-1].append(nn.Parameter(-bwt_mean.to(device)))
 
                     weight = torch.cat([self.fwt_weight[i], self.weight[i]], dim=1)
                     if weight.numel() == 0:
                         self.fwt_scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                     else:
-                        fwt_std = weight.view(weight.shape[0], -1).std(1)
-                        self.fwt_scale[-1].append(nn.Parameter(bound_std/fwt_std.to(device)))                        
+                        weight = weight.view(weight.shape[0], -1)
+                        fwt_std = weight.std(1, unbiased=False)
+                        self.fwt_sigma[-1].append(nn.Parameter(bound_std/fwt_std.to(device))) 
+                        fwt_mean = weight.mean(1)
+                        self.fwt_mu[-1].append(nn.Parameter(-fwt_mean.to(device)))                       
             else:
-                self.bwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
-                self.fwt_scale.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
+                self.bwt_sigma.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
+                self.fwt_sigma.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
+                self.bwt_mu.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
+                self.fwt_mu.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
 
         self.in_features += add_in
         self.out_features += add_out
@@ -315,12 +313,8 @@ class _DynamicLayer(nn.Module):
 
         if self.norm_layer:
             self.norm_layer.expand(add_out)
-
-        self.strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
-        self.strength_out = self.weight[-1].data.numel() + self.bwt_weight[-1].data.numel()
         
         self.mask = None
-        self.sim.append(None)
         self.cur_task += 1
 
     def get_reg(self):

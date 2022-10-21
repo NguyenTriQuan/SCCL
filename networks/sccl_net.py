@@ -266,17 +266,17 @@ class Alexnet(_DynamicModel):
         self.layers = nn.ModuleList([
             DynamicConv2D(ncha,64,kernel_size=size//8, first_layer=True, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            # nn.Dropout(0.2),
             nn.MaxPool2d(2),
 
             DynamicConv2D(64,128,kernel_size=size//10, norm_type=norm_type),
-            nn.Dropout(0.2),
+            # nn.Dropout(0.2),
             nn.ReLU(),
             nn.MaxPool2d(2),
 
             DynamicConv2D(128,256,kernel_size=2, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             nn.MaxPool2d(2),
             ])
 
@@ -292,10 +292,10 @@ class Alexnet(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(256*s*s, 2048, s=s, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             DynamicLinear(2048, 2048, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             DynamicLinear(2048, 0, last_layer=True, norm_type=norm_type)
         ])
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
@@ -308,6 +308,22 @@ Reference:
 [1] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun
     Deep Residual Learning for Image Recognition. arXiv:1512.03385
 '''
+def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1):
+    """3x3 convolution with padding"""
+    return DynamicConv2D(
+        in_planes,
+        out_planes,
+        kernel_size=3,
+        stride=stride,
+        padding=dilation,
+        groups=groups,
+        bias=False,
+        dilation=dilation,
+    )
+
+def conv1x1(in_planes: int, out_planes: int, stride: int = 1):
+    """1x1 convolution"""
+    return DynamicConv2D(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 class BasicBlock(_DynamicModel):
     expansion = 1
@@ -397,17 +413,17 @@ class Bottleneck(_DynamicModel):
         return F.relu(out)
 
 class ResNet(_DynamicModel):
-    def __init__(self, block, num_blocks, norm_type=None):
+    def __init__(self, block, num_blocks, norm_type=None, nf=32):
         super(ResNet, self).__init__()
-        self.in_planes = 64
+        self.in_planes = nf
 
-        self.conv1 = DynamicConv2D(3, 64, kernel_size=3,
+        self.conv1 = DynamicConv2D(3, nf*1, kernel_size=3,
                                stride=1, padding=1, bias=False, norm_type=norm_type, first_layer=True)
-        self.blocks = self._make_layer(block, 64, num_blocks[0], stride=1, norm_type=norm_type)
-        self.blocks += self._make_layer(block, 128, num_blocks[1], stride=2, norm_type=norm_type)
-        self.blocks += self._make_layer(block, 256, num_blocks[2], stride=2, norm_type=norm_type)
-        self.blocks += self._make_layer(block, 512, num_blocks[3], stride=2, norm_type=norm_type)
-        self.linear = DynamicLinear(512*block.expansion, 0, last_layer=True)
+        self.blocks = self._make_layer(block, nf*1, num_blocks[0], stride=1, norm_type=norm_type)
+        self.blocks += self._make_layer(block, nf*2, num_blocks[1], stride=2, norm_type=norm_type)
+        self.blocks += self._make_layer(block, nf*4, num_blocks[2], stride=2, norm_type=norm_type)
+        self.blocks += self._make_layer(block, nf*8, num_blocks[3], stride=2, norm_type=norm_type)
+        self.linear = DynamicLinear(nf*8*block.expansion, 0, last_layer=True)
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
 
@@ -449,7 +465,13 @@ class ResNet(_DynamicModel):
         return out
 
     def squeeze(self, optim_state):
+        self.total_strength = 1e-9
+        for m in self.DM[:-1]:
+            m.squeeze(optim_state)
+            self.total_strength += m.strength
         # share masks between skip connection layers
+        if self.conv1.mask is None:
+            return
         share_mask = self.conv1.mask
 
         for i, block in enumerate(self.blocks):
@@ -458,11 +480,6 @@ class ResNet(_DynamicModel):
                             
             share_mask += block.layers[-1].mask
             block.layers[-1].mask = share_mask
-
-        self.total_strength = 0
-        for m in self.DM[:-1]:
-            m.squeeze(optim_state)
-            self.total_strength += m.strength
 
 def ResNet18(input_size, norm_type=None):
     return ResNet(BasicBlock, [2, 2, 2, 2], norm_type)

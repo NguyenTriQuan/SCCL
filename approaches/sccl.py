@@ -94,7 +94,7 @@ class Appr(object):
         if t is None: t=self.cur_task
 
         params = self.model.get_optim_params(t, self.ablation)
-        scales = self.model.get_optim_scales(t, lr)
+        scales = self.model.get_optim_scales(t, lr*self.lr_rho)
 
         optim_params = [{'params': params, 'lr':lr}] + scales
         if self.optim == 'SGD':
@@ -135,7 +135,7 @@ class Appr(object):
         print('lambda', self.lamb)
         print(self.log_name)
         self.model.squeeze(self.optimizer.state)
-        
+
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, True)
         if not self.check_point['squeeze']:
             self.check_point = None

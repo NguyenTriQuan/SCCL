@@ -80,7 +80,7 @@ def get_args():
     parser.add_argument('--lr', default=0.001, type=float, required=False, help='(default=%(default)f)')
     parser.add_argument('--lr_patience', default=5, type=int, required=False, help='(default=%(default)f)')
     parser.add_argument('--lr_factor', default=3, type=int, required=False, help='(default=%(default)f)')
-    parser.add_argument('--lr_rho', default=0.001, type=float, required=False, help='(default=%(default)f)')
+    parser.add_argument('--lr_rho', default=1, type=float, required=False, help='(default=%(default)f)')
     parser.add_argument('--ratio', default=1.0, type=float, help='(default=%(default)f)')
     parser.add_argument('--alpha', default=0.01, type=float, help='(default=%(default)f)')
     parser.add_argument('--beta', default=0.03, type=float, help='(default=%(default)f)')

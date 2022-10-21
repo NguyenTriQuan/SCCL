@@ -161,8 +161,8 @@ class _DynamicLayer(nn.Module):
             bwt_mu = self.bwt_mu[t][i].view(self.view_in)
             fwt_mu = self.fwt_mu[t][i].view(self.view_in)
             
-            weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_sigma], dim=1), 
-                                torch.cat([self.fwt_weight[i], self.weight[i]], dim=1) * fwt_sigma], dim=0)
+            weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_sigma + bwt_mu], dim=1), 
+                                torch.cat([self.fwt_weight[i], self.weight[i]], dim=1) * fwt_sigma + fwt_mu], dim=0)
 
         weight = torch.cat([torch.cat([weight, self.bwt_weight[t]], dim=1), 
                             torch.cat([self.fwt_weight[t], self.weight[t]], dim=1)], dim=0)
@@ -264,16 +264,16 @@ class _DynamicLayer(nn.Module):
         if fan_in != 0:
             # init
             gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-            # gain = torch.nn.init.calculate_gain('relu')
-            # bound = gain * math.sqrt(3.0/fan_in)
-            # nn.init.uniform_(self.weight[-1], -bound, bound)
-            # nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
-            # nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
+            bound = gain * math.sqrt(3.0/fan_in)
+            nn.init.uniform_(self.weight[-1], -bound, bound)
+            nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
+            nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
 
-            bound_std = gain / math.sqrt(fan_in)
-            nn.init.normal_(self.weight[-1], 0, bound_std)
-            nn.init.normal_(self.fwt_weight[-1], 0, bound_std)
-            nn.init.normal_(self.bwt_weight[-1], 0, bound_std)
+            # gain = torch.nn.init.calculate_gain('relu')
+            # bound_std = gain / math.sqrt(fan_in)
+            # nn.init.normal_(self.weight[-1], 0, bound_std)
+            # nn.init.normal_(self.fwt_weight[-1], 0, bound_std)
+            # nn.init.normal_(self.bwt_weight[-1], 0, bound_std)
 
             # rescale old tasks params
             if 'scale' not in ablation and self.cur_task > 0 and not self.last_layer:

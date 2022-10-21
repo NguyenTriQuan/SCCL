@@ -263,8 +263,8 @@ class _DynamicLayer(nn.Module):
 
         if fan_in != 0:
             # init
-            # gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-            gain = torch.nn.init.calculate_gain('relu')
+            gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+            # gain = torch.nn.init.calculate_gain('relu')
             # bound = gain * math.sqrt(3.0/fan_in)
             # nn.init.uniform_(self.weight[-1], -bound, bound)
             # nn.init.uniform_(self.bwt_weight[-1], -bound, bound)

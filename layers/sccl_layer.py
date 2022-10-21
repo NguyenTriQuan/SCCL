@@ -161,8 +161,8 @@ class _DynamicLayer(nn.Module):
             bwt_mu = self.bwt_mu[t][i].view(self.view_in)
             fwt_mu = self.fwt_mu[t][i].view(self.view_in)
             
-            weight = torch.cat([torch.cat([weight, (self.bwt_weight[i] + bwt_mu) * bwt_sigma], dim=1), 
-                                (torch.cat([self.fwt_weight[i], self.weight[i]], dim=1) + fwt_mu) * fwt_sigma], dim=0)
+            weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_sigma + bwt_mu], dim=1), 
+                                torch.cat([self.fwt_weight[i], self.weight[i]], dim=1) * fwt_sigma + fwt_mu], dim=0)
 
         weight = torch.cat([torch.cat([weight, self.bwt_weight[t]], dim=1), 
                             torch.cat([self.fwt_weight[t], self.weight[t]], dim=1)], dim=0)
@@ -291,7 +291,7 @@ class _DynamicLayer(nn.Module):
                         bwt_std = bwt_weight.std(1, unbiased=False)
                         self.bwt_sigma[-1].append(nn.Parameter(bound_std/bwt_std))
                         bwt_mean = bwt_weight.mean(1)
-                        self.bwt_mu[-1].append(nn.Parameter(-bwt_mean))
+                        self.bwt_mu[-1].append(nn.Parameter(-bwt_mean*bound_std/bwt_std))
 
                     weight = torch.cat([self.fwt_weight[i], self.weight[i]], dim=1)
                     if weight.numel() == 0:
@@ -301,7 +301,7 @@ class _DynamicLayer(nn.Module):
                         fwt_std = weight.std(1, unbiased=False)
                         self.fwt_sigma[-1].append(nn.Parameter(bound_std/fwt_std)) 
                         fwt_mean = weight.mean(1)
-                        self.fwt_mu[-1].append(nn.Parameter(-fwt_mean))                       
+                        self.fwt_mu[-1].append(nn.Parameter(-fwt_mean*bound_std/fwt_std))                       
             else:
                 self.bwt_sigma.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
                 self.fwt_sigma.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])

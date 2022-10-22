@@ -142,7 +142,7 @@ class _DynamicLayer(nn.Module):
         count = 0
         for i in range(1, t+1):
             count += self.weight[i].numel() + self.fwt_weight[i].numel() + self.bwt_weight[i].numel()
-            for j in range(len(self.fwt_mu[i])):
+            for j in range(len(self.fwt_sigma[i])):
                 count += self.fwt_sigma[i][j].numel() + self.bwt_sigma[i][j].numel()
             if self.bias:
                 count += self.bias[i].numel()

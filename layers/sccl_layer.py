@@ -264,16 +264,16 @@ class _DynamicLayer(nn.Module):
         if fan_in != 0:
             # init
             gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-            bound = gain * math.sqrt(3.0/fan_in)
-            nn.init.uniform_(self.weight[-1], -bound, bound)
-            nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
-            nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
+            # bound = gain * math.sqrt(3.0/fan_in)
+            # nn.init.uniform_(self.weight[-1], -bound, bound)
+            # nn.init.uniform_(self.bwt_weight[-1], -bound, bound)
+            # nn.init.uniform_(self.fwt_weight[-1], -bound, bound)
 
             # gain = torch.nn.init.calculate_gain('relu')
-            # bound_std = gain / math.sqrt(fan_in)
-            # nn.init.normal_(self.weight[-1], 0, bound_std)
-            # nn.init.normal_(self.fwt_weight[-1], 0, bound_std)
-            # nn.init.normal_(self.bwt_weight[-1], 0, bound_std)
+            bound_std = gain / math.sqrt(fan_in)
+            nn.init.normal_(self.weight[-1], 0, bound_std)
+            nn.init.normal_(self.fwt_weight[-1], 0, bound_std)
+            nn.init.normal_(self.bwt_weight[-1], 0, bound_std)
 
             # rescale old tasks params
             if 'scale' not in ablation and self.cur_task > 0 and not self.last_layer:

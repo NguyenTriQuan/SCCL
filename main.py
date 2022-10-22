@@ -9,7 +9,7 @@ from utils import *
 from arguments import get_args
 import importlib
 # import comet_ml at the top of your file
-from comet_ml import Experiment, ExistingExperiment
+# from comet_ml import Experiment, ExistingExperiment
 import json
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

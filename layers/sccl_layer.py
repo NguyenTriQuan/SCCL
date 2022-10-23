@@ -174,8 +174,11 @@ class _DynamicLayer(nn.Module):
             bwt_mu = self.bwt_mu[t][i].view(self.view_in)
             fwt_mu = self.fwt_mu[t][i].view(self.view_in)
             
-            weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_sigma + bwt_mu], dim=1), 
-                                torch.cat([self.fwt_weight[i] * fwt_sigma + fwt_mu, self.weight[i] * w_sigma + w_mu], dim=1)], dim=0)
+            # weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_sigma + bwt_mu], dim=1), 
+            #                     torch.cat([self.fwt_weight[i] * fwt_sigma + fwt_mu, self.weight[i] * w_sigma + w_mu], dim=1)], dim=0)
+
+            weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_sigma], dim=1), 
+                                torch.cat([self.fwt_weight[i] * fwt_sigma, self.weight[i] * w_sigma], dim=1)], dim=0)
 
         weight = torch.cat([torch.cat([weight, self.bwt_weight[t]], dim=1), 
                             torch.cat([self.fwt_weight[t], self.weight[t]], dim=1)], dim=0)

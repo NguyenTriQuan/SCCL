@@ -291,16 +291,16 @@ class _DynamicLayer(nn.Module):
             # rescale old tasks params
             if 'scale' not in ablation and self.cur_task > 0 and not self.last_layer:
                 bound_std = gain / math.sqrt(fan_in)
-                self.w_sigma.append([torch.ones(1).to(device)])
-                self.bwt_sigma.append([torch.ones(1).to(device)])
-                self.fwt_sigma.append([torch.ones(1).to(device)])
-                self.w_mu.append([torch.ones(1).to(device)])
-                self.bwt_mu.append([torch.ones(1).to(device)])
-                self.fwt_mu.append([torch.ones(1).to(device)])
+                self.w_sigma.append([nn.Parameter(torch.ones(1).to(device), requires_grad=False)])
+                self.bwt_sigma.append([nn.Parameter(torch.ones(1).to(device), requires_grad=False)])
+                self.fwt_sigma.append([nn.Parameter(torch.ones(1).to(device), requires_grad=False)])
+                self.w_mu.append([nn.Parameter(torch.zeros(1).to(device), requires_grad=False)])
+                self.bwt_mu.append([nn.Parameter(torch.zeros(1).to(device), requires_grad=False)])
+                self.fwt_mu.append([nn.Parameter(torch.zeros(1).to(device), requires_grad=False)])
                 for i in range(1, self.cur_task+1):
                     if self.bwt_weight[i].numel() == 0:
                         self.bwt_sigma[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-                        self.bwt_mu[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                        self.bwt_mu[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
                     else:
                         bwt_weight = self.bwt_weight[i].view(self.bwt_weight[i].shape[0], -1)
                         # bwt_std = bwt_weight.std(1, unbiased=False)
@@ -312,7 +312,7 @@ class _DynamicLayer(nn.Module):
 
                     if self.fwt_weight[i].numel() == 0:
                         self.fwt_sigma[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-                        self.fwt_mu[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                        self.fwt_mu[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
                     else:
                         fwt_weight = self.fwt_weight[i].view(self.fwt_weight[i].shape[0], -1)
                         # bwt_std = bwt_weight.std(1, unbiased=False)
@@ -324,7 +324,7 @@ class _DynamicLayer(nn.Module):
 
                     if self.weight[i].numel() == 0:
                         self.w_sigma[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-                        self.w_mu[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                        self.w_mu[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
                     else:
                         weight = self.weight[i].view(self.weight[i].shape[0], -1)
                         # bwt_std = bwt_weight.std(1, unbiased=False)
@@ -334,12 +334,12 @@ class _DynamicLayer(nn.Module):
                         self.w_sigma[-1].append(nn.Parameter(bound_std/w_std * torch.ones(weight.shape[0]).to(device)))
                         self.w_mu[-1].append(nn.Parameter(-w_mean*bound_std/w_std * torch.ones(weight.shape[0]).to(device)))
             else:
-                self.w_sigma.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
-                self.bwt_sigma.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
-                self.fwt_sigma.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
-                self.w_mu.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
-                self.bwt_mu.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
-                self.fwt_mu.append([torch.ones(1).to(device) for _ in range(self.cur_task+1)])
+                self.w_sigma.append([nn.Parameter(torch.ones(1).to(device), requires_grad=False) for _ in range(self.cur_task+1)])
+                self.bwt_sigma.append([nn.Parameter(torch.ones(1).to(device), requires_grad=False) for _ in range(self.cur_task+1)])
+                self.fwt_sigma.append([nn.Parameter(torch.ones(1).to(device), requires_grad=False) for _ in range(self.cur_task+1)])
+                self.w_mu.append([nn.Parameter(torch.zeros(1).to(device), requires_grad=False) for _ in range(self.cur_task+1)])
+                self.bwt_mu.append([nn.Parameter(torch.zeros(1).to(device), requires_grad=False) for _ in range(self.cur_task+1)])
+                self.fwt_mu.append([nn.Parameter(torch.zeros(1).to(device), requires_grad=False) for _ in range(self.cur_task+1)])
 
         self.in_features += add_in
         self.out_features += add_out

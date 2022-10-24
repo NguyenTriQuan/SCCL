@@ -130,24 +130,21 @@ class _DynamicLayer(nn.Module):
                 num_in = 1
             else:
                 num_in = N / self.bwt_weight[i].shape[0]
-            # params += [{'params':[self.bwt_sigma[t][i]], 'lr':lr/num_in}]
-            params += [{'params':[self.bwt_sigma[t][i]], 'lr':lr}]
+            params += [{'params':[self.bwt_sigma[t][i]], 'lr':lr/num_in}]
 
             N = self.fwt_weight[i].numel()
             if N == 0:
                 num_in = 1
             else:
                 num_in = N / self.fwt_weight[i].shape[0]
-            # params += [{'params':[self.fwt_sigma[t][i]], 'lr':lr/num_in}]
-            params += [{'params':[self.fwt_sigma[t][i]], 'lr':lr}]
+            params += [{'params':[self.fwt_sigma[t][i]], 'lr':lr/num_in}]
 
             N = self.weight[i].numel()
             if N == 0:
                 num_in = 1
             else:
                 num_in = N / self.weight[i].shape[0]
-            # params += [{'params':[self.w_sigma[t][i]], 'lr':lr/num_in}]
-            params += [{'params':[self.w_sigma[t][i]], 'lr':lr}]
+            params += [{'params':[self.w_sigma[t][i]], 'lr':lr/num_in}]
 
         return params
 

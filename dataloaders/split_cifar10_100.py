@@ -20,7 +20,7 @@ def get(args, pc_valid=0.10):
     data={}
     taskcla=[]
     size=[3,32,32]
-    task_order=shuffle(np.arange(11),random_state=args.seed)
+    task_order=shuffle(np.arange(10),random_state=args.seed)
     print('Task order =',task_order+1)
 
     mean=torch.tensor([x/255 for x in [125.3,123.0,113.9]])
@@ -68,10 +68,10 @@ def get(args, pc_valid=0.10):
     n_old = 10
     for t in range(1, tasknum):
         data[t]={}
-        data[t]['name']='cifar100-'+str(task_order[t]+1)
+        data[t]['name']='cifar100-'+str(task_order[t-1]+1)
         data[t]['ncla']=10
         #train and valid
-        ids = (train_targets//10 == task_order[t])
+        ids = (train_targets//10 == task_order[t-1])
         images = train_data[ids]
         labels = train_targets[ids]%10 
         if args.cil:
@@ -86,7 +86,7 @@ def get(args, pc_valid=0.10):
         data[t]['valid_loader'] = DataLoader(TensorDataset(images[ivalid], labels[ivalid]), batch_size=args.val_batch_size, shuffle=False)
 
         #test
-        ids = (test_targets//10 == task_order[t])
+        ids = (test_targets//10 == task_order[t-1])
         images = test_data[ids]
         labels = test_targets[ids]%10
         if args.cil:

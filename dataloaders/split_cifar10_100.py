@@ -20,7 +20,7 @@ def get(args, pc_valid=0.10):
     data={}
     taskcla=[]
     size=[3,32,32]
-    task_order=shuffle(np.arange(10),random_state=args.seed)
+    task_order=shuffle(np.arange(11),random_state=args.seed)
     print('Task order =',task_order+1)
 
     mean=torch.tensor([x/255 for x in [125.3,123.0,113.9]])

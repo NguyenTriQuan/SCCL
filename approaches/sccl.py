@@ -124,7 +124,7 @@ class Appr(object):
             torch.save(self.check_point, f'../result_data/trained_model/{self.log_name}.model')
                 
         else: 
-            print('Retraining current task')
+            print('Continue training current task')
 
         print(self.model.report())
         self.model = self.model.to(device)

@@ -9,7 +9,7 @@ from torch.distributions import Bernoulli, LogNormal
 import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
-from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.sccl_mm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys
@@ -29,31 +29,20 @@ class _DynamicModel(nn.Module):
         for m in self.DM:
             m.restrict_gradients(t, requires_grad)
 
-    def get_optim_params(self, t, ablation='full'):
+    def get_optim_params(self):
         params = []
         for m in self.DM:
-            params += m.get_optim_params(t, ablation)
+            params += m.get_optim_params()
         return params
 
-    def get_optim_scales(self, t, lr):
+    def get_optim_scales(self, lr):
         params = []
         for m in self.DM:
-            params += m.get_optim_scales(t, lr)
+            params += m.get_optim_scales(lr)
         return params
-
-    def get_all_params(self):
-        params = []
-        for m in self.DM:
-            params += m.get_all_params()
-        return params
-
-    def get_parameters(self, t):
-        for m in self.DM:
-            m.get_old_parameters(t)
 
     def expand(self, new_class, ablation='full'):
-        self.DM[0].expand(add_in=0, add_out=None, ablation=ablation)
-        for m in self.DM[1:-1]:
+        for m in self.DM[:-1]:
             m.expand(add_in=None, add_out=None, ablation=ablation)
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
 

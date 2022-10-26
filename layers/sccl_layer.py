@@ -78,7 +78,7 @@ class _DynamicLayer(nn.Module):
         
         self.cur_task = 0
 
-    def forward(self, x, t):
+    def forward(self, x, t):            
         weight, bias = self.get_parameters(t)
 
         if weight.numel() == 0:
@@ -173,7 +173,7 @@ class _DynamicLayer(nn.Module):
             # w_mu = self.w_mu[t][i].view(self.view_in)
             # bwt_mu = self.bwt_mu[t][i].view(self.view_in)
             # fwt_mu = self.fwt_mu[t][i].view(self.view_in)
-
+                
             weight = torch.cat([torch.cat([weight, self.bwt_weight[i] * bwt_sigma], dim=1), 
                                 torch.cat([self.fwt_weight[i] * fwt_sigma, self.weight[i] * w_sigma], dim=1)], dim=0)
 
@@ -184,6 +184,14 @@ class _DynamicLayer(nn.Module):
             bias = self.bias[t]
         else:
             bias = None
+
+        if self.last_layer and t < self.cur_task:
+            # for p in self.fwt_weight[t+1:]:
+            #     print(p[:, :self.shape_in[t]].shape)
+            weight = torch.cat([weight] + [p[:, :self.shape_in[t]] for p in self.fwt_weight[t+1:]], dim=0)
+            # print(weight.shape)
+            if self.bias:
+                bias = torch.cat([p[self.shape_out[i]:self.shape_out[i+1]] for i, p in enumerate(self.bias[1:])])
 
         return weight, bias
 
@@ -286,7 +294,10 @@ class _DynamicLayer(nn.Module):
             bound_std = gain / math.sqrt(fan_in)
             nn.init.normal_(self.weight[-1], 0, bound_std)
             nn.init.normal_(self.fwt_weight[-1], 0, bound_std)
-            nn.init.normal_(self.bwt_weight[-1], 0, bound_std)
+            if self.last_layer:
+                nn.init.uniform_(self.bwt_weight[-1], 0, 0)
+            else:
+                nn.init.normal_(self.bwt_weight[-1], 0, bound_std)
 
             # rescale old tasks params
             if 'scale' not in ablation and self.cur_task > 0 and not self.last_layer:

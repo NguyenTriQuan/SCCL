@@ -15,7 +15,7 @@ import kornia as K
 import time
 import csv
 from utils import *
-from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.sccl_mm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import networks.sccl_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
@@ -64,7 +64,6 @@ class Appr(object):
         self.shape_out = self.model.DM[-1].shape_out
         self.cur_task = len(self.shape_out)-1
         self.ce = torch.nn.CrossEntropyLoss()
-        self.optimizer = self._get_optimizer()
 
         self.get_name(self.tasknum+1)
         # self.grad_sum = [1]
@@ -89,19 +88,20 @@ class Appr(object):
                 continue
         return 0
 
-    def _get_optimizer(self, lr=None, t=None):
+    def _get_optimizer(self, lr=None):
         if lr is None: lr=self.lr
-        if t is None: t=self.cur_task
 
-        params = self.model.get_optim_params(t, self.ablation)
-        scales = self.model.get_optim_scales(t, lr*self.lr_rho)
+        params = self.model.get_optim_params()
+        params = [{'params': params, 'lr':lr}]
+        if 'scale' not in self.ablation and self.lr_rho != 0:
+            scales = self.model.get_optim_scales(lr*self.lr_rho)
+            params += scales
 
-        optim_params = [{'params': params, 'lr':lr}] + scales
         if self.optim == 'SGD':
-            optimizer = torch.optim.SGD(optim_params, lr=lr,
+            optimizer = torch.optim.SGD(params, lr=lr,
                           weight_decay=0.0, momentum=0.9)
         elif self.optim == 'Adam':
-            optimizer = torch.optim.Adam(optim_params, lr=lr)
+            optimizer = torch.optim.Adam(params, lr=lr)
 
         return optimizer
 
@@ -134,27 +134,19 @@ class Appr(object):
         self.lamb = self.lambs[self.cur_task-1]
         print('lambda', self.lamb)
         print(self.log_name)
-        self.model.squeeze(self.optimizer.state)
+        self.model.squeeze(None)
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, True)
         if not self.check_point['squeeze']:
             self.check_point = None
             return 
 
-        # self.prune(t, train_loader, valid_transform, thres=0.0)
-
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
-        self.check_point = None
-        for m in self.model.DM:
-            print(f'weight: {m.weight[-1].norm(2).item()}, fwt: {m.fwt_weight[-1].norm(2).item()}, bwt: {m.bwt_weight[-1].norm(2).item()}')
-            # for i, p in enumerate(m.bwt_scale[-1]):
-            #     print(m.bwt_scale[-1][i].norm(2), m.fwt_scale[-1][i].norm(2))
-
-        # self.get_grad(t, train_loader, valid_transform)        
+        self.check_point = None      
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 
@@ -250,37 +242,32 @@ class Appr(object):
     def eval_batch(self, t, images, targets):
         if t is None:
             outputs = self.model.forward(images, t=self.cur_task)
-            # ratios = []
-            # outputs = []
-            # for t in range(1, self.cur_task+1):
-            #     for p in self.model.get_all_params():
-            #         p.grad = None
-            #     output = self.model.forward(images, t=t)
-            #     # mean = self.model.DM[-1].norm_layer.running_mean[t]
-            #     # var = self.model.DM[-1].norm_layer.running_var[t]
-            #     # output = (output - mean.view(1,-1)) / torch.sqrt(var.view(1,-1))
-            #     output = output[:, self.shape_out[t-1]:self.shape_out[t]]
-            #     loss = torch.sum(output.norm(2, dim=1))
-            #     # loss = entropy(output).sum()
-            #     loss.backward()
-            #     grad_sum = 0
-            #     for p in self.model.get_all_params():
-            #         if p.grad is not None:
-            #             if p.grad.numel() != 0:
-            #                 grad_sum += p.grad.data.abs().sum().item()
-            #     grad_sum = grad_sum / len(targets)
-            #     ratios.append(grad_sum/self.grad_sum[t])
-            #     # ratios.append(grad_sum)
-            #     outputs.append(output)
-
-            # # print(ratios)
-            # outputs = outputs[np.argmax(ratios)]
         else:
             outputs = self.model.forward(images, t=t)
             outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
             if self.args.cil:
                 targets -= sum(self.shape_out[:t])
+        loss=self.ce(outputs,targets)
+        values,indices=outputs.max(1)
+        hits=(indices==targets).float()
 
+        return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
+
+    def eval_batch_assem(self, t, images, targets):
+        if t is None:
+            outputs = self.model.forward(images, t=self.cur_task)
+        else:
+            assembled_outputs = 0
+            for i in range(1, self.cur_task+1):
+                outputs = self.model.forward(images, t=i)
+                outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+                mean = outputs.mean(1)
+                std = outputs.std(1)
+                assembled_outputs += (outputs - mean.view(-1, 1))
+            outputs = assembled_outputs / self.cur_task
+
+            if self.args.cil:
+                targets -= sum(self.shape_out[:t])
         loss=self.ce(outputs,targets)
         values,indices=outputs.max(1)
         hits=(indices==targets).float()
@@ -314,6 +301,25 @@ class Appr(object):
                 images = valid_transform(images)
                     
             loss, hits = self.eval_batch(t, images, targets)
+            total_loss += loss
+            total_acc += hits
+            total_num += len(targets)
+                
+        return total_loss/total_num,total_acc/total_num
+
+    def eval_assem(self, t, data_loader, valid_transform):
+        total_loss=0
+        total_acc=0
+        total_num=0
+        self.model.eval()
+
+        for images, targets in data_loader:
+            images=images.to(device)
+            targets=targets.to(device)
+            if valid_transform:
+                images = valid_transform(images)
+                    
+            loss, hits = self.eval_batch_assem(t, images, targets)
             total_loss += loss
             total_acc += hits
             total_num += len(targets)

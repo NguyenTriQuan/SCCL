@@ -67,7 +67,6 @@ if args.resume:
 #     with open(f'../result_data/logger/{appr.log_name}.json', 'w') as f:
 #         json.dump(appr.logger.get_key(), f)
 
-utils.print_optimizer_config(appr.optimizer)
 print('-' * 100)
 
 acc = np.zeros((len(taskcla), len(taskcla)), dtype=np.float32)
@@ -106,7 +105,6 @@ for t, ncla in taskcla[start_task:]:
     if 'sccl' in args.approach:
         appr.train(task+1, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
         # appr.train(task+1, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
-        # appr.train(1, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
     else:
         appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'])
     print('-' * 100)
@@ -118,6 +116,7 @@ for t, ncla in taskcla[start_task:]:
                 test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
             else:
                 test_loss, test_acc = appr.eval(u+1, data[u]['test_loader'], data['valid_transform'])
+                # test_loss, test_acc = appr.eval_assem(u+1, data[u]['test_loader'], data['valid_transform'])
                 # test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
         else:
             test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data['valid_transform'])

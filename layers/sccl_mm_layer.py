@@ -309,24 +309,21 @@ class _DynamicLayer(nn.Module):
                     if self.weight[i].numel() == 0:
                         self.w_sigma[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                     else:
-                        weight = self.weight[i].view(self.weight[i].shape[0], -1)
-                        w_std = weight.std()
-                        self.w_sigma[-1].append(nn.Parameter(bound_std/w_std * torch.ones(weight.shape[0]).to(device)))
+                        w_std = self.weight[i].std()
+                        self.w_sigma[-1].append(nn.Parameter(bound_std/w_std * torch.ones(self.weight[i].shape[0]).to(device)))
+
                     for j in range(1, i):
                         if self.bwt_weight[i][j].numel() == 0:
                             self.bwt_sigma[-1][-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                         else:
-                            bwt_weight = self.bwt_weight[i][j].view(self.bwt_weight[i][j].shape[0], -1)
-                            bwt_std = bwt_weight.std()
-                            self.bwt_sigma[-1][-1].append(nn.Parameter(bound_std/bwt_std * torch.ones(bwt_weight.shape[1]).to(device)))
+                            bwt_std = self.bwt_weight[i][j].std()
+                            self.bwt_sigma[-1][-1].append(nn.Parameter(bound_std/bwt_std * torch.ones(self.bwt_weight[i][j].shape[1]).to(device)))
 
                         if self.fwt_weight[i][j].numel() == 0:
                             self.fwt_sigma[-1][-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                         else:
-                            fwt_weight = self.fwt_weight[i][j].view(self.fwt_weight[i][j].shape[0], -1)
-                            fwt_std = fwt_weight.std()
-                            self.fwt_sigma[-1][-1].append(nn.Parameter(bound_std/fwt_std * torch.ones(fwt_weight.shape[0]).to(device)))
-
+                            fwt_std = self.fwt_weight[i][j].std()
+                            self.fwt_sigma[-1][-1].append(nn.Parameter(bound_std/fwt_std * torch.ones(self.fwt_weight[i][j].shape[0]).to(device)))
             else:
                 self.w_sigma.append([nn.Parameter(torch.ones(1).to(device), requires_grad=False) for i in range(self.cur_task)])
                 self.bwt_sigma.append([[nn.Parameter(torch.ones(1).to(device), requires_grad=False) for j in range(i)] 

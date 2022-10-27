@@ -66,7 +66,7 @@ class Appr(object):
         self.ce = torch.nn.CrossEntropyLoss()
 
         self.get_name(self.tasknum+1)
-        # self.grad_sum = [1]
+        self.mem = [None]
 
     def get_name(self, t):
         self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(
@@ -146,7 +146,16 @@ class Appr(object):
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
-        self.check_point = None      
+        self.check_point = None  
+
+        # for images, targets in train_loader:
+        #     images=images.to(device)
+        #     targets=targets.to(device)
+        #     if train_transform:
+        #         images = train_transform(images)
+        #     break
+        # self.mem.append((images, targets))
+
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 
@@ -181,7 +190,10 @@ class Appr(object):
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),train_loss,100*train_acc),end='')
 
-                valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
+                if 'assemble' not in self.ablation:
+                    valid_loss,valid_acc=self.eval_assemble(t, valid_loader, valid_transform)
+                else:
+                    valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
                 if squeeze:
@@ -228,15 +240,17 @@ class Appr(object):
     def train_batch(self, t, images, targets, squeeze, lr):
         if self.args.cil:
             targets -= sum(self.shape_out[:t])
-        # outputs = self.model.forward(images, t=t)
-        # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-        # loss = self.ce(outputs, targets)
 
-        loss = 0
-        for i in range(1, t+1):
-            outputs = self.model.forward(images, t=i)
+        if 'assemble' not in self.ablation:
+            loss = 0
+            for i in range(1, t+1):
+                outputs = self.model.forward(images, t=i)
+                outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+                loss += self.ce(outputs, targets)
+        else:
+            outputs = self.model.forward(images, t=t)
             outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-            loss += self.ce(outputs, targets)
+            loss = self.ce(outputs, targets)
         # if squeeze:
         #     loss += self.lamb * self.model.group_lasso_reg()
         self.optimizer.zero_grad()
@@ -259,7 +273,7 @@ class Appr(object):
 
         return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
 
-    def eval_batch_assem(self, t, images, targets):
+    def eval_batch_assemble(self, t, images, targets):
         if t is None:
             outputs = self.model.forward(images, t=self.cur_task)
         else:
@@ -267,9 +281,6 @@ class Appr(object):
             for i in range(1, t+1):
                 outputs = self.model.forward(images, t=i)
                 outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-                # mean = outputs.mean(1)
-                # std = outputs.std(1)
-                # assembled_outputs += (outputs - mean.view(-1, 1))
                 assembled_outputs += outputs
             outputs = assembled_outputs / t
 
@@ -283,7 +294,7 @@ class Appr(object):
 
     def train_epoch(self, t, data_loader, train_transform, squeeze, lr):
         self.model.train()
-        for i, (images, targets) in enumerate(data_loader):
+        for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
             if train_transform:
@@ -314,7 +325,7 @@ class Appr(object):
                 
         return total_loss/total_num,total_acc/total_num
 
-    def eval_assem(self, t, data_loader, valid_transform):
+    def eval_assemble(self, t, data_loader, valid_transform):
         total_loss=0
         total_acc=0
         total_num=0
@@ -326,7 +337,7 @@ class Appr(object):
             if valid_transform:
                 images = valid_transform(images)
                     
-            loss, hits = self.eval_batch_assem(t, images, targets)
+            loss, hits = self.eval_batch_assemble(t, images, targets)
             total_loss += loss
             total_acc += hits
             total_num += len(targets)

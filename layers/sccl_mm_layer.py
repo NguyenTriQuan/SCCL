@@ -156,9 +156,11 @@ class _DynamicLayer(nn.Module):
     def get_parameters(self, t):
         weight = torch.empty(0).to(device)
         for i in range(1, t):
-            bwt_weight = torch.cat([torch.empty(0).to(device)] + [self.bwt_weight[i][j] * self.bwt_sigma[t][i][j].view(self.view_out) 
+            bwt_weight = torch.cat([torch.empty(0).to(device)] + [self.bwt_weight[i][j] 
+                                    * F.dropout(self.bwt_sigma[t][i][j].view(self.view_out), self.dropout, self.training) 
                                     for j in range(1, i)], dim=0)
-            fwt_weight = torch.cat([torch.empty(0).to(device)] + [self.fwt_weight[i][j] * self.fwt_sigma[t][i][j].view(self.view_in) 
+            fwt_weight = torch.cat([torch.empty(0).to(device)] + [self.fwt_weight[i][j] 
+                                    * F.dropout(self.fwt_sigma[t][i][j].view(self.view_in), self.dropout, self.training) 
                                     for j in range(1, i)], dim=1)
                 
             weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 

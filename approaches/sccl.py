@@ -219,7 +219,6 @@ class Appr(object):
                                 break
                                 
                             patience = self.lr_patience
-                            self.model = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))['model']
                             self.optimizer = self._get_optimizer(lr)
 
                 print()

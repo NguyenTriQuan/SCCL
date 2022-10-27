@@ -33,7 +33,7 @@ class _DynamicLayer(nn.Module):
 
         self.first_layer = first_layer
         self.last_layer = last_layer
-        self.dropout = 0.2
+        self.dropout = 0.1
         self.base_in_features = in_features
         self.base_out_features = out_features
         self.in_features = 0

@@ -99,8 +99,8 @@ for t, ncla in taskcla[start_task:]:
     train_start = time.time()
     # Train
     if 'sccl' in args.approach:
-        appr.train(task+1, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
-        # appr.train(task+1, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
+        # appr.train(task+1, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
+        appr.train(task+1, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
     else:
         appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'])
     print('-' * 100)

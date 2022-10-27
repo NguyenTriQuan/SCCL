@@ -164,7 +164,8 @@ class _DynamicLayer(nn.Module):
                                     for j in range(1, i)], dim=1)
                 
             weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 
-                                torch.cat([fwt_weight, self.weight[i] * self.w_sigma[t][i].view(self.view_in)], dim=1)], dim=0)
+                                torch.cat([fwt_weight, self.weight[i] 
+                                * F.dropout(self.w_sigma[t][i].view(self.view_in), self.dropout, self.training)], dim=1)], dim=0)
 
         bwt_weight = torch.cat([torch.empty(0).to(device)] + [self.bwt_weight[t][j] for j in range(1, t)], dim=0)
         fwt_weight = torch.cat([torch.empty(0).to(device)] + [self.fwt_weight[t][j] for j in range(1, t)], dim=1)

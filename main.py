@@ -8,6 +8,7 @@ import utils
 from utils import *
 from arguments import get_args
 import importlib
+import random
 # import comet_ml at the top of your file
 # from comet_ml import Experiment, ExistingExperiment
 import json
@@ -29,8 +30,10 @@ print('=' * 100)
 
 # Seed
 np.random.seed(args.seed)
+random.seed(args.seed)
 torch.manual_seed(args.seed)
-
+torch.cuda.manual_seed(args.seed)
+torch.cuda.manual_seed_all(args.seed)
 
 # dataloader = importlib.import_module('dataloaders.{}'.format(args.experiment))
 # data, taskcla, inputsize = dataloader.get(batch_size=args.batch_size, val_batch_size=args.val_batch_size, seed=args.seed, tasknum=args.tasknum)
@@ -92,39 +95,31 @@ for t, ncla in taskcla[start_task:]:
     print('*' * 100)
     print('Task {:2d} ({:s})'.format(t, data[t]['name']))
     print('*' * 100)
-
     task = t
-
+    train_start = time.time()
     # Train
-    if args.experiment == 'split_cifar10_100':
-        if 'cifar100' in data[t]['name']:
-            appr.sbatch = 32
-        else:
-            appr.sbatch = 256
-
     if 'sccl' in args.approach:
         appr.train(task+1, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
         # appr.train(task+1, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
     else:
         appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'])
     print('-' * 100)
-
+    print(f'Task {t} training time: {time.time() - train_start} s')
     # Test
     for u in range(t + 1):
         if 'sccl' in args.approach:
             if args.cil:
                 test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
             else:
+                test_loss, test_acc = appr.eval_assem(u+1, data[u]['test_loader'], data['valid_transform'])
+                print('>>> Test assem on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
                 test_loss, test_acc = appr.eval(u+1, data[u]['test_loader'], data['valid_transform'])
-                # test_loss, test_acc = appr.eval_assem(u+1, data[u]['test_loader'], data['valid_transform'])
-                # test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
         else:
             test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data['valid_transform'])
 
         print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
         acc[t, u] = test_acc
         lss[t, u] = test_loss
-        # appr.test(data[u]['test_loader'], data['valid_transform'])
 
     # Save
     print('Avg acc={:5.2f}%'.format(100*sum(acc[t])/(t+1)))

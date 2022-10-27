@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 import networks.net as network
+from itertools import cycle
 args = get_args()
 
 class Appr(object):
@@ -109,6 +110,10 @@ class Appr(object):
     def train_epoch(self, data_loaders, train_transform):
         self.model.train()
         # Loop batches
+        # idx = np.argmax([len(data_loader) for data_loader in data_loaders])
+        # for i in range(len(data_loaders)):
+        #     if i != idx:
+        #         data_loaders[i] = cycle(data_loaders[i])
         for batch_tasks in zip(*data_loaders):
             i = 0
             loss = 0

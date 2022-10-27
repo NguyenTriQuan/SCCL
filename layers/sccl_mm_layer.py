@@ -174,13 +174,11 @@ class _DynamicLayer(nn.Module):
         else:
             bias = None
 
-        # if self.last_layer and t < self.cur_task:
-        #     # for p in self.fwt_weight[t+1:]:
-        #     #     print(p[:, :self.shape_in[t]].shape)
-        #     weight = torch.cat([weight] + [p[:, :self.shape_in[t]] for p in self.fwt_weight[t+1:]], dim=0)
-        #     # print(weight.shape)
-        #     if self.bias:
-        #         bias = torch.cat([p[self.shape_out[i]:self.shape_out[i+1]] for i, p in enumerate(self.bias[1:])])
+        if self.last_layer and t < self.cur_task:
+            weight = torch.cat([weight] + [torch.cat([self.fwt_weight[i][j] for j in range(1, t+1)], dim=1) 
+                                                                for i in range(t+1, self.cur_task+1)], dim=0)
+            if self.bias:
+                bias = torch.cat([p[self.shape_out[i]:self.shape_out[i+1]] for i, p in enumerate(self.bias[1:])], dim=0)
 
         return weight, bias
 

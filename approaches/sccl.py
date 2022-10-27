@@ -225,12 +225,17 @@ class Appr(object):
         self.model = self.check_point['model']
 
     def train_batch(self, t, images, targets, squeeze, lr):
-        outputs = self.model.forward(images, t=t)
-        outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
         if self.args.cil:
             targets -= sum(self.shape_out[:t])
+        # outputs = self.model.forward(images, t=t)
+        # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+        # loss = self.ce(outputs, targets)
 
-        loss = self.ce(outputs, targets)
+        loss = 0
+        for i in range(1, t+1):
+            outputs = self.model.forward(images, t=i)
+            outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+            loss += self.ce(outputs, targets)
         # if squeeze:
         #     loss += self.lamb * self.model.group_lasso_reg()
         self.optimizer.zero_grad()
@@ -258,13 +263,14 @@ class Appr(object):
             outputs = self.model.forward(images, t=self.cur_task)
         else:
             assembled_outputs = 0
-            for i in range(1, self.cur_task+1):
+            for i in range(1, t+1):
                 outputs = self.model.forward(images, t=i)
                 outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-                mean = outputs.mean(1)
-                std = outputs.std(1)
-                assembled_outputs += (outputs - mean.view(-1, 1))
-            outputs = assembled_outputs / self.cur_task
+                # mean = outputs.mean(1)
+                # std = outputs.std(1)
+                # assembled_outputs += (outputs - mean.view(-1, 1))
+                assembled_outputs += outputs
+            outputs = assembled_outputs / t
 
             if self.args.cil:
                 targets -= sum(self.shape_out[:t])

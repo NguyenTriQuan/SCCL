@@ -144,7 +144,7 @@ class _DynamicLayer(nn.Module):
                 #     N = 1
                 # else:
                 #     N /= self.fwt_weight[i][j].shape[0]
-                params += [{'params':[self.fwt_sigma[-1][i][j], self.fwt_mu[-1][i][j]], 'lr':lr/N}]
+                params += [{'params':[self.fwt_sigma[-1][i][j]], 'lr':lr/N}]
 
         return params
 

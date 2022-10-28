@@ -119,24 +119,27 @@ class _DynamicLayer(nn.Module):
         params = []
         for i in range(1, self.cur_task):
             N = self.weight[i].numel()
-            if N == 0:
-                N = 1
-            else:
-                N /= self.weight[i].shape[0]
+            N = max(N, 1)
+            # if N == 0:
+            #     N = 1
+            # else:
+            #     N /= self.weight[i].shape[0]
             params += [{'params':[self.w_sigma[-1][i]], 'lr':lr/N}]
             for j in range(1, i):
-                # N = self.bwt_weight[i][j].numel()
+                N = self.bwt_weight[i][j].numel()
+                N = max(N, 1)
                 # if N == 0:
                 #     N = 1
                 # else:
                 #     N /= self.bwt_weight[i][j].shape[1]
-                params += [{'params':[self.bwt_sigma[-1][i][j]], 'lr':lr}]
+                params += [{'params':[self.bwt_sigma[-1][i][j]], 'lr':lr/N}]
 
                 N = self.fwt_weight[i][j].numel()
-                if N == 0:
-                    N = 1
-                else:
-                    N /= self.fwt_weight[i][j].shape[0]
+                N = max(N, 1)
+                # if N == 0:
+                #     N = 1
+                # else:
+                #     N /= self.fwt_weight[i][j].shape[0]
                 params += [{'params':[self.fwt_sigma[-1][i][j]], 'lr':lr/N}]
 
         return params
@@ -311,11 +314,9 @@ class _DynamicLayer(nn.Module):
             nn.init.normal_(self.weight[-1], 0, bound_std)
             for i in range(1, self.cur_task):
                 nn.init.normal_(self.fwt_weight[-1][i], 0, bound_std)
+                nn.init.normal_(self.bwt_weight[-1][i], 0, bound_std)
                 if self.last_layer:
-                    nn.init.uniform_(self.bwt_weight[-1][i], 0, 0)
                     nn.init.normal_(self.aux_weight[-1][i], 0, gain / math.sqrt(self.shape_in[i] * K))
-                else:
-                    nn.init.normal_(self.bwt_weight[-1][i], 0, bound_std)
 
             # rescale old tasks params
             if 'scale' not in ablation and not self.last_layer:
@@ -329,20 +330,23 @@ class _DynamicLayer(nn.Module):
                         self.w_sigma[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                     else:
                         w_std = self.weight[i].std()
-                        self.w_sigma[-1].append(nn.Parameter(bound_std/w_std * torch.ones(self.weight[i].shape[0]).to(device)))
+                        # self.w_sigma[-1].append(nn.Parameter(bound_std/w_std * torch.ones(self.weight[i].shape[0]).to(device)))
+                        self.w_sigma[-1].append(nn.Parameter(bound_std/w_std))
 
                     for j in range(1, i):
                         if self.bwt_weight[i][j].numel() == 0:
                             self.bwt_sigma[-1][-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                         else:
                             bwt_std = self.bwt_weight[i][j].std()
-                            self.bwt_sigma[-1][-1].append(nn.Parameter(bound_std/bwt_std * torch.ones(self.bwt_weight[i][j].shape[1]).to(device)))
+                            # self.bwt_sigma[-1][-1].append(nn.Parameter(bound_std/bwt_std * torch.ones(self.bwt_weight[i][j].shape[1]).to(device)))
+                            self.bwt_sigma[-1][-1].append(nn.Parameter(bound_std/bwt_std))
 
                         if self.fwt_weight[i][j].numel() == 0:
                             self.fwt_sigma[-1][-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                         else:
                             fwt_std = self.fwt_weight[i][j].std()
-                            self.fwt_sigma[-1][-1].append(nn.Parameter(bound_std/fwt_std * torch.ones(self.fwt_weight[i][j].shape[0]).to(device)))
+                            # self.fwt_sigma[-1][-1].append(nn.Parameter(bound_std/fwt_std * torch.ones(self.fwt_weight[i][j].shape[0]).to(device)))
+                            self.fwt_sigma[-1][-1].append(nn.Parameter(bound_std/fwt_std))
             else:
                 self.w_sigma.append([nn.Parameter(torch.ones(1).to(device), requires_grad=False) for i in range(self.cur_task)])
                 self.bwt_sigma.append([[nn.Parameter(torch.ones(1).to(device), requires_grad=False) for j in range(i)] 

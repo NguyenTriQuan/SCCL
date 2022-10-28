@@ -146,7 +146,6 @@ class Appr(object):
 
         self.check_point = None  
 
-
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 
         self.model.count_params()

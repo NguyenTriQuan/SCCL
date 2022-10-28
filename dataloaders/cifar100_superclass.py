@@ -7,13 +7,14 @@ from sklearn.utils import shuffle
 from torch.utils.data import  TensorDataset, DataLoader
 import kornia as K
 
+
 sclass = []
 sclass.append(' beaver, dolphin, otter, seal, whale,')                      #aquatic mammals
 sclass.append(' aquarium_fish, flatfish, ray, shark, trout,')               #fish
 sclass.append(' orchid, poppy, rose, sunflower, tulip,')                    #flowers
 sclass.append(' bottle, bowl, can, cup, plate,')                            #food
 sclass.append(' apple, mushroom, orange, pear, sweet_pepper,')              #fruit and vegetables
-sclass.append(' clock, computer keyboard, lamp, telephone, television,')    #household electrical devices
+sclass.append(' clock, computer, keyboard, lamp, telephone, television,')   #household electrical devices
 sclass.append(' bed, chair, couch, table, wardrobe,')                       #household furniture
 sclass.append(' bee, beetle, butterfly, caterpillar, cockroach,')           #insects
 sclass.append(' bear, leopard, lion, tiger, wolf,')                         #large carnivores

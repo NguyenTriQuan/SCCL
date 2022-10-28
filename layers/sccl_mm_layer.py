@@ -42,8 +42,10 @@ class _DynamicLayer(nn.Module):
         self.weight = [None]
         self.fwt_weight = [None]
         self.bwt_weight = [None]
+        self.aux_weight = [None]
         if bias:
             self.bias = [None]
+            self.aux_bias = [None]
         else:
             self.register_parameter("bias", None)
 
@@ -67,7 +69,7 @@ class _DynamicLayer(nn.Module):
         
         self.cur_task = 0
 
-    def forward(self, x, t):            
+    def forward(self, x, t):        
         weight, bias = self.get_parameters(t)
 
         if weight.numel() == 0:
@@ -102,9 +104,12 @@ class _DynamicLayer(nn.Module):
     def get_optim_params(self):
         params = []
         params += [self.weight[-1]] + self.fwt_weight[-1][1:] + self.bwt_weight[-1][1:]
-        
+        if self.last_layer:
+            params += self.aux_weight[-1][1:]
         if self.bias:
             params += [self.bias[-1]]
+            if self.last_layer:
+                params += self.aux_bias[-1][1:]
         if self.norm_layer:
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
@@ -144,6 +149,10 @@ class _DynamicLayer(nn.Module):
             for i in range(1, k):
                 count += self.fwt_weight[k][i].numel() + self.bwt_weight[k][i].numel()
                 count += self.w_sigma[k][i].numel()
+                if self.last_layer:
+                    count += self.aux_weight[k][i].numel()
+                    if self.bias:
+                        count += self.aux_bias[k][i].numel()
                 for j in range(1, i):
                     count += self.fwt_sigma[k][i][j].numel() + self.bwt_sigma[k][i][j].numel()
             if self.bias:
@@ -175,10 +184,14 @@ class _DynamicLayer(nn.Module):
             bias = None
 
         if self.last_layer and t < self.cur_task:
-            weight = torch.cat([weight] + [torch.cat([self.fwt_weight[i][j] for j in range(1, t+1)], dim=1) 
-                                                                for i in range(t+1, self.cur_task+1)], dim=0)
+            # weight = torch.cat([weight] + [torch.cat([self.fwt_weight[i][j] for j in range(1, t+1)], dim=1) 
+            #                                                     for i in range(t+1, self.cur_task+1)], dim=0)
+            # if self.bias:
+            #     bias = torch.cat([p[self.shape_out[i]:self.shape_out[i+1]] for i, p in enumerate(self.bias[1:])], dim=0)
+
+            weight = torch.cat([weight] + [self.aux_weight[i][t] for i in range(t+1, self.cur_task+1)], dim=0)
             if self.bias:
-                bias = torch.cat([p[self.shape_out[i]:self.shape_out[i+1]] for i, p in enumerate(self.bias[1:])], dim=0)
+                bias = torch.cat([self.bias[t]] + [self.aux_bias[i][t] for i in range(t+1, self.cur_task+1)], dim=0)
 
         return weight, bias
 
@@ -263,26 +276,39 @@ class _DynamicLayer(nn.Module):
 
         self.fwt_weight.append([None])
         self.bwt_weight.append([None])
+        if self.last_layer:
+            self.aux_weight.append([None])
+            self.aux_bias.append([None])
         if isinstance(self, DynamicLinear):
             # new neurons to new neurons
             self.weight.append(nn.Parameter(torch.Tensor(add_out, add_in).to(device)))
             for i in range(1, self.cur_task):
-                # old neurons to new neurons
+                # connect neurons of old task i to neurons of new task
                 self.fwt_weight[-1].append(nn.Parameter(torch.Tensor(add_out, self.shape_in[i]-self.shape_in[i-1]).to(device)))
-                # new neurons to old neurons
+                # connect neurons of new task to neurons of old task i
                 self.bwt_weight[-1].append(nn.Parameter(torch.Tensor(self.shape_out[i]-self.shape_out[i-1], add_in).to(device)))
-            fan_in = 1
+                # head for old model i to predict for new task
+                if self.last_layer:
+                    self.aux_weight[-1].append(nn.Parameter(torch.Tensor(add_out, self.shape_in[i]).to(device)))
+                    if self.bias:
+                        self.aux_bias[-1].append(nn.Parameter(torch.Tensor(add_out).uniform_(0, 0).to(device)))
+            K = 1
         else:
             # new neurons to new neurons
             self.weight.append(nn.Parameter(torch.Tensor(add_out, add_in // self.groups, *self.kernel_size).to(device)))
             for i in range(1, self.cur_task):
-                # old neurons to new neurons
+                # connect neurons of old task i to neurons of new task
                 self.fwt_weight[-1].append(nn.Parameter(torch.Tensor(add_out, (self.shape_in[i]-self.shape_in[i-1]) // self.groups, *self.kernel_size).to(device)))
-                # new neurons to old neurons
+                # connect neurons of new task to neurons of old task i
                 self.bwt_weight[-1].append(nn.Parameter(torch.Tensor(self.shape_out[i]-self.shape_out[i-1], add_in // self.groups, *self.kernel_size).to(device)))
-            fan_in = np.prod(self.kernel_size)
+                # head for old model i to predict for new task
+                if self.last_layer:
+                    self.aux_weight[-1].append(nn.Parameter(torch.Tensor(add_out, self.shape_in[i] // self.groups, *self.kernel_size).to(device)))
+                    if self.bias:
+                        self.aux_bias[-1].append(nn.Parameter(torch.Tensor(add_out).uniform_(0, 0).to(device)))
+            K = np.prod(self.kernel_size)
 
-        fan_in *= (self.in_features + add_in)
+        fan_in = (self.in_features + add_in) * K
 
         if fan_in != 0:
             # init
@@ -293,6 +319,7 @@ class _DynamicLayer(nn.Module):
                 nn.init.normal_(self.fwt_weight[-1][i], 0, bound_std)
                 if self.last_layer:
                     nn.init.uniform_(self.bwt_weight[-1][i], 0, 0)
+                    nn.init.normal_(self.aux_weight[-1][i], 0, gain / math.sqrt(self.shape_in[i] * K))
                 else:
                     nn.init.normal_(self.bwt_weight[-1][i], 0, bound_std)
 

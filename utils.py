@@ -48,6 +48,11 @@ def entropy(x, exp=1):
     y = y/y.sum(1).view(-1,1).expand_as(y)
     return (-y*y.log()).sum(1)
 
+def cycle(iterable):
+    while True:
+        for x in iterable:
+            yield x
+
 def gs_cal(t, x, y, criterion, model, sbatch=20):
     
     param_R = {}

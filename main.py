@@ -79,10 +79,10 @@ past_ncla = [ncla for t, ncla in taskcla]
 
 if args.approach == 'joint':
     train_loaders = [data[t]['train_loader'] for t, ncla in taskcla]
-    valid_loaders = [data[t]['valid_loader'] for t, ncla in taskcla]
+    # valid_loaders = [data[t]['valid_loader'] for t, ncla in taskcla]
     test_loaders = [data[t]['test_loader'] for t, ncla in taskcla]
 
-    appr.train(train_loaders, valid_loaders, data['train_transform'], data['valid_transform'])
+    appr.train(train_loaders, test_loaders, data['train_transform'], data['valid_transform'])
 
     test_losses, test_accs = appr.eval(test_loaders, data['valid_transform'])
     for t in range(len(test_accs)):
@@ -102,7 +102,8 @@ for t, ncla in taskcla[start_task:]:
         # appr.train(task+1, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
         appr.train(task+1, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
     else:
-        appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'])
+        # appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'])
+        appr.train(task, data[t]['train_loader'], data[t]['test_loader'], data['train_transform'], data['valid_transform'])
     print('-' * 100)
     print(f'Task {t} training time: {time.time() - train_start} s')
     # Test

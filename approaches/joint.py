@@ -109,15 +109,15 @@ class Appr(object):
     def train_epoch(self, data_loaders, train_transform):
         self.model.train()
         # Loop batches
-        cycle_loaders = []
-        idx = np.argmax([len(data_loader) for data_loader in data_loaders])
-        for i in range(len(data_loaders)):
-            if i != idx:
-                cycle_loaders.append(cycle(data_loaders[i]))
-            else:
-                cycle_loaders.append(data_loaders[i])
+        # cycle_loaders = []
+        # idx = np.argmax([len(data_loader) for data_loader in data_loaders])
+        # for i in range(len(data_loaders)):
+        #     if i != idx:
+        #         cycle_loaders.append(cycle(data_loaders[i]))
+        #     else:
+        #         cycle_loaders.append(data_loaders[i])
 
-        for batch_tasks in zip(*cycle_loaders):
+        for batch_tasks in zip(*data_loaders):
             i = 0
             loss = 0
             for batch_task in batch_tasks:

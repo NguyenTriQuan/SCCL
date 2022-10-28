@@ -19,7 +19,6 @@ from layers.sccl_mm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import networks.sccl_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
-from gmm_torch.gmm import GaussianMixture
 # from pykeops.torch import LazyTensor
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -66,7 +65,6 @@ class Appr(object):
         self.ce = torch.nn.CrossEntropyLoss()
 
         self.get_name(self.tasknum+1)
-        self.mem = [None]
 
     def get_name(self, t):
         self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(
@@ -147,14 +145,6 @@ class Appr(object):
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
         self.check_point = None  
-
-        # for images, targets in train_loader:
-        #     images=images.to(device)
-        #     targets=targets.to(device)
-        #     if train_transform:
-        #         images = train_transform(images)
-        #     break
-        # self.mem.append((images, targets))
 
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):

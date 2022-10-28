@@ -19,7 +19,6 @@ import matplotlib.pyplot as plt
 from utils import *
 from typing import Optional, List, Tuple, Union
 import sys
-from gmm_torch.gmm import GaussianMixture
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -126,12 +125,12 @@ class _DynamicLayer(nn.Module):
                 N /= self.weight[i].shape[0]
             params += [{'params':[self.w_sigma[-1][i]], 'lr':lr/N}]
             for j in range(1, i):
-                N = self.bwt_weight[i][j].numel()
-                if N == 0:
-                    N = 1
-                else:
-                    N /= self.bwt_weight[i][j].shape[1]
-                params += [{'params':[self.bwt_sigma[-1][i][j]], 'lr':lr/N}]
+                # N = self.bwt_weight[i][j].numel()
+                # if N == 0:
+                #     N = 1
+                # else:
+                #     N /= self.bwt_weight[i][j].shape[1]
+                params += [{'params':[self.bwt_sigma[-1][i][j]], 'lr':lr}]
 
                 N = self.fwt_weight[i][j].numel()
                 if N == 0:
@@ -184,11 +183,6 @@ class _DynamicLayer(nn.Module):
             bias = None
 
         if self.last_layer and t < self.cur_task:
-            # weight = torch.cat([weight] + [torch.cat([self.fwt_weight[i][j] for j in range(1, t+1)], dim=1) 
-            #                                                     for i in range(t+1, self.cur_task+1)], dim=0)
-            # if self.bias:
-            #     bias = torch.cat([p[self.shape_out[i]:self.shape_out[i+1]] for i, p in enumerate(self.bias[1:])], dim=0)
-
             weight = torch.cat([weight] + [self.aux_weight[i][t] for i in range(t+1, self.cur_task+1)], dim=0)
             if self.bias:
                 bias = torch.cat([self.bias[t]] + [self.aux_bias[i][t] for i in range(t+1, self.cur_task+1)], dim=0)

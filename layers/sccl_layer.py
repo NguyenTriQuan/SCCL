@@ -19,7 +19,6 @@ import matplotlib.pyplot as plt
 from utils import *
 from typing import Optional, List, Tuple, Union
 import sys
-from gmm_torch.gmm import GaussianMixture
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

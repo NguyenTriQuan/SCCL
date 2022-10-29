@@ -47,10 +47,10 @@ class _DynamicModel(nn.Module):
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
 
     def squeeze(self, optim_state):
-        self.total_strength = 1e-9
+        self.total_strength = 1
         for m in self.DM[:-1]:
             m.squeeze(optim_state)
-            self.total_strength += m.strength
+            # self.total_strength += m.strength
 
     def forward(self, input, t=-1):
         if t == -1:
@@ -134,21 +134,21 @@ class VGG8(_DynamicModel):
             DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            # nn.Dropout(0.25),
+            nn.Dropout(0.25),
 
             DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            # nn.Dropout(0.25),
+            nn.Dropout(0.25),
 
             DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.5),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            # nn.Dropout(0.5),
+            nn.Dropout(0.5),
             ])
 
         s = size
@@ -378,7 +378,7 @@ class Bottleneck(_DynamicModel):
         else:
             self.shortcut = None
 
-        self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
+        self.DM = [m for m in self.layers if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
             m.next_layers = [self.DM[i+1]]
 
@@ -424,16 +424,6 @@ class ResNet(_DynamicModel):
             m = block.layers[-1]
         m.next_layers = [self.linear]
 
-        # shortcut_layers = [self.conv1]
-        # for i, block in enumerate(self.blocks):
-        #     for shortcut_layer in shortcut_layers:
-        #         shortcut_layer.next_layers.append(block.layers[0])
-
-        #     if block.shortcut:
-        #         shortcut_layers = [block.shortcut]
-
-        #     shortcut_layers.append(block.layers[-1])
-
 
     def _make_layer(self, block, planes, num_blocks, stride, norm_type):
         strides = [stride] + [1]*(num_blocks-1)
@@ -454,10 +444,9 @@ class ResNet(_DynamicModel):
         return out
 
     def squeeze(self, optim_state):
-        self.total_strength = 1e-9
-        for m in self.DM[:-1]:
-            m.squeeze(optim_state)
-            self.total_strength += m.strength
+        self.total_strength = 1
+        # for m in self.DM[:-1]:
+        #     self.total_strength += m.strength
         # share masks between skip connection layers
         if self.conv1.mask is None:
             return
@@ -469,6 +458,10 @@ class ResNet(_DynamicModel):
                             
             share_mask += block.layers[-1].mask
             block.layers[-1].mask = share_mask
+
+        for m in self.DM[:-1]:
+            m.squeeze(optim_state)
+            # self.total_strength += m.strength
 
 def ResNet18(input_size, norm_type=None):
     return ResNet(BasicBlock, [2, 2, 2, 2], norm_type)

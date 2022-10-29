@@ -86,6 +86,9 @@ class Appr(object):
                 continue
         return 0
 
+    def count_params(self):
+        return self.model.count_params()[0]
+
     def _get_optimizer(self, lr=None):
         if lr is None: lr=self.lr
 

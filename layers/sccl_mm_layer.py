@@ -96,12 +96,12 @@ class _DynamicLayer(nn.Module):
             norm = (norm ** 2 + self.bias[-1][self.shape_out[-2]:] ** 2) ** 0.5
         return norm
 
-    def norm_out(self):
-        bwt_weight = torch.cat([torch.empty(0).to(device)] + [self.next_layers[0].bwt_weight[-1][j] for j in range(1, self.cur_task)], dim=0)
-        weight = torch.cat([bwt_weight, self.next_layers[0].weight[-1]], dim=0)
-        if isinstance(self, DynamicConv2D) and isinstance(self.next_layers[0], DynamicLinear):
-            weight = weight.view(self.next_layers[0].out_features, 
-                                self.weight[-1].shape[0], self.next_layers[0].s, self.next_layers[0].s)
+    def norm_out(self, i):
+        bwt_weight = torch.cat([torch.empty(0).to(device)] + [self.next_layers[i].bwt_weight[-1][j] for j in range(1, self.cur_task)], dim=0)
+        weight = torch.cat([bwt_weight, self.next_layers[i].weight[-1]], dim=0)
+        if isinstance(self, DynamicConv2D) and isinstance(self.next_layers[i], DynamicLinear):
+            weight = weight.view(self.next_layers[i].out_features, 
+                                self.weight[-1].shape[i], self.next_layers[i].s, self.next_layers[i].s)
         return weight.norm(2, dim=self.dim_out)
 
     def get_optim_params(self):
@@ -259,12 +259,12 @@ class _DynamicLayer(nn.Module):
   
             self.mask = None
 
-        self.strength_in = self.weight[-1].data.numel()
-        self.strength_out = self.next_layers[0].weight[-1].data.numel()
-        for i in range(1, self.cur_task):
-            self.strength_in += self.fwt_weight[-1][i].data.numel()
-            self.strength_out += self.next_layers[0].bwt_weight[-1][i].data.numel()
-        self.strength = (self.strength_in + self.strength_out)
+        # self.strength_in = self.weight[-1].data.numel()
+        # self.strength_out = self.weight[-1].data.numel()
+        # for i in range(1, self.cur_task):
+        #     self.strength_in += self.fwt_weight[-1][i].data.numel()
+        #     self.strength_out += self.bwt_weight[-1][i].data.numel()
+        # self.strength = (self.strength_in + self.strength_out)
 
     def expand(self, add_in=None, add_out=None, ablation='full'):
         self.cur_task += 1
@@ -410,12 +410,19 @@ class _DynamicLayer(nn.Module):
                     self.norm_layer.weight[-2].requires_grad = False
                     self.norm_layer.bias[-2].requires_grad = False
 
+        # Regularizer strength.
+        self.strength_in = self.weight[-1].data.numel()
+        self.strength_out = self.weight[-1].data.numel()
+        for i in range(1, self.cur_task):
+            self.strength_in += self.fwt_weight[-1][i].data.numel()
+            self.strength_out += self.bwt_weight[-1][i].data.numel()
+        self.strength = (self.strength_in + self.strength_out)
+
     def proximal_gradient_descent(self, lr, lamb, total_strength):
 
         with torch.no_grad():
-            strength = self.strength / total_strength
             strength_in = self.strength_in / total_strength
-            strength_out = self.strength_out / total_strength
+            strength = strength_in
             # group lasso weights in
             norm = self.norm_in()
             aux = 1 - lamb * lr * strength_in / norm
@@ -429,17 +436,21 @@ class _DynamicLayer(nn.Module):
                 self.bias[-1].data[self.shape_out[-2]:] *= aux
 
             # group lasso weights out
-            norm = self.norm_out()
-            aux = 1 - lamb * lr * strength_out / norm
-            aux = F.threshold(aux, 0, 0, False)
-            self.mask *= (aux > 0)
+            if len(self.next_layers) > 0:
+                mask_temp = False
+                for n, m in enumerate(self.next_layers):
+                    strength_out = m.strength_out / total_strength
+                    norm = self.norm_out(n)
+                    aux = 1 - lamb * lr * strength_out / norm
+                    aux = F.threshold(aux, 0, 0, False)
+                    mask_temp += (aux > 0)
 
-            if isinstance(self.next_layers[0], DynamicLinear) and isinstance(self, DynamicConv2D):
-                aux = aux.view(-1,1,1).expand(aux.size(0),self.next_layers[0].s,self.next_layers[0].s).contiguous().view(-1)
-            self.next_layers[0].weight[-1].data *= aux.view(self.next_layers[0].view_out)
-            for i in range(1, self.cur_task):
-                self.next_layers[0].bwt_weight[-1][i].data *= aux.view(self.next_layers[0].view_out)                    
-
+                    if isinstance(m, DynamicLinear) and isinstance(self, DynamicConv2D):
+                        aux = aux.view(-1, 1, 1).expand(aux.size(0), m.s, m.s).contiguous().view(-1)
+                    m.weight[-1].data *= aux.view(m.view_out)
+                    for i in range(1, self.cur_task):
+                        m.bwt_weight[-1][i].data *= aux.view(m.view_out)                  
+                self.mask *= mask_temp
             # group lasso affine weights
             if self.norm_layer:
                 if self.norm_layer.affine:

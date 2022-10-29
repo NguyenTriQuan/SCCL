@@ -33,7 +33,6 @@ from torchvision import datasets,transforms
 from sklearn.utils import shuffle
 from torch.utils.data import  TensorDataset, DataLoader
 import kornia as K
-import gdown
 
 
 class MiniImageNet(torch.utils.data.Dataset):

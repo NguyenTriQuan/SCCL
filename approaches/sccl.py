@@ -153,7 +153,10 @@ class Appr(object):
         train_loss,train_acc=self.eval(t,train_loader,valid_transform)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
 
-        valid_loss,valid_acc=self.eval(t,valid_loader,valid_transform)
+        if 'assemble' not in self.ablation:
+            valid_loss,valid_acc=self.eval_assemble(t,valid_loader,valid_transform)
+        else:
+            valid_loss,valid_acc=self.eval(t,valid_loader,valid_transform)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
         lr = self.check_point['lr']

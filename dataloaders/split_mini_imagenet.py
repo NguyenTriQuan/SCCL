@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from __future__ import print_function
+from genericpath import isdir
 from PIL import Image
 import os
 import os.path
@@ -36,6 +37,7 @@ from torchvision import datasets,transforms
 from sklearn.utils import shuffle
 from torch.utils.data import  TensorDataset, DataLoader
 import kornia as K
+import gdown
 
 
 class MiniImageNet(torch.utils.data.Dataset):
@@ -46,7 +48,13 @@ class MiniImageNet(torch.utils.data.Dataset):
             self.name='train'
         else:
             self.name='test'
-        root = os.path.join(root, 'miniimagenet')
+        root = os.path.join(root, 'miniimagnet')
+        if not os.isdir(root):
+            os.makedirs(root)
+            train_url = 'https://drive.google.com/file/d/1fm6TcKIwELbuoEOOdvxq72TtUlZlvGIm/view'
+            gdown.download(train_url, os.path.join(root, 'train.pkl'), quiet=False)
+            test_url = 'https://drive.google.com/file/d/1RA-MluRWM4fqxG9HQbQBBVVjDddYPCri/view'
+            gdown.download(test_url, os.path.join(root, 'test.pkl'), quiet=False)
         with open(os.path.join(root,'{}.pkl'.format(self.name)), 'rb') as f:
             data_dict = pickle.load(f)
 

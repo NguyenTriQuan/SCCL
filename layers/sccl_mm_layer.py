@@ -185,10 +185,11 @@ class _DynamicLayer(nn.Module):
                             torch.cat([fwt_weight, self.weight[t]], dim=1)], dim=0)
 
         if self.bias:
-            bias = 0
-            bias += self.bias[t]
-            for i in range(1, t):
-                bias[:self.shape_out[i]] += self.bias[i]
+            bias = self.bias[t]
+            # bias = 0
+            # bias += self.bias[t]
+            # for i in range(1, t):
+            #     bias[:self.shape_out[i]] += self.bias[i]
         else:
             bias = None
 

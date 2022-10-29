@@ -21,9 +21,7 @@ def get(args, pc_valid=0.10):
         tasknum = 10
     else:
         tasknum = args.tasknum
-    # CIFAR100
-    dat={}
-    
+    # CIFAR100    
     train_set=datasets.CIFAR100('../dat/',train=True,download=True)
     test_set=datasets.CIFAR100('../dat/',train=False,download=True)
 

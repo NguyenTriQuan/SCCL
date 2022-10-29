@@ -22,7 +22,8 @@ class Appr(object):
                                                                                 args.seed, args.lr, 
                                                                              args.batch_size, args.nepochs)
         # self.logger = utils.logger(file_name=self.log_name, resume=False, path='../result_data/csv_data/', data_format='csv')
-
+        self.inputsize = inputsize
+        self.taskcla = taskcla
         self.nepochs = args.nepochs
         self.sbatch = args.batch_size
         self.lr = args.lr
@@ -47,6 +48,8 @@ class Appr(object):
 #         return torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
 
     def train(self, t, train_loader, valid_loader, train_transform, valid_transform):
+        Net = getattr(network, args.arch)
+        self.model = Net(self.inputsize, self.taskcla).to(device)
         best_acc = -np.inf
         best_model = utils.get_model(self.model)
         lr = self.lr

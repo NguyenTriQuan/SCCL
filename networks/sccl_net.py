@@ -495,9 +495,6 @@ class ResNet(_DynamicModel):
             layer.strength = share_strength 
         share_layers = []
 
-        for m in self.DM[:-1]:
-            print(m.strength)
-
 def ResNet18(input_size, norm_type=None):
     return ResNet(BasicBlock, [2, 2, 2, 2], norm_type, input_size)
 

@@ -265,7 +265,7 @@ class _DynamicLayer(nn.Module):
                 m.shape_in[-1] = m.in_features
   
             self.mask = None
-            self.get_reg_strength()
+            # self.get_reg_strength()
 
     def expand(self, add_in=None, add_out=None, ablation='full'):
         self.cur_task += 1

@@ -252,6 +252,12 @@ class _DynamicLayer(nn.Module):
                 m.shape_in[-1] = m.in_features
   
             self.mask = None
+            # self.strength_in = self.weight[-1].data.numel()
+            # self.strength_out = self.weight[-1].data.numel()
+            # for i in range(1, self.cur_task):
+            #     self.strength_in += self.fwt_weight[-1][i].data.numel()
+            #     self.strength_out += self.bwt_weight[-1][i].data.numel()
+            # self.strength = (self.strength_in + self.strength_out)
 
     def expand(self, add_in=None, add_out=None, ablation='full'):
         self.cur_task += 1
@@ -385,7 +391,7 @@ class _DynamicLayer(nn.Module):
     def proximal_gradient_descent(self, lr, lamb, total_strength):
 
         with torch.no_grad():
-            strength_in = self.strength_in
+            strength_in = self.strength_in/total_strength
             strength = strength_in
             # group lasso weights in
             norm = self.norm_in()
@@ -403,7 +409,7 @@ class _DynamicLayer(nn.Module):
             if len(self.next_layers) > 0:
                 mask_temp = False
                 for n, m in enumerate(self.next_layers):
-                    strength_out = m.strength_out
+                    strength_out = m.strength_out/total_strength
                     strength += strength_out
                     norm = self.norm_out(n)
                     aux = 1 - lamb * lr * strength_out / norm

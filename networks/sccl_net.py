@@ -42,15 +42,18 @@ class _DynamicModel(nn.Module):
         return params
 
     def expand(self, new_class, ablation='full'):
+        self.total_strength = 1
         for m in self.DM[:-1]:
             m.expand(add_in=None, add_out=None, ablation=ablation)
+            self.total_strength += m.strength
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
+        self.total_strength +=  self.DM[-1].strength
 
     def squeeze(self, optim_state):
         self.total_strength = 1
         for m in self.DM[:-1]:
             m.squeeze(optim_state)
-            # self.total_strength += m.strength
+            self.total_strength += m.strength
 
     def forward(self, input, t=-1, assemble=False):
         if t == -1:
@@ -411,8 +414,8 @@ class ResNet(_DynamicModel):
         self.blocks += self._make_layer(block, nf*4, num_blocks[2], stride=2, norm_type=norm_type)
         self.blocks += self._make_layer(block, nf*8, num_blocks[3], stride=2, norm_type=norm_type)
         self.linear = DynamicLinear(nf*8*block.expansion, 0, last_layer=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
 
         m = self.conv1
@@ -434,20 +437,17 @@ class ResNet(_DynamicModel):
 
     def forward(self, x, t):
         out = F.relu(self.conv1(x, t))
-        out = self.maxpool(out)
+        # out = self.maxpool(out)
         for block in self.blocks:
             out = block(out, t)
 
-        out = self.avgpool(out)
+        # out = self.avgpool(out)
+        out = F.avg_pool2d(out, 4)
         out = torch.flatten(out, 1)
         out = self.linear(out, t)
         return out
 
     def squeeze(self, optim_state):
-        self.total_strength = 1
-        # for m in self.DM[:-1]:
-        #     self.total_strength += m.strength
-        # share masks between skip connection layers
         if self.conv1.mask is None:
             return
         share_mask = self.conv1.mask
@@ -459,9 +459,10 @@ class ResNet(_DynamicModel):
             share_mask += block.layers[-1].mask
             block.layers[-1].mask = share_mask
 
+        self.total_strength = 1
         for m in self.DM[:-1]:
             m.squeeze(optim_state)
-            # self.total_strength += m.strength
+            self.total_strength += m.strength
 
 def ResNet18(input_size, norm_type=None):
     return ResNet(BasicBlock, [2, 2, 2, 2], norm_type, input_size)

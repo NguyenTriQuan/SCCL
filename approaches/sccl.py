@@ -135,7 +135,6 @@ class Appr(object):
         self.lamb = self.lambs[self.cur_task-1]
         print('lambda', self.lamb)
         print(self.log_name)
-        self.model.squeeze(None)
 
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, True)
         if not self.check_point['squeeze']:

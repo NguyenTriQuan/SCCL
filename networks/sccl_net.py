@@ -399,7 +399,7 @@ class Bottleneck(_DynamicModel):
         return F.relu(out)
 
 class ResNet(_DynamicModel):
-    def __init__(self, block, num_blocks, norm_type, input_size, nf=64):
+    def __init__(self, block, num_blocks, norm_type, input_size, nf=32):
         super(ResNet, self).__init__()
         n_channels, in_size, _ = input_size
         self.in_planes = nf

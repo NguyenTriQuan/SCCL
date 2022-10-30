@@ -241,6 +241,15 @@ class Appr(object):
                 outputs = self.model.forward(images, t=i)
                 outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
                 loss += self.ce(outputs, targets)
+
+            # batch_size, n_channels, s, s = images.shape
+            # images = images.unsqueeze(0).expand(t, batch_size, n_channels, s, s)
+            # images = images.reshape(-1, n_channels, s, s)
+            # outputs = self.model.forward(images, t=t, assemble=True)
+            # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+            # targets = targets.unsqueeze(0).expand(t, batch_size)
+            # targets = targets.reshape(-1)
+            # loss = self.ce(outputs, targets)
         else:
             outputs = self.model.forward(images, t=t)
             outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
@@ -277,6 +286,14 @@ class Appr(object):
                 outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
                 assembled_outputs += outputs
             outputs = assembled_outputs / t
+
+            # batch_size, n_channels, s, s = images.shape
+            # images = images.unsqueeze(0).expand(t, batch_size, n_channels, s, s)
+            # images = images.reshape(-1, n_channels, s, s)
+            # outputs = self.model.forward(images, t=t, assemble=True)
+            # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+            # outputs = outputs.reshape(t, batch_size, -1)
+            # outputs = outputs.mean(0)
 
             if self.args.cil:
                 targets -= sum(self.shape_out[:t])

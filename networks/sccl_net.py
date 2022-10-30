@@ -52,13 +52,13 @@ class _DynamicModel(nn.Module):
             m.squeeze(optim_state)
             # self.total_strength += m.strength
 
-    def forward(self, input, t=-1):
+    def forward(self, input, t=-1, assemble=False):
         if t == -1:
             t = len(self.DM[-1].shape_out)-1
 
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
-                input = module(input, t)
+                input = module(input, t, assemble)
             else:
                 input = module(input)
 
@@ -154,7 +154,6 @@ class VGG8(_DynamicModel):
         s = size
         for m in self.layers:
             if isinstance(m, DynamicConv2D):
-                m.s = s
                 s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
             elif isinstance(m, nn.MaxPool2d):
                 s = compute_conv_output_size(s, m.kernel_size, m.stride, m.padding, m.dilation)
@@ -184,7 +183,6 @@ class VGG(_DynamicModel):
         s = size
         for m in self.layers:
             if isinstance(m, DynamicConv2D):
-                m.s = s
                 s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
             elif isinstance(m, nn.MaxPool2d):
                 s = compute_conv_output_size(s, m.kernel_size, m.stride, m.padding, m.dilation)
@@ -272,7 +270,6 @@ class Alexnet(_DynamicModel):
         s = size
         for m in self.layers:
             if isinstance(m, DynamicConv2D):
-                m.s = s
                 s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
             elif isinstance(m, nn.MaxPool2d):
                 s = compute_conv_output_size(s, m.kernel_size, m.stride, m.padding, m.dilation)
@@ -402,18 +399,20 @@ class Bottleneck(_DynamicModel):
         return F.relu(out)
 
 class ResNet(_DynamicModel):
-    def __init__(self, block, num_blocks, norm_type=None, nf=32):
+    def __init__(self, block, num_blocks, norm_type, input_size, nf=32):
         super(ResNet, self).__init__()
+        n_channels, in_size, _ = input_size
         self.in_planes = nf
 
-        self.conv1 = DynamicConv2D(3, nf*1, kernel_size=3,
+        self.conv1 = DynamicConv2D(n_channels, nf*1, kernel_size=3,
                                stride=1, padding=1, bias=False, norm_type=norm_type, first_layer=True)
         self.blocks = self._make_layer(block, nf*1, num_blocks[0], stride=1, norm_type=norm_type)
         self.blocks += self._make_layer(block, nf*2, num_blocks[1], stride=2, norm_type=norm_type)
         self.blocks += self._make_layer(block, nf*4, num_blocks[2], stride=2, norm_type=norm_type)
         self.blocks += self._make_layer(block, nf*8, num_blocks[3], stride=2, norm_type=norm_type)
         self.linear = DynamicLinear(nf*8*block.expansion, 0, last_layer=True)
-
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
 
         m = self.conv1
@@ -435,11 +434,12 @@ class ResNet(_DynamicModel):
 
     def forward(self, x, t):
         out = F.relu(self.conv1(x, t))
+        out = self.maxpool(out)
         for block in self.blocks:
             out = block(out, t)
 
-        out = F.avg_pool2d(out, 4)
-        out = out.view(out.size(0), -1)
+        out = self.avgpool(out)
+        out = torch.flatten(out, 1)
         out = self.linear(out, t)
         return out
 
@@ -464,17 +464,17 @@ class ResNet(_DynamicModel):
             # self.total_strength += m.strength
 
 def ResNet18(input_size, norm_type=None):
-    return ResNet(BasicBlock, [2, 2, 2, 2], norm_type)
+    return ResNet(BasicBlock, [2, 2, 2, 2], norm_type, input_size)
 
 def ResNet34(input_size, norm_type=None):
-    return ResNet(BasicBlock, [3, 4, 6, 3], norm_type)
+    return ResNet(BasicBlock, [3, 4, 6, 3], norm_type, input_size)
 
 def ResNet50(input_size, norm_type=None):
-    return ResNet(Bottleneck, [3, 4, 6, 3], norm_type)
+    return ResNet(Bottleneck, [3, 4, 6, 3], norm_type, input_size)
 
 def ResNet101(input_size, norm_type=None):
-    return ResNet(Bottleneck, [3, 4, 23, 3], norm_type)
+    return ResNet(Bottleneck, [3, 4, 23, 3], norm_type, input_size)
 
 def ResNet152(input_size, norm_type=None):
-    return ResNet(Bottleneck, [3, 8, 36, 3], norm_type)
+    return ResNet(Bottleneck, [3, 8, 36, 3], norm_type, input_size)
 

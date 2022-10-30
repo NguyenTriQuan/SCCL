@@ -395,7 +395,7 @@ class _DynamicLayer(nn.Module):
             strength = strength_in
             # group lasso weights in
             norm = self.norm_in()
-            aux = 1 - lamb * lr * strength_in / norm
+            aux = 1 - lamb * lr / norm
             aux = F.threshold(aux, 0, 0, False)
             self.mask = (aux > 0)
 
@@ -412,7 +412,7 @@ class _DynamicLayer(nn.Module):
                     strength_out = m.strength_out/total_strength
                     strength += strength_out
                     norm = self.norm_out(n)
-                    aux = 1 - lamb * lr * strength_out / norm
+                    aux = 1 - lamb * lr / norm
                     aux = F.threshold(aux, 0, 0, False)
                     mask_temp += (aux > 0)
 
@@ -426,7 +426,7 @@ class _DynamicLayer(nn.Module):
             if self.norm_layer:
                 if self.norm_layer.affine:
                     norm = self.norm_layer.norm()
-                    aux = 1 - lamb * lr * strength / norm
+                    aux = 1 - lamb * lr / norm
                     aux = F.threshold(aux, 0, 0, False)
                     self.mask *= (aux > 0)
 

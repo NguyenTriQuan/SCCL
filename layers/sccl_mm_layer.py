@@ -196,14 +196,10 @@ class _DynamicLayer(nn.Module):
 
     def get_reg_strength(self):
         self.strength_in = self.weight[-1].data.numel()
+        self.strength_out = self.weight[-1].data.numel()
         for i in range(1, self.cur_task):
             self.strength_in += self.fwt_weight[-1][i].data.numel()
-
-        self.strength_out = 0
-        for m in self.next_layers:
-            self.strength_out += m.weight[-1].data.numel()
-            for i in range(1, self.cur_task):
-                self.strength_out += m.bwt_weight[-1][i].data.numel()
+            self.strength_out += self.bwt_weight[-1][i].data.numel()
 
         self.strength = (self.strength_in + self.strength_out)
 
@@ -388,13 +384,15 @@ class _DynamicLayer(nn.Module):
                     self.norm_layer.weight[-2].requires_grad = False
                     self.norm_layer.bias[-2].requires_grad = False
 
+        self.get_reg_strength()
+
     def proximal_gradient_descent(self, lr, lamb, total_strength):
 
         with torch.no_grad():
-            strength = self.strength/total_strength
+            strength_in = self.strength_in/total_strength
             # group lasso weights in
             norm = self.norm_in()
-            aux = 1 - lamb * lr * strength / norm
+            aux = 1 - lamb * lr * strength_in / norm
             aux = F.threshold(aux, 0, 0, False)
             self.mask = (aux > 0)
 
@@ -405,11 +403,13 @@ class _DynamicLayer(nn.Module):
                 self.bias[-1].data[self.shape_out[-2]:] *= aux
 
             # group lasso weights out
+            strength_out = 0
             if len(self.next_layers) > 0:
+                strength_out = max([m.strength_out for m in self.next_layers]) / total_strength
                 mask_temp = False
                 for n, m in enumerate(self.next_layers):
                     norm = self.norm_out(n)
-                    aux = 1 - lamb * lr * strength / norm
+                    aux = 1 - lamb * lr * strength_out / norm
                     aux = F.threshold(aux, 0, 0, False)
                     mask_temp += (aux > 0)
 
@@ -422,6 +422,7 @@ class _DynamicLayer(nn.Module):
             # group lasso affine weights
             if self.norm_layer:
                 if self.norm_layer.affine:
+                    strength = strength_in + strength_out
                     norm = self.norm_layer.norm()
                     aux = 1 - lamb * lr * strength / norm
                     aux = F.threshold(aux, 0, 0, False)

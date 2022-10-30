@@ -52,10 +52,10 @@ class _DynamicModel(nn.Module):
             self.total_strength += m.strength
 
     def squeeze(self, optim_state):
-        # self.total_strength = 1
+        self.total_strength = 1
         for m in self.DM[:-1]:
             m.squeeze(optim_state)
-            # self.total_strength += m.strength
+            self.total_strength += m.strength
 
     def forward(self, input, t=-1, assemble=False):
         if t == -1:
@@ -465,10 +465,10 @@ class ResNet(_DynamicModel):
             share_mask += block.layers[-1].mask
             block.layers[-1].mask = share_mask
 
-        # self.total_strength = 1
+        self.total_strength = 1
         for m in self.DM[:-1]:
             m.squeeze(optim_state)
-            # self.total_strength += m.strength
+            self.total_strength += m.strength
 
     def expand(self, new_class, ablation='full'):
         for m in self.DM[:-1]:

@@ -1,12 +1,5 @@
 Structure Compression-based Continual Learning
 
-dependencies:
-- python				  3.7.12
-- matplotlib                    3.2.2
-- numpy                         1.19.5
-- torch                         1.10.0+cu111
-- torchvision                   0.11.1+cu111
-
 Reproduce results:
 
 - Permuted MNIST:

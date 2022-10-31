@@ -1,6 +1,6 @@
-from tkinter.tix import Tree
-from turtle import forward
-from regex import D
+# from tkinter.tix import Tree
+# from turtle import forward
+# from regex import D
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

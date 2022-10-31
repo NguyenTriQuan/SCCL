@@ -125,22 +125,6 @@ class _DynamicLayer(nn.Module):
 
         return weight, bias
 
-    def norm_in(self):
-        fwt_weight = torch.cat([torch.empty(0).to(device)] + [self.fwt_weight[-1][j] for j in range(1, self.cur_task)], dim=1)
-        weight = torch.cat([fwt_weight, self.weight[-1]], dim=1)
-        norm = weight.norm(2, dim=self.dim_in)
-        if self.bias is not None:
-            norm = (norm ** 2 + self.bias[-1][self.shape_out[-2]:] ** 2) ** 0.5
-        return norm
-
-    def norm_out(self, i):
-        bwt_weight = torch.cat([torch.empty(0).to(device)] + [self.next_layers[i].bwt_weight[-1][j] for j in range(1, self.cur_task)], dim=0)
-        weight = torch.cat([bwt_weight, self.next_layers[i].weight[-1]], dim=0)
-        if isinstance(self, DynamicConv2D) and isinstance(self.next_layers[i], DynamicLinear):
-            weight = weight.view(self.next_layers[i].out_features, 
-                                self.weight[-1].shape[i], self.next_layers[i].s, self.next_layers[i].s)
-        return weight.norm(2, dim=self.dim_out)
-
     def get_optim_params(self):
         params = []
         params += [self.weight[-1]] + self.fwt_weight[-1][1:] + self.bwt_weight[-1][1:]
@@ -192,6 +176,22 @@ class _DynamicLayer(nn.Module):
                 if self.norm_layer.affine:
                     count += self.norm_layer.weight[k].numel() + self.norm_layer.bias[k].numel()
         return count
+
+    def norm_in(self):
+        fwt_weight = torch.cat([torch.empty(0).to(device)] + [self.fwt_weight[-1][j] for j in range(1, self.cur_task)], dim=1)
+        weight = torch.cat([fwt_weight, self.weight[-1]], dim=1)
+        norm = weight.norm(2, dim=self.dim_in)
+        if self.bias is not None:
+            norm = (norm ** 2 + self.bias[-1][self.shape_out[-2]:] ** 2) ** 0.5
+        return norm
+
+    def norm_out(self, i):
+        bwt_weight = torch.cat([torch.empty(0).to(device)] + [self.next_layers[i].bwt_weight[-1][j] for j in range(1, self.cur_task)], dim=0)
+        weight = torch.cat([bwt_weight, self.next_layers[i].weight[-1]], dim=0)
+        if isinstance(self, DynamicConv2D) and isinstance(self.next_layers[i], DynamicLinear):
+            weight = weight.view(self.next_layers[i].out_features, 
+                                self.weight[-1].shape[i], self.next_layers[i].s, self.next_layers[i].s)
+        return weight.norm(2, dim=self.dim_out)
 
     def get_reg_strength(self):
         self.strength_in = self.weight[-1].data.numel()

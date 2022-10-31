@@ -42,12 +42,14 @@ class _DynamicModel(nn.Module):
         return params
 
     def expand(self, new_class, ablation='full'):
-        self.total_strength = 1
         for m in self.DM[:-1]:
             m.expand(add_in=None, add_out=None, ablation=ablation)
-            self.total_strength += m.strength
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
-        self.total_strength += self.DM[-1].strength
+
+        self.total_strength = 1
+        for m in self.DM[:-1]:
+            m.get_reg_strength()
+            self.total_strength += m.strength
 
     def squeeze(self, optim_state):
         # self.total_strength = 1
@@ -469,26 +471,38 @@ class ResNet(_DynamicModel):
             # self.total_strength += m.strength
 
     def expand(self, new_class, ablation='full'):
-        self.total_strength = 1
         for m in self.DM[:-1]:
             m.expand(add_in=None, add_out=None, ablation=ablation)
-            self.total_strength += m.strength
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
-        self.total_strength += self.DM[-1].strength
 
-        share_strength = self.conv1.strength_in
+        self.total_strength = 1
+        for m in self.DM[:-1]:
+            m.get_reg_strength()
+            self.total_strength += m.strength
+
+        share_strength_in = self.conv1.strength_in
+        share_strength_out = self.conv1.strength_out
+        share_strength = self.conv1.strength
         share_layers = []
         for i, block in enumerate(self.blocks):
             if block.shortcut:
                 for layer in share_layers:
-                    layer.strength_in = share_strength
-                share_strength = block.shortcut.strength_in
+                    layer.strength_in = share_strength_in
+                    layer.strength_out = share_strength_out
+                    layer.strength = share_strength
+                share_strength = block.shortcut.strength
+                share_strength_in = block.shortcut.strength_in
+                share_strength_out = block.shortcut.strength_out
                 share_layers = []
                             
             share_layers.append(block.layers[-1])
-            share_strength = max(block.layers[-1].strength_in, share_strength)
+            share_strength = max(block.layers[-1].strength, share_strength)
+            share_strength_in = max(block.layers[-1].strength_in, share_strength_in)
+            share_strength_out = max(block.layers[-1].strength_out, share_strength_out)
         for layer in share_layers:
-            layer.strength_in = share_strength 
+            layer.strength_in = share_strength_in
+            layer.strength_out = share_strength_out
+            layer.strength = share_strength
         share_layers = []
 
 def ResNet18(input_size, norm_type=None):

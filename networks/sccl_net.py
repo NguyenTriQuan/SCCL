@@ -52,10 +52,10 @@ class _DynamicModel(nn.Module):
             self.total_strength += m.strength
 
     def squeeze(self, optim_state):
-        # self.total_strength = 1
+        self.total_strength = 1
         for m in self.DM[:-1]:
             m.squeeze(optim_state)
-            # self.total_strength += m.strength
+            self.total_strength += m.strength
 
     def forward(self, input, t=-1, assemble=False):
         if t == -1:

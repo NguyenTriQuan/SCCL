@@ -265,7 +265,7 @@ class _DynamicLayer(nn.Module):
                 m.shape_in[-1] = m.in_features
   
             self.mask = None
-            # self.get_reg_strength()
+            self.get_reg_strength()
 
     def expand(self, add_in=None, add_out=None, ablation='full'):
         self.cur_task += 1
@@ -425,7 +425,7 @@ class _DynamicLayer(nn.Module):
             if self.norm_layer:
                 if self.norm_layer.affine:
                     norm = self.norm_layer.norm()
-                    aux = 1 - lamb * lr * strength_in / norm
+                    aux = 1 - lamb * lr * strength / norm
                     aux = F.threshold(aux, 0, 0, False)
                     self.mask *= (aux > 0)
 

@@ -214,6 +214,7 @@ class _DynamicLayer(nn.Module):
             param_states = optim_state[param]
             for name, state in param_states.items():
                 if isinstance(state, torch.Tensor):
+                    print(state.shape)
                     param_states[name] = state[mask_out].clone()
 
         def apply_mask_in(param, mask_in):

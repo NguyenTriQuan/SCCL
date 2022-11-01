@@ -144,16 +144,25 @@ class _DynamicLayer(nn.Module):
         params = []
         for i in range(1, self.cur_task):
             N = self.weight[i].numel()
-            N = max(N, 1)
-            params += [{'params':[self.w_sigma[-1][i]], 'lr':lr}]
+            if N > 0:
+                N /= self.weight[i].shape[0]
+            else:
+                N = 1
+            params += [{'params':[self.w_sigma[-1][i]], 'lr':lr/N}]
             for j in range(1, i):
                 N = self.bwt_weight[i][j].numel()
-                N = max(N, 1)
-                params += [{'params':[self.bwt_sigma[-1][i][j]], 'lr':lr}]
+                if N > 0:
+                    N /= self.bwt_weight[i][j].shape[0]
+                else:
+                    N = 1
+                params += [{'params':[self.bwt_sigma[-1][i][j]], 'lr':lr/N}]
 
                 N = self.fwt_weight[i][j].numel()
-                N = max(N, 1)
-                params += [{'params':[self.fwt_sigma[-1][i][j]], 'lr':lr}]
+                if N > 0:
+                    N /= self.fwt_weight[i][j].shape[0]
+                else:
+                    N = 1
+                params += [{'params':[self.fwt_sigma[-1][i][j]], 'lr':lr/N}]
 
         return params
 

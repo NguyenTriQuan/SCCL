@@ -147,7 +147,7 @@ class Appr(object):
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
         self.check_point = None  
-        
+
         self.model.count_params()
         print()
 
@@ -183,7 +183,7 @@ class Appr(object):
                 clock1=time.time()
                 train_loss,train_acc=self.eval(t, train_loader, valid_transform)
                 clock2=time.time()
-                print('| Epoch {:3d}, time={:5.1f}ms/{:5.1f}ms | Train: loss={:.3f}, acc={:5.2f}% |'.format(
+                print('| Epoch {:2d}, time={:5.1f}ms/{:5.1f}ms | Train: loss={:.3f}, acc={:5.2f}% |'.format(
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),train_loss,100*train_acc),end='')
 

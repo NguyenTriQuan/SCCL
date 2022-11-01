@@ -150,6 +150,7 @@ class Appr(object):
 
         self.model.count_params()
         print()
+        
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 

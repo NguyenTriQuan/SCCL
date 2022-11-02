@@ -173,8 +173,8 @@ class Appr(object):
         train_loss,train_acc=self.eval(t,train_loader,valid_transform)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
 
-        if 'assemble' not in self.ablation:
-            valid_loss,valid_acc=self.eval_assemble(t,valid_loader,valid_transform)
+        if 'ensemble' not in self.ablation:
+            valid_loss,valid_acc=self.eval_ensemble(t,valid_loader,valid_transform)
         else:
             valid_loss,valid_acc=self.eval(t,valid_loader,valid_transform)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
@@ -202,8 +202,8 @@ class Appr(object):
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),train_loss,100*train_acc),end='')
 
-                if 'assemble' not in self.ablation:
-                    valid_loss,valid_acc=self.eval_assemble(t, valid_loader, valid_transform)
+                if 'ensemble' not in self.ablation:
+                    valid_loss,valid_acc=self.eval_ensemble(t, valid_loader, valid_transform)
                 else:
                     valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
@@ -252,7 +252,7 @@ class Appr(object):
         if self.args.cil:
             targets -= sum(self.shape_out[:t])
 
-        if 'assemble' not in self.ablation:
+        if 'ensemble' not in self.ablation:
             loss = 0
             for i in range(1, t+1):
                 outputs = self.model.forward(images, t=i)
@@ -293,7 +293,7 @@ class Appr(object):
 
         return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
 
-    def eval_batch_assemble(self, t, images, targets):
+    def eval_batch_ensemble(self, t, images, targets):
         if t is None:
             outputs = self.model.forward(images, t=self.cur_task)
         else:
@@ -353,7 +353,7 @@ class Appr(object):
                 
         return total_loss/total_num,total_acc/total_num
 
-    def eval_assemble(self, t, data_loader, valid_transform):
+    def eval_ensemble(self, t, data_loader, valid_transform):
         total_loss=0
         total_acc=0
         total_num=0
@@ -365,7 +365,7 @@ class Appr(object):
             if valid_transform:
                 images = valid_transform(images)
                     
-            loss, hits = self.eval_batch_assemble(t, images, targets)
+            loss, hits = self.eval_batch_ensemble(t, images, targets)
             total_loss += loss
             total_acc += hits
             total_num += len(targets)

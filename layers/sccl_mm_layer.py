@@ -69,7 +69,7 @@ class _DynamicLayer(nn.Module):
         
         self.cur_task = 0
 
-    def forward(self, x, t, assemble=False):    
+    def forward(self, x, t, ensemble=False):    
         weight, bias = self.get_parameters(t)
 
         if weight.numel() == 0:
@@ -77,7 +77,7 @@ class _DynamicLayer(nn.Module):
 
         if isinstance(self, DynamicLinear):
             output = F.linear(x, weight, bias)
-            # if not self.last_layer and assemble:
+            # if not self.last_layer and ensemble:
             #     _, n_features = output.shape
             #     output = output.view(t, -1, n_features)
             #     for i in range(t):

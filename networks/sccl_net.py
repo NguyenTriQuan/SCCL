@@ -57,13 +57,13 @@ class _DynamicModel(nn.Module):
             m.squeeze(optim_state)
             self.total_strength += m.strength
 
-    def forward(self, input, t=-1, assemble=False):
+    def forward(self, input, t=-1, ensemble=False):
         if t == -1:
             t = len(self.DM[-1].shape_out)-1
 
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
-                input = module(input, t, assemble)
+                input = module(input, t, ensemble)
             else:
                 input = module(input)
 

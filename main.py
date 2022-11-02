@@ -112,9 +112,10 @@ for t, ncla in taskcla[start_task:]:
             if args.cil:
                 test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
             else:
-                test_loss, test_acc = appr.eval_assemble(u+1, data[u]['test_loader'], data['valid_transform'])
-                print('>>> Test assem on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
                 test_loss, test_acc = appr.eval(u+1, data[u]['test_loader'], data['valid_transform'])
+                if 'assemble' not in args.ablation:
+                    print('>>> Test w/o ensemble on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
+                    test_loss, test_acc = appr.eval_assemble(u+1, data[u]['test_loader'], data['valid_transform'])
         else:
             test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data['valid_transform'])
 

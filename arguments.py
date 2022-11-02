@@ -62,14 +62,10 @@ def get_args():
                                  'Adam'], 
                         help='(default=%(default)s)')
     parser.add_argument('--ablation', default='full', type=str, required=False,
-                        # choices=['no_gpm', 
-                        #          'no_prune', 
-                        #          'no_drop',
-                        #          'no_scale',
-                        #          'no_fwt',
-                        #          'no_bwt',
-                        #          'no_gpm_fwt',
-                        #          'full'], 
+                        choices=['no_ensemble',
+                                'no_scale',
+                                'no_scale_ensemble',
+                                'full'], 
                         help='(default=%(default)s)')
     parser.add_argument('--output', default='', type=str, required=False, help='(default=%(default)s)')
     parser.add_argument('--nepochs', default=100, type=int, required=False, help='(default=%(default)d)')
@@ -85,6 +81,7 @@ def get_args():
     parser.add_argument('--alpha', default=0.01, type=float, help='(default=%(default)f)')
     parser.add_argument('--beta', default=0.03, type=float, help='(default=%(default)f)')
     parser.add_argument('--gamma', default=0.75, type=float, help='(default=%(default)f)')
+    parser.add_argument('--drop_ensemble', default=0.25, type=float, help='(default=%(default)f)')
     parser.add_argument('--smax', default=400, type=float, help='(default=%(default)f)')
     parser.add_argument('--lamb', default='0.0', type=str, help='(default=%(default)f)')
     parser.add_argument('--threshold', default='0.0', type=str, help='(default=%(default)f)')

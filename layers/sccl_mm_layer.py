@@ -18,8 +18,8 @@ import matplotlib.pyplot as plt
 from utils import *
 from typing import Optional, List, Tuple, Union
 import sys
-# from arguments import get_args
-# args = get_args()
+from arguments import get_args
+args = get_args()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -33,7 +33,7 @@ class _DynamicLayer(nn.Module):
 
         self.first_layer = first_layer
         self.last_layer = last_layer
-        self.dropout = 0.0
+        self.drop_ensemble = args.drop_ensemble
         self.base_in_features = in_features
         self.base_out_features = out_features
         self.in_features = 0
@@ -94,25 +94,63 @@ class _DynamicLayer(nn.Module):
             #     output = output.view(-1, n_channels, s, s)
 
         if self.norm_layer is not None:
-            output = self.norm_layer(output, t, self.dropout)
+            output = self.norm_layer(output, t)
         return output
 
     def get_parameters(self, t):
         weight = torch.empty(0).to(device)
+        total_num = 0
+        non_zero_num = 0
         for i in range(1, t):
-            bwt_weight = torch.cat([torch.empty(0).to(device)] + [self.bwt_weight[i][j] * self.bwt_sigma[t][i][j]
-                                    for j in range(1, i)], dim=0)
-            fwt_weight = torch.cat([torch.empty(0).to(device)] + [self.fwt_weight[i][j] * self.fwt_sigma[t][i][j]
-                                    for j in range(1, i)], dim=1)
-                
+            bwt_weight = torch.empty(0).to(device)
+            fwt_weight = torch.empty(0).to(device)
+            for j in range(1, i):
+                p_b = 1
+                p_f = 1
+                if self.training:
+                    p_b = (torch.rand(1)>self.drop_ensemble).float().item()
+                    p_f = (torch.rand(1)>self.drop_ensemble).float().item()
+                N = self.bwt_weight[i][j].numel()
+                total_num += N
+                non_zero_num += N * p_b
+                N = self.fwt_weight[i][j].numel()
+                total_num += N
+                non_zero_num += N * p_f
+                bwt_weight = torch.cat([bwt_weight, self.bwt_weight[i][j] * self.bwt_sigma[t][i][j] * p_b], dim=0)
+                fwt_weight = torch.cat([fwt_weight, self.fwt_weight[i][j] * self.fwt_sigma[t][i][j] * p_f], dim=1)
+            
+            p_w = 1
+            if self.training:
+                p_w = (torch.rand(1)>self.drop_ensemble).float().item()
+            N = self.weight[i].numel()
+            total_num += N
+            non_zero_num += N * p_w
             weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 
-                                torch.cat([fwt_weight, self.weight[i] * self.w_sigma[t][i]], dim=1)], dim=0)
+                                torch.cat([fwt_weight, self.weight[i] * self.w_sigma[t][i] * p_w], dim=1)], dim=0)
 
-        bwt_weight = torch.cat([torch.empty(0).to(device)] + [self.bwt_weight[t][j] for j in range(1, t)], dim=0)
-        fwt_weight = torch.cat([torch.empty(0).to(device)] + [self.fwt_weight[t][j] for j in range(1, t)], dim=1)
+        bwt_weight = torch.empty(0).to(device)
+        fwt_weight = torch.empty(0).to(device)
+        for j in range(1, t):
+            bwt_weight = torch.cat([bwt_weight, self.bwt_weight[t][j]], dim=0)
+            fwt_weight = torch.cat([fwt_weight, self.fwt_weight[t][j]], dim=1)
+            N = self.bwt_weight[t][j].numel()
+            total_num += N
+            non_zero_num += N
+            N = self.fwt_weight[t][j].numel()
+            total_num += N
+            non_zero_num += N
+                
         weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 
                             torch.cat([fwt_weight, self.weight[t]], dim=1)], dim=0)
-
+        N = self.weight[t].numel()
+        total_num += N
+        non_zero_num += N
+        factor = total_num / non_zero_num
+        # if weight.numel() == 0:
+        #     factor = 1
+        # else:
+        #     factor = weight.numel()/(weight!=0).sum()
+        weight *= factor
         if self.bias:
             bias = self.bias[t]
         else:

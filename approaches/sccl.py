@@ -150,7 +150,21 @@ class Appr(object):
 
         self.model.count_params()
         print()
-        
+        for i, m in enumerate(self.model.DM):
+            print(f'layer {i}')
+            for i in range(1, t):
+                for j in range(1, t):
+                    if i==j:
+                        v = m.w_sigma[t][i].item()*m.weight[i].std().item()
+                        print(round(v, 5), end=' ')
+                    elif i>j:
+                        v = m.bwt_sigma[t][i][j].item()*m.bwt_weight[i][j].std().item()
+                        print(round(v, 5), end=' ')
+                    elif i<j:
+                        v = m.fwt_sigma[t][j][i].item()*m.fwt_weight[j][i].std().item()
+                        print(round(v, 5), end=' ')
+                print()
+            print()
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 

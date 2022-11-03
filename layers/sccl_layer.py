@@ -76,8 +76,8 @@ class _DynamicLayer(nn.Module):
 
         if self.norm_layer is not None:
             output = self.norm_layer(output, t)
-
-        output = F.dropout(output, 0.2, self.training)
+        if not self.last_layer:
+            output = F.dropout(output, 0.2, self.training)
         return output
 
     def expand(self, add_in=None, add_out=None, ablation='full'):

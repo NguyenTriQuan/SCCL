@@ -179,11 +179,11 @@ class _DynamicLayer(nn.Module):
             if weight.numel() != 0 and self.training:
                 total_num = weight[0].numel() + bwt_weight[0].numel()
                 non_zero_num = (weight != 0).sum(self.dim_in) + bwt_weight[0].numel()
-                factor = total_num / non_zero_num
+                factor = (total_num / non_zero_num).view(self.view_in)
             else:
                 factor = 1
             
-            weight = torch.cat([weight, bwt_weight], dim=1) * factor.view(self.view_in)
+            weight = torch.cat([weight, bwt_weight], dim=1) * factor
             weight = torch.cat([weight, torch.cat([fwt_weight, self.weight[t][t]], dim=1)], dim=0)
 
         if self.bias is not None:

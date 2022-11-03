@@ -47,6 +47,9 @@ class _DynamicLayer(nn.Module):
         self.num_in = []
         self.num_out = []
 
+        self.shape_out = [self.out_features]
+        self.shape_in = [self.in_features]
+
         self.norm_type = norm_type
 
         if norm_type:
@@ -93,6 +96,9 @@ class _DynamicLayer(nn.Module):
 
         self.num_out.append(add_out)
         self.num_in.append(add_in)
+
+        self.shape_in.append(self.in_features)
+        self.shape_out.append(self.out_features)
 
         self.weight.append([])
         gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
@@ -163,7 +169,8 @@ class _DynamicLayer(nn.Module):
                 factor = 1
             else:
                 factor = weight[0].numel() / (weight != 0).sum(self.dim_in)
-            weight *= factor.view(self.view_in)
+                factor = factor.view(self.view_in)
+            weight *= factor
 
         if self.bias is not None:
             bias = self.bias[t]
@@ -216,7 +223,7 @@ class _DynamicLayer(nn.Module):
         weight = torch.cat([self.weight[i][-1] for i in range(self.cur_task+1)], dim=1)
         norm = weight.norm(2, dim=self.dim_in)
         if self.bias is not None:
-            norm = (norm ** 2 + self.bias[-1][-self.num_out[-1]:] ** 2) ** 0.5
+            norm = (norm ** 2 + self.bias[-1][self.shape_out[-2]:] ** 2) ** 0.5
         return norm
 
     def norm_out(self, n):
@@ -267,9 +274,10 @@ class _DynamicLayer(nn.Module):
 
             self.num_out[-1] = self.weight[-1][-1].shape[0]
             self.out_features = sum(self.num_out)
+            self.shape_out[-1] = self.out_features
 
             mask = torch.ones(sum(self.num_out[:-1])).bool().to(device)
-            mask = torch.cat([mask, mask_out]);
+            mask = torch.cat([mask, mask_out])
 
             if self.bias is not None:
                 apply_mask_out(self.bias[-1], mask)
@@ -298,6 +306,7 @@ class _DynamicLayer(nn.Module):
 
                 m.num_in[-1] = m.weight[-1][-1].shape[1]
                 self.in_features = sum(self.num_in)
+                self.shape_in[-1] = self.in_features
   
             self.mask = None
             self.get_reg_strength()
@@ -318,7 +327,7 @@ class _DynamicLayer(nn.Module):
             for i in range(self.cur_task):
                 self.weight[i][-1].data *= aux.view(self.view_in)
             if self.bias is not None:
-                self.bias[-1].data[-self.num_out[-1]:] *= aux
+                self.bias[-1].data[self.shape_out[-2]:] *= aux
 
             # group lasso weights out
             if len(self.next_layers) > 0:

@@ -101,7 +101,9 @@ class _DynamicLayer(nn.Module):
         weight = torch.empty(0).to(device)
         total_num = 0
         non_zero_num = 0
+        num_in_tasks = [0]
         for i in range(1, t):
+            num_in = 0
             bwt_weight = torch.empty(0).to(device)
             fwt_weight = torch.empty(0).to(device)
             for j in range(1, i):
@@ -237,7 +239,7 @@ class _DynamicLayer(nn.Module):
         weight = torch.cat([bwt_weight, self.next_layers[i].weight[-1]], dim=0)
         if isinstance(self, DynamicConv2D) and isinstance(self.next_layers[i], DynamicLinear):
             weight = weight.view(self.next_layers[i].out_features, 
-                                self.weight[-1].shape[i], self.next_layers[i].s, self.next_layers[i].s)
+                                self.weight[-1].shape[0], self.next_layers[i].s, self.next_layers[i].s)
         return weight.norm(2, dim=self.dim_out)
 
     def get_reg_strength(self):

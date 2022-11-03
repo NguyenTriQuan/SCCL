@@ -81,7 +81,7 @@ def get_args():
     parser.add_argument('--alpha', default=0.01, type=float, help='(default=%(default)f)')
     parser.add_argument('--beta', default=0.03, type=float, help='(default=%(default)f)')
     parser.add_argument('--gamma', default=0.75, type=float, help='(default=%(default)f)')
-    parser.add_argument('--drop_ensemble', default=0.25, type=float, help='(default=%(default)f)')
+    parser.add_argument('--ensemble_drop', default=0.25, type=float, help='(default=%(default)f)')
     parser.add_argument('--smax', default=400, type=float, help='(default=%(default)f)')
     parser.add_argument('--lamb', default='0.0', type=str, help='(default=%(default)f)')
     parser.add_argument('--threshold', default='0.0', type=str, help='(default=%(default)f)')

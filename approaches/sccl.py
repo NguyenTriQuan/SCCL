@@ -15,7 +15,6 @@ import kornia as K
 import time
 import csv
 from utils import *
-from layers.sccl_mm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 import networks.sccl_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
@@ -60,8 +59,8 @@ class Appr(object):
             self.lambs = [self.lambs[-1] if i>=len(self.lambs) else self.lambs[i] for i in range(args.tasknum)]
 
         print('lambs:', self.lambs)
-        self.shape_out = self.model.DM[-1].shape_out
-        self.cur_task = len(self.shape_out)-1
+        self.num_out = self.model.DM[-1].num_out
+        self.cur_task = len(self.num_out)-1
         self.ce = torch.nn.CrossEntropyLoss()
 
         self.get_name(self.tasknum+1)
@@ -112,8 +111,8 @@ class Appr(object):
             print('Training new task')
             self.model.expand(ncla, self.ablation)
             self.model = self.model.to(device)
-            self.shape_out = self.model.DM[-1].shape_out
-            self.cur_task = len(self.shape_out)-1
+            self.num_out = self.model.DM[-1].num_out
+            self.cur_task = len(self.num_out)-1
 
             self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
@@ -129,10 +128,10 @@ class Appr(object):
 
         print(self.model.report())
         self.model = self.model.to(device)
-        self.shape_out = self.model.DM[-1].shape_out
-        self.cur_task = len(self.shape_out)-1
+        self.num_out = self.model.DM[-1].num_out
+        self.cur_task = len(self.num_out)-1
 
-        self.lamb = self.lambs[self.cur_task-1]
+        self.lamb = self.lambs[self.cur_task]
         print('lambda', self.lamb)
         print(self.log_name)
 
@@ -150,21 +149,6 @@ class Appr(object):
 
         self.model.count_params()
         print()
-        for i, m in enumerate(self.model.DM):
-            print(f'layer {i}')
-            for i in range(1, t):
-                for j in range(1, t):
-                    if i==j:
-                        v = m.w_sigma[t][i].item()*m.weight[i].std().item()
-                        print(round(v, 5), end=' ')
-                    elif i>j:
-                        v = m.bwt_sigma[t][i][j].item()*m.bwt_weight[i][j].std().item()
-                        print(round(v, 5), end=' ')
-                    elif i<j:
-                        v = m.fwt_sigma[t][j][i].item()*m.fwt_weight[j][i].std().item()
-                        print(round(v, 5), end=' ')
-                print()
-            print()
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 
@@ -249,12 +233,12 @@ class Appr(object):
         self.model = self.check_point['model']
 
     def train_batch(self, t, images, targets, squeeze, lr):
-        if self.args.cil:
-            targets -= sum(self.shape_out[:t])
-
+        # if self.args.cil:
+        #     targets -= sum(self.shape_out[:t])
+        targets += sum(self.num_out[:t])
         if 'ensemble' not in self.ablation:
             loss = 0
-            for i in range(1, t+1):
+            for i in range(t+1):
                 outputs = self.model.forward(images, t=i)
                 outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
                 loss += self.ce(outputs, targets)
@@ -269,7 +253,7 @@ class Appr(object):
             # loss = self.ce(outputs, targets)
         else:
             outputs = self.model.forward(images, t=t)
-            outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+            outputs = outputs
             loss = self.ce(outputs, targets)
         # if squeeze:
         #     loss += self.lamb * self.model.group_lasso_reg()
@@ -283,10 +267,11 @@ class Appr(object):
         if t is None:
             outputs = self.model.forward(images, t=self.cur_task)
         else:
+            targets += sum(self.num_out[:t])
             outputs = self.model.forward(images, t=t)
-            outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-            if self.args.cil:
-                targets -= sum(self.shape_out[:t])
+            outputs = outputs
+            # if self.args.cil:
+            #     targets -= sum(self.shape_out[:t])
         loss=self.ce(outputs,targets)
         values,indices=outputs.max(1)
         hits=(indices==targets).float()
@@ -298,9 +283,9 @@ class Appr(object):
             outputs = self.model.forward(images, t=self.cur_task)
         else:
             assembled_outputs = 0
-            for i in range(1, t+1):
+            for i in range(t+1):
                 outputs = self.model.forward(images, t=i)
-                outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+                outputs = outputs
                 assembled_outputs += outputs
             outputs = assembled_outputs / t
 
@@ -312,8 +297,8 @@ class Appr(object):
             # outputs = outputs.reshape(t, batch_size, -1)
             # outputs = outputs.mean(0)
 
-            if self.args.cil:
-                targets -= sum(self.shape_out[:t])
+            # if self.args.cil:
+            #     targets -= sum(self.shape_out[:t])
         loss=self.ce(outputs,targets)
         values,indices=outputs.max(1)
         hits=(indices==targets).float()

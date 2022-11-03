@@ -9,7 +9,7 @@ from torch.distributions import Bernoulli, LogNormal
 import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
-from layers.sccl_mm_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys
@@ -59,7 +59,7 @@ class _DynamicModel(nn.Module):
 
     def forward(self, input, t=-1, ensemble=False):
         if t == -1:
-            t = len(self.DM[-1].shape_out)-1
+            t = len(self.DM[-1].num_out)-1
 
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
@@ -71,7 +71,7 @@ class _DynamicModel(nn.Module):
 
     def count_params(self, t=-1):
         if t == -1:
-            t = len(self.DM[-1].shape_out)-1
+            t = len(self.DM[-1].num_out)-1
         model_count = 0
         layers_count = []
         print('num neurons:', end=' ')
@@ -84,14 +84,6 @@ class _DynamicModel(nn.Module):
         print('|num params:', model_count, end=' | ')
 
         return model_count, layers_count
-
-    def group_lasso_reg(self):
-        total_reg = 0
-        for i, m in enumerate(self.DM[:-1]):
-            reg = m.get_reg()
-            total_reg += reg
-                            
-        return total_reg/self.total_strength
 
     def proximal_gradient_descent(self, lr, lamb):
         for m in self.DM[:-1]:

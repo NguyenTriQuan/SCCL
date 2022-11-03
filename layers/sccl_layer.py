@@ -161,18 +161,26 @@ class _DynamicLayer(nn.Module):
         if self.first_layer:
             weight = torch.cat(self.weight[0][:t+1], dim=0)
         else:
-            weight = torch.cat([torch.cat([self.weight[i][j] if (i == t) or (j == t)
-                                        else self.weight[i][j] * self.scale[t][i][j] * (random.random() > self.p) if self.training 
-                                        else self.weight[i][j] * self.scale[t][i][j] 
-                                    for j in range(t+1)], dim=0) for i in range(t+1)], dim=1)
-        if self.training:
-            if (weight != 0).sum(self.dim_in).min() == 0:
-                print('error')
-                factor = 1
-            else:
-                factor = weight[0].numel() / (weight != 0).sum(self.dim_in)
-                factor = factor.view(self.view_in)
-            weight *= factor
+            weight = torch.empty(0).to(device)
+            fwt_weight = torch.empty(0).to(device)
+            bwt_weight = torch.empty(0).to(device)
+            for i in range(t):
+                temp = torch.empty(0).to(device)
+                for j in range(t):
+                    temp = torch.cat([temp, self.weight[i][j] * self.scale[t][i][j] * (random.random() > self.p) if self.training 
+                                    else self.weight[i][j] * self.scale[t][i][j]], dim=0)
+
+                weight = torch.cat([weight, temp], dim=1)
+                fwt_weight = torch.cat([fwt_weight, self.weight[i][t]], dim=1)
+                bwt_weight = torch.cat([bwt_weight, self.weight[t][i]], dim=0)
+
+            if weight.numel() != 0 and self.training:
+                total_num = weight[0].numel() + bwt_weight[0].numel()
+                non_zero_num = (weight != 0).sum(self.dim_in) + bwt_weight[0].numel()
+                factor = total_num / non_zero_num
+                bwt_weight *= factor.view(self.view_in)
+            weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 
+                                torch.cat([fwt_weight, self.weight[t][t]], dim=1)], dim=0)
 
         if self.bias is not None:
             bias = self.bias[t]
@@ -314,7 +322,7 @@ class _DynamicLayer(nn.Module):
             self.get_reg_strength()
 
     def proximal_gradient_descent(self, lr, lamb, total_strength):
-        eps = 1e-9
+        eps = 0
         with torch.no_grad():
             strength_in = self.strength_in/total_strength
             strength_out = self.strength_out/total_strength
@@ -362,10 +370,10 @@ class DynamicLinear(_DynamicLayer):
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
         super(DynamicLinear, self).__init__(in_features, out_features, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
-        self.view_in = (-1, 1)
-        self.view_out = (1, -1)
-        self.dim_in = (1)
-        self.dim_out = (0)
+        self.view_in = [-1, 1]
+        self.view_out = [1, -1]
+        self.dim_in = [1]
+        self.dim_out = [0]
             
         
 class _DynamicConvNd(_DynamicLayer):
@@ -396,10 +404,10 @@ class DynamicConv2D(_DynamicConvNd):
         super(DynamicConv2D, self).__init__(in_features, out_features, kernel_size, 
                                             stride, padding, dilation, False, _pair(0), groups, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
-        self.view_in = (-1, 1, 1, 1)
-        self.view_out = (1, -1, 1, 1)
-        self.dim_in = (1, 2, 3)
-        self.dim_out = (0, 2, 3)
+        self.view_in = [-1, 1, 1, 1]
+        self.view_out = [1, -1, 1, 1]
+        self.dim_in = [1, 2, 3]
+        self.dim_out = [0, 2, 3]
 
 
 class DynamicNorm(nn.Module):

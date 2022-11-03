@@ -158,7 +158,11 @@ class _DynamicLayer(nn.Module):
                                         else self.weight[i][j] * self.scale[t][i][j] 
                                     for j in range(t+1)], dim=0) for i in range(t+1)], dim=1)
         if self.training:
-            factor = weight[0].numel() / (weight != 0).sum(self.dim_in)
+            if (weight != 0).sum(self.dim_in) == 0:
+                print('error')
+                factor = 1
+            else:
+                factor = weight[0].numel() / (weight != 0).sum(self.dim_in)
             weight *= factor.view(self.view_in)
 
         if self.bias is not None:

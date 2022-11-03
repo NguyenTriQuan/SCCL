@@ -1,4 +1,5 @@
 from asyncio import current_task
+from unittest import makeSuite
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -68,7 +69,7 @@ class _DynamicLayer(nn.Module):
 
         if weight.numel() == 0:
             return None
-
+    
         if isinstance(self, DynamicConv2D):
             output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
         else:
@@ -167,8 +168,9 @@ class _DynamicLayer(nn.Module):
             for i in range(t):
                 temp = torch.empty(0).to(device)
                 for j in range(t):
-                    temp = torch.cat([temp, self.weight[i][j] * self.scale[t][i][j] * (random.random() > self.p) if self.training 
-                                    else self.weight[i][j] * self.scale[t][i][j]], dim=0)
+                    temp = torch.cat([temp, self.weight[i][j] * self.scale[t][i][j] 
+                                    * (torch.rand(self.weight[i][j].shape[0]).to(device) > self.p).view(self.view_in) 
+                                    if self.training else self.weight[i][j] * self.scale[t][i][j]], dim=0)
 
                 weight = torch.cat([weight, temp], dim=1)
                 fwt_weight = torch.cat([fwt_weight, self.weight[i][t]], dim=1)
@@ -178,9 +180,11 @@ class _DynamicLayer(nn.Module):
                 total_num = weight[0].numel() + bwt_weight[0].numel()
                 non_zero_num = (weight != 0).sum(self.dim_in) + bwt_weight[0].numel()
                 factor = total_num / non_zero_num
-                bwt_weight *= factor.view(self.view_in)
-            weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 
-                                torch.cat([fwt_weight, self.weight[t][t]], dim=1)], dim=0)
+            else:
+                factor = 1
+            
+            weight = torch.cat([weight, bwt_weight], dim=1) * factor.view(self.view_in)
+            weight = torch.cat([weight, torch.cat([fwt_weight, self.weight[t][t]], dim=1)], dim=0)
 
         if self.bias is not None:
             bias = self.bias[t]

@@ -379,8 +379,9 @@ class DynamicNorm(nn.Module):
         if self.affine:
             self.weight.append(nn.Parameter(torch.Tensor(self.num_features).uniform_(1,1)))
             self.bias.append(nn.Parameter(torch.Tensor(self.num_features).uniform_(0,0)))
-            self.weight[-2].requires_grad = False
-            self.bias[-2].requires_grad = False
+            if len(self.weight) > 2:
+                self.weight[-2].requires_grad = False
+                self.bias[-2].requires_grad = False
 
         if self.track_running_stats:
             self.running_mean.append(torch.zeros(self.num_features).to(device))

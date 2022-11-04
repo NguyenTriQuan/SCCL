@@ -131,11 +131,12 @@ class _DynamicLayer(nn.Module):
                                 torch.cat([self.fwt_weight[i], self.weight[i]], dim=1)], dim=0)
 
         # print(self.weight[t].shape, self.fwt_weight[t].shape, self.bwt_weight[t].shape)
+        weight = F.dropout(weight, self.p, self.training)
         weight = torch.cat([torch.cat([weight, self.bwt_weight[t]], dim=1),
                             torch.cat([self.fwt_weight[t], self.weight[t]], dim=1)], dim=0)
 
         bias = self.bias[t] if self.bias is not None else None
-        weight = F.dropout(weight, self.p, self.training)
+        # weight = F.dropout(weight, self.p, self.training)
         return weight, bias
 
     def squeeze(self, optim_state):

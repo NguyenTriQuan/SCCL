@@ -197,9 +197,9 @@ class Appr(object):
                 if squeeze:
                     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
                     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                    model_count, layers_count = self.model.count_params()
-                    if self.logger is not None:
-                        self.logger.log_metric('num params', model_count, epoch=e)
+                    # model_count, layers_count = self.model.count_params()
+                    # if self.logger is not None:
+                    #     self.logger.log_metric('num params', model_count, epoch=e)
                 else:
                     if valid_acc > best_acc:
                         best_acc = valid_acc
@@ -220,11 +220,11 @@ class Appr(object):
                             self.optimizer = self._get_optimizer(lr)
 
                 print()
-                if self.logger is not None:
-                    self.logger.log_metrics({
-                        'train acc':train_acc,
-                        'valid acc':valid_acc
-                    }, epoch=e)
+                # if self.logger is not None:
+                #     self.logger.log_metrics({
+                #         'train acc':train_acc,
+                #         'valid acc':valid_acc
+                #     }, epoch=e)
 
         except KeyboardInterrupt:
             print('KeyboardInterrupt')

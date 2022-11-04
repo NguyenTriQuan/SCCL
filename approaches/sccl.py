@@ -403,7 +403,7 @@ class Appr(object):
                         # if pre_prune_acc - post_prune_acc <= thres:
                             # k is satisfy, try smaller k
                             high = k
-                            pre_prune_loss = post_prune_loss
+                            # pre_prune_loss = post_prune_loss
                         else:
                             # k is not satisfy, try bigger k
                             low = k

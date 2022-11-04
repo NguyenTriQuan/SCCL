@@ -364,7 +364,7 @@ class Appr(object):
     def prune(self, t, data_loader, valid_transform, thres=0.0):
 
         loss,acc=self.eval(t,data_loader,valid_transform)
-        # loss, acc = round(loss, 3), round(acc, 3)
+        loss, acc = round(loss, 3), round(acc, 3)
         print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
         # pre_prune_acc = acc
         pre_prune_loss = loss
@@ -402,7 +402,7 @@ class Appr(object):
                         # Select top-k biggest norm
                         m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>values[k])], dim=0)
                         loss, acc = self.eval(t, data_loader, valid_transform)
-                        # loss, acc = round(loss, 3), round(acc, 3)
+                        loss, acc = round(loss, 3), round(acc, 3)
                         # post_prune_acc = acc
                         post_prune_loss = loss
                         if  post_prune_loss - pre_prune_loss <= thres:

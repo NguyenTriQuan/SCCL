@@ -50,6 +50,7 @@ class Appr(object):
         self.norm_type = args.norm_type
         self.ablation = args.ablation
         self.logger = None
+        self.thres = args.thres
 
         self.args = args
         self.lambs = [float(i) for i in args.lamb.split('_')]
@@ -59,8 +60,8 @@ class Appr(object):
             self.lambs = [self.lambs[-1] if i>=len(self.lambs) else self.lambs[i] for i in range(args.tasknum)]
 
         print('lambs:', self.lambs)
-        self.num_out = self.model.DM[-1].num_out
-        self.cur_task = len(self.num_out)-1
+        self.shape_out = self.model.DM[-1].shape_out
+        self.cur_task = len(self.shape_out)-2
         self.ce = torch.nn.CrossEntropyLoss()
 
         self.get_name(self.tasknum+1)
@@ -93,9 +94,9 @@ class Appr(object):
 
         params = self.model.get_optim_params()
         params = [{'params': params, 'lr':lr}]
-        if 'scale' not in self.ablation and self.lr_rho != 0:
-            scales = self.model.get_optim_scales(lr*self.lr_rho)
-            params += scales
+        # if 'scale' not in self.ablation and self.lr_rho != 0:
+        #     scales = self.model.get_optim_scales(lr*self.lr_rho)
+        #     params += scales
 
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
@@ -111,8 +112,8 @@ class Appr(object):
             print('Training new task')
             self.model.expand(ncla, self.ablation)
             self.model = self.model.to(device)
-            self.num_out = self.model.DM[-1].num_out
-            self.cur_task = len(self.num_out)-1
+            self.shape_out = self.model.DM[-1].shape_out
+            self.cur_task = len(self.shape_out)-2
 
             self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
@@ -128,8 +129,8 @@ class Appr(object):
 
         print(self.model.report())
         self.model = self.model.to(device)
-        self.num_out = self.model.DM[-1].num_out
-        self.cur_task = len(self.num_out)-1
+        self.shape_out = self.model.DM[-1].shape_out
+        self.cur_task = len(self.shape_out)-2
 
         self.lamb = self.lambs[self.cur_task]
         print('lambda', self.lamb)
@@ -140,6 +141,7 @@ class Appr(object):
             self.check_point = None
             return 
 
+        self.prune(t, train_loader, valid_transform, thres=self.thres)
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
@@ -157,10 +159,10 @@ class Appr(object):
         train_loss,train_acc=self.eval(t,train_loader,valid_transform)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
 
-        if 'ensemble' not in self.ablation:
-            valid_loss,valid_acc=self.eval_ensemble(t,valid_loader,valid_transform)
-        else:
-            valid_loss,valid_acc=self.eval(t,valid_loader,valid_transform)
+        # if 'ensemble' not in self.ablation:
+        #     valid_loss,valid_acc=self.eval_ensemble(t,valid_loader,valid_transform)
+        # else:
+        valid_loss,valid_acc=self.eval(t,valid_loader,valid_transform)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
         lr = self.check_point['lr']
@@ -186,10 +188,10 @@ class Appr(object):
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),train_loss,100*train_acc),end='')
 
-                if 'ensemble' not in self.ablation:
-                    valid_loss,valid_acc=self.eval_ensemble(t, valid_loader, valid_transform)
-                else:
-                    valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
+                # if 'ensemble' not in self.ablation:
+                #     valid_loss,valid_acc=self.eval_ensemble(t, valid_loader, valid_transform)
+                # else:
+                valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
                 if squeeze:
@@ -235,41 +237,37 @@ class Appr(object):
     def train_batch(self, t, images, targets, squeeze, lr):
         # if self.args.cil:
         #     targets -= sum(self.shape_out[:t])
-        targets += sum(self.num_out[:t])
-        if 'ensemble' not in self.ablation:
-            loss = 0
-            for i in range(t+1):
-                outputs = self.model.forward(images, t=i)
-                outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-                loss += self.ce(outputs, targets)
+        # if 'ensemble' not in self.ablation:
+        #     loss = 0
+        #     for i in range(t+1):
+        #         outputs = self.model.forward(images, t=i)
+        #         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+        #         loss += self.ce(outputs, targets)
 
-            # batch_size, n_channels, s, s = images.shape
-            # images = images.unsqueeze(0).expand(t, batch_size, n_channels, s, s)
-            # images = images.reshape(-1, n_channels, s, s)
-            # outputs = self.model.forward(images, t=t, assemble=True)
-            # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-            # targets = targets.unsqueeze(0).expand(t, batch_size)
-            # targets = targets.reshape(-1)
-            # loss = self.ce(outputs, targets)
-        else:
-            outputs = self.model.forward(images, t=t)
-            outputs = outputs
-            loss = self.ce(outputs, targets)
-        # if squeeze:
-        #     loss += self.lamb * self.model.group_lasso_reg()
+        #     # batch_size, n_channels, s, s = images.shape
+        #     # images = images.unsqueeze(0).expand(t, batch_size, n_channels, s, s)
+        #     # images = images.reshape(-1, n_channels, s, s)
+        #     # outputs = self.model.forward(images, t=t, assemble=True)
+        #     # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+        #     # targets = targets.unsqueeze(0).expand(t, batch_size)
+        #     # targets = targets.reshape(-1)
+        #     # loss = self.ce(outputs, targets)
+        # else:
+        outputs = self.model.forward(images, t=t)
+        loss = self.ce(outputs, targets)
+        if squeeze:
+            loss += self.lamb * self.model.group_lasso_reg()
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
-        if squeeze:
-            self.model.proximal_gradient_descent(lr, self.lamb)
+        # if squeeze:
+        #     self.model.proximal_gradient_descent(lr, self.lamb)
 
     def eval_batch(self, t, images, targets):
         if t is None:
             outputs = self.model.forward(images, t=self.cur_task)
         else:
-            targets += sum(self.num_out[:t])
             outputs = self.model.forward(images, t=t)
-            outputs = outputs
             # if self.args.cil:
             #     targets -= sum(self.shape_out[:t])
         loss=self.ce(outputs,targets)
@@ -315,8 +313,8 @@ class Appr(object):
                             
             self.train_batch(t, images, targets, squeeze, lr)
         
-        if squeeze:
-            self.model.squeeze(self.optimizer.state)
+        # if squeeze:
+        #     self.model.squeeze(self.optimizer.state)
 
 
     def eval(self, t, data_loader, valid_transform):
@@ -360,16 +358,16 @@ class Appr(object):
     def prune(self, t, data_loader, valid_transform, thres=0.0):
 
         loss,acc=self.eval(t,data_loader,valid_transform)
-        loss, acc = round(loss, 3), round(acc, 3)
+        # loss, acc = round(loss, 3), round(acc, 3)
         print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
         # pre_prune_acc = acc
         pre_prune_loss = loss
         prune_ratio = np.ones(len(self.model.DM)-1)
         step = 0
         pre_sum = 0
-        for i in range(0, len(self.model.DM)-1):
-            m = self.model.DM[i]
-            m.mask = torch.ones(m.shape_out[-1]-m.shape_out[-2]).bool().cuda()
+        # for i in range(0, len(self.model.DM)-1):
+        #     m = self.model.DM[i]
+        #     m.mask = torch.ones(m.shape_out[-1]-m.shape_out[-2]).bool().cuda()
         while True:
             t1 = time.time()
             # fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))
@@ -383,29 +381,29 @@ class Appr(object):
                 if m.mask is None:
                     high = norm.shape[0]
                 else:
-                    high = int(sum(m.mask))
+                    high = int(sum(m.mask)) - m.shape_out[-2]
 
                 # axs[i].hist(norm[m.mask].detach().cpu().numpy(), bins=100)
                 # axs[i].set_title(f'layer {i+1}')
                 if norm.shape[0] != 0:
                     values, indices = norm.sort(descending=True)
                     loss,acc=self.eval(t,data_loader,valid_transform)
-                    loss, acc = round(loss, 3), round(acc, 3)
+                    # loss, acc = round(loss, 3), round(acc, 3)
                     pre_prune_loss = loss
 
                     while True:
                         k = (high+low)//2
                         # Select top-k biggest norm
-                        m.mask = (norm>values[k])
+                        m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>values[k])], dim=0)
                         loss, acc = self.eval(t, data_loader, valid_transform)
-                        loss, acc = round(loss, 3), round(acc, 3)
+                        # loss, acc = round(loss, 3), round(acc, 3)
                         # post_prune_acc = acc
                         post_prune_loss = loss
-                        if  post_prune_loss <= pre_prune_loss:
-                        # if pre_prune_acc <= post_prune_acc:
+                        if  post_prune_loss - pre_prune_loss <= thres:
+                        # if pre_prune_acc - post_prune_acc <= thres:
                             # k is satisfy, try smaller k
                             high = k
-                            # pre_prune_loss = post_prune_loss
+                            pre_prune_loss = post_prune_loss
                         else:
                             # k is not satisfy, try bigger k
                             low = k
@@ -419,7 +417,7 @@ class Appr(object):
                     m.mask = mask_temp
                 else:
                     # found k = high is the smallest k satisfy
-                    m.mask = (norm>values[high])
+                    m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>values[high])], dim=0)
 
                 # remove neurons 
                 # m.squeeze()
@@ -427,8 +425,8 @@ class Appr(object):
                 if m.mask is None:
                     prune_ratio[i] = 0.0
                 else:
-                    mask_count = int(sum(m.mask))
-                    total_count = m.mask.numel()
+                    mask_count = int(sum(m.mask)) - m.shape_out[-2]
+                    total_count = m.mask.numel() - m.shape_out[-2]
                     prune_ratio[i] = 1.0 - mask_count/total_count
 
                 print('{:.3f}'.format(prune_ratio[i]), end=' ')
@@ -450,76 +448,4 @@ class Appr(object):
         print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
 
         self.model.count_params()
-
-    def get_grad(self, t, data_loader, valid_transform):
-        self.model.eval()
-
-        grad_sum = 0
-        num = 0
-        for images, targets in data_loader:
-            images=images.to(device)
-            targets=targets.to(device)
-            if valid_transform:
-                images = valid_transform(images)
-
-            for p in self.model.get_all_params():
-                p.grad = None
-            output = self.model.forward(images, t=t)
-            # mean = self.model.DM[-1].norm_layer.running_mean[t]
-            # var = self.model.DM[-1].norm_layer.running_var[t]
-            # output = (output - mean.view(1,-1)) / torch.sqrt(var.view(1,-1))
-            output = output[:, self.shape_out[t-1]:self.shape_out[t]]
-            loss = torch.sum(output.norm(2, dim=1))
-            # loss = entropy(output).sum()
-            loss.backward()
-            for p in self.model.get_all_params():
-                if p.grad is not None:
-                    if p.grad.numel() != 0:
-                        grad_sum += p.grad.data.abs().sum().item()
-            num += len(targets)
-        self.grad_sum.append(grad_sum/num)
-        print(self.grad_sum)
-
-
-    def test(self, data_loader, valid_transform):
-        total_acc=0
-        total_num=0
-        self.model.eval()
-
-        for images, targets in data_loader:
-            images=images.to(device)
-            targets=targets.to(device)
-            if valid_transform:
-                images = valid_transform(images)
-
-            grad_sums = []
-            outputs = []
-            for t in range(1, self.cur_task+1):
-                self.model.zero_grad()
-                # for p in self.model.get_optim_params(t, self.ablation):
-                #     p.grad = None
-                output = self.model.forward(images, t=t)
-                output = output[:, self.shape_out[t-1]:self.shape_out[t]]
-                outputs.append(output)
-                loss = torch.sum(output.norm(2, dim = -1))
-                loss.backward()
-                grad_sum = 0
-                # for p in self.model.get_optim_params(t, self.ablation):
-                #     if p.grad is not None:
-                #         if p.grad.numel() != 0:
-                #             grad_sum += p.grad.data.abs().mean().item()
-
-                for p in [self.model.DM[-1].weight[t], self.model.DM[-1].fwt_weight[t]]:
-                    if p.grad is not None:
-                        if p.grad.numel() != 0:
-                            grad_sum += p.grad.data.abs()
-                grad_sums.append(grad_sum)
-            # print(grad_sums, np.argmax(grad_sums))
-            outputs = outputs[np.argmax(grad_sums)]
-            values,indices=outputs.max(1)
-            hits=(indices==targets).float()
-            hits = hits.sum().data.cpu().numpy()
-            total_acc += hits
-            total_num += len(targets)
-
-        print(total_acc/total_num)
+        print()

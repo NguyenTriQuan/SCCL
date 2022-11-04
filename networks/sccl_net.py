@@ -9,7 +9,8 @@ from torch.distributions import Bernoulli, LogNormal
 import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
-from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+# from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.sccl_layer_wbf import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys
@@ -57,13 +58,13 @@ class _DynamicModel(nn.Module):
             m.squeeze(optim_state)
             self.total_strength += m.strength
 
-    def forward(self, input, t=-1, ensemble=False):
+    def forward(self, input, t=-1):
         if t == -1:
-            t = len(self.DM[-1].num_out)-1
+            t = len(self.DM[-1].shape_out)-2
 
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
-                input = module(input, t, ensemble)
+                input = module(input, t)
             else:
                 input = module(input)
 
@@ -71,7 +72,7 @@ class _DynamicModel(nn.Module):
 
     def count_params(self, t=-1):
         if t == -1:
-            t = len(self.DM[-1].num_out)-1
+            t = len(self.DM[-1].shape_out)-2
         model_count = 0
         layers_count = []
         print('num neurons:', end=' ')
@@ -89,6 +90,12 @@ class _DynamicModel(nn.Module):
         for m in self.DM[:-1]:
             m.proximal_gradient_descent(lr, lamb, self.total_strength)
 
+    def group_lasso_reg(self):
+        reg = 0
+        for m in self.DM[:-1]:
+            reg += m.get_reg()
+        return reg / self.total_strength
+    
     def report(self):
         for m in self.DM:
             print(m.__class__.__name__, m.in_features, m.out_features)
@@ -321,11 +328,13 @@ class BasicBlock(_DynamicModel):
                                stride=1, padding=1, bias=False, norm_type=norm_type)
         ])
 
-        if stride != 1 or in_planes != self.expansion*planes:
-            self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
-                            kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
-        else:
-            self.shortcut = None
+        # if stride != 1 or in_planes != self.expansion*planes:
+        #     self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
+        #                     kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
+        # else:
+        #     self.shortcut = None
+        self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
+                        kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):
@@ -366,11 +375,13 @@ class Bottleneck(_DynamicModel):
                                 kernel_size=1, bias=False, norm_type=norm_type)
         ])
 
-        if stride != 1 or in_planes != self.expansion*planes:
-            self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
-                          kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
-        else:
-            self.shortcut = None
+        # if stride != 1 or in_planes != self.expansion*planes:
+        #     self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
+        #                   kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
+        # else:
+        #     self.shortcut = None
+        self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
+                        kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
 
         self.DM = [m for m in self.layers if isinstance(m, _DynamicLayer)]
         for i, m in enumerate(self.DM[:-1]):

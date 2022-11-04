@@ -499,12 +499,14 @@ class DynamicNorm(nn.Module):
 
         if len(input.shape) == 4:
             mean = input.mean([0, 2, 3])
-            var = input.var([0, 2, 3], unbiased=False)
+            # var = input.var([0, 2, 3], unbiased=False)
             shape = (1, -1, 1, 1)
+            var = ((input - mean.view(shape)) ** 2).mean([0, 2, 3])
         else:
             mean = input.mean([0])
-            var = input.var([0], unbiased=False)
+            # var = input.var([0], unbiased=False)
             shape = (1, -1)
+            var = ((input - mean.view(shape)) ** 2).mean([0])
 
         # calculate running estimates
         if bn_training:
@@ -520,7 +522,11 @@ class DynamicNorm(nn.Module):
             mean = self.running_mean[t]
             var = self.running_var[t]
 
-        return (input - mean.view(shape)) / (torch.sqrt(var.view(shape) + self.eps))
+        if 'res' in self.norm_type:
+            return input / (torch.sqrt(var.view(shape) + self.eps))
+        else:
+            return (input - mean.view(shape)) / (torch.sqrt(var.view(shape) + self.eps))
+
 
     def layer_norm(self, input):
         if len(input.shape) == 4:
@@ -543,12 +549,11 @@ class DynamicNorm(nn.Module):
         return input / norm
 
     def forward(self, input, t=-1, dropout=0.0):
-
-        # output = self.batch_norm(input, t) + self.layer_norm(input)
-        if 'res' in self.norm_type:
-            output = self.batch_norm(input, t) + input
-        else:
-            output = self.batch_norm(input, t)
+        output = self.batch_norm(input, t)
+        # if 'res' in self.norm_type:
+        #     output = self.batch_norm(input, t) + input
+        # else:
+        #     output = self.batch_norm(input, t)
 
         if self.affine:
             weight = self.weight[t]

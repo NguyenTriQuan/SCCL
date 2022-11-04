@@ -70,7 +70,7 @@ def get_args():
     parser.add_argument('--output', default='', type=str, required=False, help='(default=%(default)s)')
     parser.add_argument('--nepochs', default=100, type=int, required=False, help='(default=%(default)d)')
     parser.add_argument('--mul', default=1.0, type=float, required=False, help='(default=%(default)d)')
-    parser.add_argument('--thres', default=0.0, type=float, required=False, help='(default=%(default)d)')
+    parser.add_argument('--thres', default=0, type=float, required=False, help='(default=%(default)d)')
     parser.add_argument('--batch_size', default=256, type=int, required=False, help='(default=%(default)d)')
     parser.add_argument('--val_batch_size', default=256, type=int, required=False, help='(default=%(default)d)')
     parser.add_argument('--lr', default=0.001, type=float, required=False, help='(default=%(default)f)')

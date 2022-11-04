@@ -69,7 +69,7 @@ class Appr(object):
     def get_name(self, t):
         self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(
                                         self.experiment, self.approach, self.ablation, self.arch, self.seed,
-                                                '_'.join([str(lamb) for lamb in self.lambs[:t]]), 
+                                                '_'.join([str(lamb) for lamb in self.lambs[:t+1]]), 
                                     self.lr, self.batch_size, self.nepochs, self.optim, self.fix, self.norm_type)
         
     def resume(self):
@@ -387,9 +387,9 @@ class Appr(object):
                 # axs[i].set_title(f'layer {i+1}')
                 if norm.shape[0] != 0:
                     values, indices = norm.sort(descending=True)
-                    loss,acc=self.eval(t,data_loader,valid_transform)
-                    # loss, acc = round(loss, 3), round(acc, 3)
-                    pre_prune_loss = loss
+                    # loss,acc=self.eval(t,data_loader,valid_transform)
+                    # # loss, acc = round(loss, 3), round(acc, 3)
+                    # pre_prune_loss = loss
 
                     while True:
                         k = (high+low)//2
@@ -434,15 +434,19 @@ class Appr(object):
 
             # fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
             # plt.show()
+            self.model.squeeze(self.optimizer.state)
             loss,acc=self.eval(t,data_loader,valid_transform)
             print('| Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
+            # pre_prune_loss = loss
 
             step += 1
-            if sum(prune_ratio) == pre_sum:
+            # if sum(prune_ratio) == pre_sum:
+            #     break
+            if sum(prune_ratio) == 0:
                 break
             pre_sum = sum(prune_ratio)
 
-        self.model.squeeze(self.optimizer.state)
+        # self.model.squeeze(self.optimizer.state)
 
         loss,acc=self.eval(t,data_loader,valid_transform)
         print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))

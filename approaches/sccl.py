@@ -18,6 +18,8 @@ from utils import *
 import networks.sccl_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+from sklearn.utils import shuffle
+from torch.utils.data import  TensorDataset, DataLoader
 # from pykeops.torch import LazyTensor
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -141,7 +143,7 @@ class Appr(object):
             self.check_point = None
             return 
 
-        self.fast_prune(t, train_loader, valid_transform, thres=self.thres)
+        self.prune(t, train_loader, valid_transform, thres=self.thres)
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
@@ -363,110 +365,51 @@ class Appr(object):
                 
         return total_loss/total_num,total_acc/total_num
 
+
     def prune(self, t, data_loader, valid_transform, thres=0.0):
-
-        loss,acc=self.eval(t,data_loader,valid_transform)
-        loss, acc = round(loss, 3), round(acc, 3)
-        print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
-        # pre_prune_acc = acc
-        pre_prune_loss = loss
-        prune_ratio = np.ones(len(self.model.DM)-1)
-        step = 0
-        pre_sum = 0
-        # for i in range(0, len(self.model.DM)-1):
-        #     m = self.model.DM[i]
-        #     m.mask = torch.ones(m.shape_out[-1]-m.shape_out[-2]).bool().cuda()
-
+        self.model.eval()
+        data, label = data_loader.dataset.tensors
         masks = [torch.ones(m.shape_out[-1], dtype=bool, device=device) for m in self.model.DM[:-1]]
-        while True:
-            t1 = time.time()
-            # fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))
-            print('Pruning ratio:', end=' ')
-            for i in range(len(self.model.DM)-1):
-                m = self.model.DM[i]
-                m.mask = masks[i]
-                norm = m.get_importance()
 
-                low = 0 
-                if m.mask is None:
-                    high = norm.shape[0]
-                else:
-                    high = int(sum(m.mask)) - m.shape_out[-2]
+        data_loader = DataLoader(TensorDataset(data, label), batch_size=self.val_batch_size, shuffle=False)
+        loss, acc = self.eval(t, data_loader, valid_transform)
+        pre_acc = acc
+        t1 = time.time()
+        for i, m in enumerate(self.model.DM[:-1]):
+            norm = m.get_importance()
+            low = 0 
+            high = m.shape_out[-1] - m.shape_out[-2]
+            if norm.shape[0] != 0:
+                v, _ = norm.sort(descending=True)
+                while True:
+                    k = (high+low)//2
+                    # Select top-k biggest norm
+                    m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>v[k])], dim=0)
+                    loss, acc = self.eval(t, data_loader, valid_transform)
+                    post_acc = acc
+                    if  pre_acc - post_acc <= thres:
+                        # k is satisfy, try smaller k
+                        high = k
+                    else:
+                        # k is not satisfy, try bigger k
+                        low = k
+                    if k == (high+low)//2:
+                        break
+            if high != norm.shape[0]:
+                # found k = high is the smallest k satisfy
+                m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>v[high])], dim=0)
+                masks[i] = m.mask
+            m.mask = None
 
-                # axs[i].hist(norm[m.mask].detach().cpu().numpy(), bins=100)
-                # axs[i].set_title(f'layer {i+1}')
-                if norm.shape[0] != 0:
-                    values, indices = norm.sort(descending=True)
-                    # loss,acc=self.eval(t,data_loader,valid_transform)
-                    # # loss, acc = round(loss, 3), round(acc, 3)
-                    # pre_prune_loss = loss
-
-                    while True:
-                        k = (high+low)//2
-                        # Select top-k biggest norm
-                        m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>values[k])], dim=0)
-                        loss, acc = self.eval(t, data_loader, valid_transform)
-                        loss, acc = round(loss, 3), round(acc, 3)
-                        # post_prune_acc = acc
-                        post_prune_loss = loss
-                        if  post_prune_loss - pre_prune_loss <= thres:
-                        # if pre_prune_acc - post_prune_acc <= thres:
-                            # k is satisfy, try smaller k
-                            high = k
-                            # pre_prune_loss = post_prune_loss
-                        else:
-                            # k is not satisfy, try bigger k
-                            low = k
-
-                        if k == (high+low)//2:
-                            break
-
-
-                if high == norm.shape[0]:
-                    # not found any k satisfy, keep all neurons
-                    m.mask = masks[i]
-                else:
-                    # found k = high is the smallest k satisfy
-                    m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>values[high])], dim=0)
-                    masks[i] = m.mask
-
-                if m.mask is None:
-                    prune_ratio[i] = 0.0
-                else:
-                    mask_count = int(sum(m.mask)) - m.shape_out[-2]
-                    total_count = m.mask.numel() - m.shape_out[-2]
-                    prune_ratio[i] = 1.0 - mask_count/total_count
-
-                print('{:.3f}'.format(prune_ratio[i]), end=' ')
-                m.mask = None
-
-            # fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
-            # plt.show()
-            for i, m in enumerate(self.model.DM[:-1]):
-                m.mask = masks[i]
-            self.model.squeeze(self.optimizer.state)
-            masks = [None for i in range(len(self.model.DM)-1)]
-            self.model.count_params()
-            loss,acc=self.eval(t,data_loader,valid_transform)
-            print('Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
-            loss, acc = round(loss, 3), round(acc, 3)
-            pre_prune_loss = loss
-
-            step += 1
-            # if sum(prune_ratio) == pre_sum:
-            #     break
-            break
-            if sum(prune_ratio) == 0:
-                break
-            pre_sum = sum(prune_ratio)
-
-        # self.model.squeeze(self.optimizer.state)
-
-        loss,acc=self.eval(t,data_loader,valid_transform)
-        print('Post Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss,100*acc))
-
-        self.model.count_params()
+        print('num mask:', end=' ')
+        for i, m in enumerate(self.model.DM[:-1]):
+            m.mask = masks[i]
+            print(m.mask.sum().item()-m.shape_out[-2], end=' ')
         print()
+        self.model.squeeze(self.optimizer.state)
+        self.model.count_params()
+        loss,acc=self.eval(t,data_loader,valid_transform)
+        print('Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
 
     def fast_prune(self, t, data_loader, valid_transform, thres=0.0):
         self.model.eval()

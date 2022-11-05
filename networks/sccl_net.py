@@ -416,8 +416,8 @@ class ResNet(_DynamicModel):
         super(ResNet, self).__init__()
         n_channels, in_size, _ = input_size
         s_mid = 1
-        if in_size == 84:
-            s_mid = 2
+        # if in_size == 84:
+        #     s_mid = 2
 
         self.in_planes = nf
 
@@ -427,7 +427,7 @@ class ResNet(_DynamicModel):
         self.blocks += self._make_layer(block, nf*2, num_blocks[1], stride=2, norm_type=norm_type)
         self.blocks += self._make_layer(block, nf*4, num_blocks[2], stride=2, norm_type=norm_type)
         self.blocks += self._make_layer(block, nf*8, num_blocks[3], stride=2, norm_type=norm_type)
-        self.linear = DynamicLinear(nf*8*block.expansion, 0, last_layer=True, s=s_mid)
+        self.linear = DynamicLinear(nf*8*block.expansion*s_mid*s_mid, 0, last_layer=True, s=s_mid)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]

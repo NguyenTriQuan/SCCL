@@ -252,3 +252,4 @@ def vgg19(inputsize,taskcla,mul=1):
 def vgg19_bn(inputsize,taskcla,mul=1):
     """VGG 19-layer model (configuration 'E') with batch normalization"""
     return VGG(inputsize,taskcla, cfg['D'], batch_norm=True)
+

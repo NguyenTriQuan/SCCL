@@ -374,7 +374,7 @@ class Appr(object):
         data_loader = DataLoader(TensorDataset(data, label), batch_size=self.val_batch_size, shuffle=False)
         loss, acc = self.eval(t, data_loader, valid_transform)
         pre_acc = acc
-        print('Pre Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
+        print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss, 100*acc))
         t1 = time.time()
         for i, m in enumerate(self.model.DM[:-1]):
             norm = m.get_importance()

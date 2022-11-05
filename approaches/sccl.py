@@ -470,53 +470,48 @@ class Appr(object):
 
     def fast_prune(self, t, data_loader, valid_transform, thres=0.0):
         self.model.eval()
-        data, label = data_loader.dataset.tensors
+        images, targets = data_loader.dataset.tensors
         masks = [torch.zeros(m.shape_out[-1], dtype=bool, device=device) for m in self.model.DM[:-1]]
-        for n in range(0, len(label), self.val_batch_size):
-            self.model.set_track(True)
-            for i, m in enumerate(self.model.DM[:-1]):
-                m.mask = torch.ones(m.shape_out[-1], dtype=bool, device=device)
-            if n + self.val_batch_size <= len(label):
-                images = data[n: n+self.val_batch_size].to(device)
-                targets = label[n: n+self.val_batch_size].to(device)
-            else:
-                images = data[n:].to(device)
-                targets = label[n:].to(device)
-            if valid_transform:
-                images = valid_transform(images)
+        self.model.set_track(True)
+        for i, m in enumerate(self.model.DM[:-1]):
+            m.mask = torch.ones(m.shape_out[-1], dtype=bool, device=device)
 
-            outputs = self.model.forward(images, t=t)
-            values,indices=outputs.max(1)
-            hits=(indices==targets).sum().item()
-            pre_hits = hits
-            t1 = time.time()
-            for i, m in enumerate(self.model.DM[:-1]):
-                norm = m.get_importance()
-                low = 0 
-                high = m.shape_out[-1] - m.shape_out[-2]
-                if norm.shape[0] != 0:
-                    v, _ = norm.sort(descending=True)
-                    while True:
-                        k = (high+low)//2
-                        # Select top-k biggest norm
-                        m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>v[k])], dim=0)
-                        outputs = self.model.forward(images, t=t)
-                        values,indices=outputs.max(1)
-                        hits=(indices==targets).sum().item()
-                        post_hits = hits
-                        if  pre_hits - post_hits <= thres:
-                            # k is satisfy, try smaller k
-                            high = k
-                        else:
-                            # k is not satisfy, try bigger k
-                            low = k
-                        if k == (high+low)//2:
-                            break
-                if high != norm.shape[0]:
-                    # found k = high is the smallest k satisfy
-                    m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>v[high])], dim=0)
-                    masks[i] += m.mask
-                m.mask = None
+        images = images.to(device)
+        targets = targets.to(device)
+        if valid_transform:
+            images = valid_transform(images)
+        outputs = self.model.forward(images, t=t)
+        values,indices=outputs.max(1)
+        hits=(indices==targets).sum().item()
+        pre_hits = hits
+        t1 = time.time()
+        for i, m in enumerate(self.model.DM[:-1]):
+            norm = m.get_importance()
+            low = 0 
+            high = m.shape_out[-1] - m.shape_out[-2]
+            if norm.shape[0] != 0:
+                v, _ = norm.sort(descending=True)
+                while True:
+                    k = (high+low)//2
+                    # Select top-k biggest norm
+                    m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>v[k])], dim=0)
+                    outputs = self.model.forward(images, t=t)
+                    values,indices=outputs.max(1)
+                    hits=(indices==targets).sum().item()
+                    post_hits = hits
+                    if  pre_hits - post_hits <= thres:
+                        # k is satisfy, try smaller k
+                        high = k
+                    else:
+                        # k is not satisfy, try bigger k
+                        low = k
+                    if k == (high+low)//2:
+                        break
+            if high != norm.shape[0]:
+                # found k = high is the smallest k satisfy
+                m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>v[high])], dim=0)
+                masks[i] += m.mask
+            m.mask = None
 
         self.model.set_track(False)
         print('num mask:', end=' ')

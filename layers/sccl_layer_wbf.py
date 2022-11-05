@@ -202,7 +202,7 @@ class _DynamicLayer(nn.Module):
         for m in self.next_layers:
             strength_out = m.weight[-1].numel() + m.bwt_weight[-1].numel()
             self.strength_out.append(strength_out)
-        self.strength_out = max(self.strength_out)
+        self.strength_out = sum(self.strength_out)
 
         self.strength = (self.strength_in + self.strength_out)
 
@@ -267,7 +267,8 @@ class _DynamicLayer(nn.Module):
     def get_reg(self):
         reg = 0
         reg += self.norm_in().sum() * self.strength_in
-        reg += self.norm_out().sum() * self.strength_out
+        for n in range(len(self.next_layers)):
+            reg += self.norm_out(n).sum() * self.strength_out
             
         if self.norm_layer:
             if self.norm_layer.affine:
@@ -277,7 +278,11 @@ class _DynamicLayer(nn.Module):
 
     def get_importance(self):
         norm = self.norm_in() 
-        norm *= self.norm_out()
+        if len(self.next_layers) != 0:
+            norm_out = 0
+            for n in range(len(self.next_layers)):
+                norm_out += self.norm_out(n)
+            norm *= norm_out
         if self.norm_layer:
             if self.norm_layer.affine:
                 norm *= self.norm_layer.norm()

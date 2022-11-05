@@ -441,8 +441,9 @@ class Appr(object):
             # fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
             # plt.show()
             self.model.squeeze(self.optimizer.state)
+            self.model.count_params()
             loss,acc=self.eval(t,data_loader,valid_transform)
-            print('| Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
+            print('Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
             loss, acc = round(loss, 3), round(acc, 3)
             pre_prune_loss = loss
 

@@ -75,14 +75,14 @@ class _DynamicModel(nn.Module):
             t = len(self.DM[-1].shape_out)-2
         model_count = 0
         layers_count = []
-        print('num neurons:', end=' ')
+        print('| num neurons:', end=' ')
         for m in self.DM:
             print(m.out_features, end=' ')
             count = m.count_params(t)
             model_count += count
             layers_count.append(count)
 
-        print('|num params:', model_count, end=' | ')
+        print('| num params:', model_count, end=' |')
 
         return model_count, layers_count
 

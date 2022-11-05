@@ -194,10 +194,7 @@ class _DynamicLayer(nn.Module):
                 m.shape_in[-1] = m.in_features
   
             self.mask = None
-
-        self.strength_in = self.weight[-1].data.numel() + self.fwt_weight[-1].data.numel()
-        self.strength_out = self.next_layers[0].weight[-1].data.numel() + self.next_layers[0].bwt_weight[-1].data.numel()
-        self.strength = (self.strength_in + self.strength_out)
+            self.get_reg_strength()
 
     def get_reg_strength(self):
         self.strength_in = self.weight[-1].numel() + self.fwt_weight[-1].numel()
@@ -274,7 +271,7 @@ class _DynamicLayer(nn.Module):
             
         if self.norm_layer:
             if self.norm_layer.affine:
-                reg += self.norm_layer.norm().sum() * self.strength
+                reg += self.norm_layer.norm().sum() * self.strength_in
 
         return reg
 

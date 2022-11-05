@@ -62,12 +62,12 @@ def get(args, pc_valid=0.10):
     data={}
     taskcla=[]
     size=[3, 84, 84]
-    task_order=shuffle(np.arange(20),random_state=args.seed)
+    task_order=shuffle(np.arange(10),random_state=args.seed)
     print('Task order =',task_order+1)
     mean = torch.tensor([0.485, 0.456, 0.406])
     std = torch.tensor([0.229, 0.224, 0.225])
-    if args.tasknum > 20:
-        tasknum = 20
+    if args.tasknum > 10:
+        tasknum = 10
     else:
         tasknum = args.tasknum
     # CIFAR100    
@@ -84,33 +84,33 @@ def get(args, pc_valid=0.10):
     for t in range(tasknum):
         data[t]={}
         data[t]['name']='mini_imagenet-'+str(task_order[t]+1)
-        data[t]['ncla']=5
+        data[t]['ncla']=10
         #train and valid
-        ids = (train_targets//5 == task_order[t])
+        ids = (train_targets//10 == task_order[t])
         images = train_data[ids]
-        labels = train_targets[ids]%5 
+        labels = train_targets[ids]%10 
         if args.cil:
             labels += n_old
 
-        # r=np.arange(images.size(0))
-        # r=np.array(shuffle(r,random_state=args.seed),dtype=int)
-        # nvalid=int(pc_valid*len(r))
-        # ivalid=torch.LongTensor(r[:nvalid])
-        # itrain=torch.LongTensor(r[nvalid:])
-        # data[t]['train_loader'] = DataLoader(TensorDataset(images[itrain], labels[itrain]), batch_size=args.batch_size, shuffle=True)
-        # data[t]['valid_loader'] = DataLoader(TensorDataset(images[ivalid], labels[ivalid]), batch_size=args.val_batch_size, shuffle=False)
+        r=np.arange(images.size(0))
+        r=np.array(shuffle(r,random_state=args.seed),dtype=int)
+        nvalid=int(pc_valid*len(r))
+        ivalid=torch.LongTensor(r[:nvalid])
+        itrain=torch.LongTensor(r[nvalid:])
+        data[t]['train_loader'] = DataLoader(TensorDataset(images[itrain], labels[itrain]), batch_size=args.batch_size, shuffle=True)
+        data[t]['valid_loader'] = DataLoader(TensorDataset(images[ivalid], labels[ivalid]), batch_size=args.val_batch_size, shuffle=False)
 
-        data[t]['train_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.batch_size, shuffle=True)
+        # data[t]['train_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.batch_size, shuffle=True)
 
         #test
-        ids = (test_targets//5 == task_order[t])
+        ids = (test_targets//10 == task_order[t])
         images = test_data[ids]
-        labels = test_targets[ids]%5
+        labels = test_targets[ids]%10
         if args.cil:
             labels += n_old
         data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.val_batch_size, shuffle=False)
 
-        n_old += 5
+        n_old += 10
 
     if args.augment:
         data['train_transform'] = torch.nn.Sequential(

@@ -201,7 +201,7 @@ class Appr(object):
                     #     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
                     #     patience = self.lr_patience
                     #     print(' *', end='')
-                    
+
                     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
                     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
@@ -376,13 +376,15 @@ class Appr(object):
         # for i in range(0, len(self.model.DM)-1):
         #     m = self.model.DM[i]
         #     m.mask = torch.ones(m.shape_out[-1]-m.shape_out[-2]).bool().cuda()
+
+        masks = [None for i in range(len(self.model.DM)-1)]
         while True:
             t1 = time.time()
             # fig, axs = plt.subplots(1, len(self.model.DM)-1, figsize=(3*len(self.model.DM)-3, 2))
             print('Pruning ratio:', end=' ')
-            for i in range(0, len(self.model.DM)-1):
+            for i in range(len(self.model.DM)-1):
                 m = self.model.DM[i]
-                mask_temp = m.mask
+                m.mask = masks[i]
                 norm = m.get_importance()
 
                 low = 0 
@@ -422,13 +424,11 @@ class Appr(object):
 
                 if high == norm.shape[0]:
                     # not found any k satisfy, keep all neurons
-                    m.mask = mask_temp
+                    m.mask = masks[i]
                 else:
                     # found k = high is the smallest k satisfy
                     m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>values[high])], dim=0)
-
-                # remove neurons 
-                # m.squeeze()
+                    masks[i] = m.mask
 
                 if m.mask is None:
                     prune_ratio[i] = 0.0
@@ -438,11 +438,14 @@ class Appr(object):
                     prune_ratio[i] = 1.0 - mask_count/total_count
 
                 print('{:.3f}'.format(prune_ratio[i]), end=' ')
-                # m.mask = None
+                m.mask = None
 
             # fig.savefig(f'../result_data/images/{self.log_name}_task{t}_step_{step}.pdf', bbox_inches='tight')
             # plt.show()
+            for i, m in enumerate(self.model.DM[:-1]):
+                m.mask = masks[i]
             self.model.squeeze(self.optimizer.state)
+            masks = [None for i in range(len(self.model.DM)-1)]
             self.model.count_params()
             loss,acc=self.eval(t,data_loader,valid_transform)
             print('Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))

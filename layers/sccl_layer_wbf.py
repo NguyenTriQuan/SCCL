@@ -62,8 +62,13 @@ class _DynamicLayer(nn.Module):
         self.mask = None
         
         self.cur_task = -1
+        self.track = False
+        self.out_tracked = None
 
-    def forward(self, x, t):            
+    def forward(self, x, t): 
+        if self.out_tracked is not None:
+            return self.out_tracked
+
         weight, bias = self.get_parameters(t)
 
         if weight.numel() == 0:
@@ -81,6 +86,8 @@ class _DynamicLayer(nn.Module):
 
         if self.mask is not None:
             output *= self.mask.view(view)
+        elif self.track:
+            self.out_tracked = output
         return output
 
     def norm_in(self):

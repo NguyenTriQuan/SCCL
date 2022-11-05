@@ -95,6 +95,11 @@ class _DynamicModel(nn.Module):
         for m in self.DM[:-1]:
             reg += m.get_reg()
         return reg / self.total_strength
+
+    def set_track(self, track):
+        for m in self.DM[:-1]:
+            m.track = track
+            m.out_tracked = None
     
     def report(self):
         for m in self.DM:
@@ -459,16 +464,24 @@ class ResNet(_DynamicModel):
     def squeeze(self, optim_state):
         if self.conv1.mask is None:
             return
-        share_mask = self.conv1.mask
+        # share_mask = self.conv1.mask
+
+        # for i, block in enumerate(self.blocks):
+        #     if block.shortcut:
+        #         share_mask = block.shortcut.mask
+                            
+        #     share_mask += block.layers[-1].mask
+        #     block.layers[-1].mask = share_mask
 
         for i, block in enumerate(self.blocks):
-            if block.shortcut:
-                share_mask = block.shortcut.mask
-                            
-            if share_mask is not None and block.layers[-1].mask is not None:
-                share_mask += block.layers[-1].mask
+            # if block.shortcut.mask is None:
+            #     share_mask = block.shortcut.mask
+            # elif block.layers[-1].mask is None:
+            #     share_mask = block.layers[-1].mask
+            # else:
+            share_mask = block.shortcut.mask + block.layers[-1].mask
+            block.shortcut.mask = share_mask
             block.layers[-1].mask = share_mask
-
         self.total_strength = 1
         for m in self.DM[:-1]:
             m.squeeze(optim_state)

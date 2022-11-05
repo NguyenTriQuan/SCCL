@@ -465,7 +465,8 @@ class ResNet(_DynamicModel):
             if block.shortcut:
                 share_mask = block.shortcut.mask
                             
-            share_mask += block.layers[-1].mask
+            if share_mask is not None and block.layers[-1].mask is not None:
+                share_mask += block.layers[-1].mask
             block.layers[-1].mask = share_mask
 
         self.total_strength = 1

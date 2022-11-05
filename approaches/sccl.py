@@ -504,7 +504,7 @@ class Appr(object):
                         values,indices=outputs.max(1)
                         hits=(indices==targets).sum().item()
                         post_hits = hits
-                        if  post_hits - pre_hits >= thres:
+                        if  pre_hits - post_hits <= thres:
                             # k is satisfy, try smaller k
                             high = k
                         else:

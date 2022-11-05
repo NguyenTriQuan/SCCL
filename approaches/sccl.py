@@ -443,7 +443,8 @@ class Appr(object):
             self.model.squeeze(self.optimizer.state)
             loss,acc=self.eval(t,data_loader,valid_transform)
             print('| Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
-            # pre_prune_loss = loss
+            loss, acc = round(loss, 3), round(acc, 3)
+            pre_prune_loss = loss
 
             step += 1
             # if sum(prune_ratio) == pre_sum:

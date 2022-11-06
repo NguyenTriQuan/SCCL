@@ -75,20 +75,20 @@ class _DynamicLayer(nn.Module):
             return None
 
         if isinstance(self, DynamicLinear):
-            output = F.linear(x, weight, bias)
+            x = F.linear(x, weight, bias)
             view = (1, -1)
         else:
-            output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
+            x = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
             view = (1, -1, 1, 1)
 
         if self.norm_layer is not None:
-            output = self.norm_layer(output, t)
+            x = self.norm_layer(x, t)
 
         if self.mask is not None:
-            output *= self.mask.view(view)
+            x *= self.mask.view(view)
         elif self.track:
-            self.out_tracked = output
-        return output
+            self.out_tracked = x
+        return x
 
     def norm_in(self):
         weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)

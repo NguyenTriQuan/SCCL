@@ -166,14 +166,20 @@ class _DynamicLayer(nn.Module):
 
 
         if self.mask is not None:
-            mask_out = self.mask[self.shape_out[-2]:]
+            if args.prune_method == 'pgd':
+                mask_out = self.mask
+            else:
+                mask_out = self.mask[self.shape_out[-2]:]
             apply_mask_out(self.weight[-1], mask_out)
             apply_mask_out(self.fwt_weight[-1], mask_out)
 
             self.out_features = self.shape_out[-2] + self.weight[-1].shape[0]
             self.shape_out[-1] = self.out_features
 
-            mask = self.mask
+            if args.prune_method == 'pgd':
+                mask = torch.cat([torch.ones(self.shape_out[-2], dtype=bool, device=device), self.mask])
+            else:
+                mask = self.mask
 
             if self.bias is not None:
                 apply_mask_out(self.bias[-1], mask)
@@ -191,7 +197,10 @@ class _DynamicLayer(nn.Module):
                 self.norm_layer.shape[-1] = self.out_features
 
             for m in self.next_layers:
-                mask_in = self.mask[self.shape_out[-2]:]
+                if args.prune_method == 'pgd':
+                    mask_in = self.mask
+                else:
+                    mask_in = self.mask[self.shape_out[-2]:]
                 if isinstance(m, DynamicLinear) and isinstance(self, DynamicConv2D):
                     mask_in = mask_in.view(-1,1,1).expand(mask_in.size(0),m.s,m.s).contiguous().view(-1)
 

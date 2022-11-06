@@ -290,7 +290,7 @@ class _DynamicLayer(nn.Module):
             self.out_features = sum(self.num_out)
             self.shape_out[-1] = self.out_features
 
-            mask = torch.ones(sum(self.num_out[:-1])).bool().to(device)
+            mask = torch.ones(self.shape_out[-2], dtype=bool, device=device)
             mask = torch.cat([mask, mask_out])
 
             if self.bias is not None:

@@ -279,7 +279,7 @@ class _DynamicLayer(nn.Module):
             
         if self.norm_layer:
             if self.norm_layer.affine:
-                reg += self.norm_layer.norm().sum() * self.strength_in
+                reg += self.norm_layer.norm().sum() * self.strength
 
         return reg
 

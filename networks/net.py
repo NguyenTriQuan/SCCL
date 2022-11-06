@@ -164,17 +164,17 @@ class VGG(nn.Module):
         self.layers += nn.ModuleList([
             nn.Flatten(),
             # nn.Dropout(),
-            nn.Linear(512*self.smid*self.smid, 4096),
+            nn.Linear(512//2*self.smid*self.smid, 4096//2),
             nn.ReLU(True),
             # nn.Dropout(),
-            nn.Linear(4096, 4096),
+            nn.Linear(4096//2, 4096//2),
             nn.ReLU(True),
             # nn.Linear(4096, output_dim),
         ])
 
         self.last=torch.nn.ModuleList()
         for t,n in self.taskcla:
-            self.last.append(torch.nn.Linear(4096,n))
+            self.last.append(torch.nn.Linear(4096//2,n))
          # Initialize weights
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -196,6 +196,7 @@ def make_layers(cfg, n_channels, batch_norm=False):
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
+            v = v // 2
             conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
             if batch_norm:
                 layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]

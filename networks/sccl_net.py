@@ -214,12 +214,13 @@ def make_layers(cfg, nchannels, norm_type=None, bias=True):
     layers = []
     in_channels = nchannels
     layers += DynamicConv2D(in_channels, cfg[0]//2, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)
-    in_channels = cfg[0]
+    in_channels = cfg[0]//2
     for v in cfg[1:]:
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            layers += [DynamicConv2D(in_channels//2, v//2, kernel_size=3, padding=1, norm_type=norm_type, bias=bias), nn.ReLU(inplace=True)]
+            v = v // 2
+            layers += [DynamicConv2D(in_channels, v, kernel_size=3, padding=1, norm_type=norm_type, bias=bias), nn.ReLU(inplace=True)]
             in_channels = v
 
     return nn.ModuleList(layers)

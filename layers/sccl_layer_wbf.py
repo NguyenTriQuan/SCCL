@@ -84,10 +84,11 @@ class _DynamicLayer(nn.Module):
         if self.norm_layer is not None:
             x = self.norm_layer(x, t)
 
-        if self.mask is not None:
-            x *= self.mask.view(view)
-        elif self.track:
-            self.out_tracked = x
+        if args.prune_method == 'bs':
+            if self.mask is not None:
+                x *= self.mask.view(view)
+            elif self.track:
+                self.out_tracked = x
         return x
 
     def norm_in(self):

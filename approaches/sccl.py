@@ -129,7 +129,7 @@ class Appr(object):
         else: 
             print('Continue training current task')
 
-        print(self.model.report())
+        # print(self.model.report())
         self.model = self.model.to(device)
         self.shape_out = self.model.DM[-1].shape_out
         self.cur_task = len(self.shape_out)-2
@@ -152,7 +152,6 @@ class Appr(object):
         self.check_point = None  
 
         self.model.count_params()
-        print()
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 

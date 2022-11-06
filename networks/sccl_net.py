@@ -83,7 +83,7 @@ class _DynamicModel(nn.Module):
             layers_count.append(count)
 
         print('| num params:', model_count, end=' |')
-
+        print(layers_count)
         return model_count, layers_count
 
     def proximal_gradient_descent(self, lr, lamb):
@@ -431,7 +431,6 @@ class ResNet(_DynamicModel):
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
-
         m = self.conv1
         for block in self.blocks:
             m.next_layers = [block.layers[0]]
@@ -464,21 +463,8 @@ class ResNet(_DynamicModel):
     def squeeze(self, optim_state):
         if self.conv1.mask is None:
             return
-        # share_mask = self.conv1.mask
-
-        # for i, block in enumerate(self.blocks):
-        #     if block.shortcut:
-        #         share_mask = block.shortcut.mask
-                            
-        #     share_mask += block.layers[-1].mask
-        #     block.layers[-1].mask = share_mask
 
         for i, block in enumerate(self.blocks):
-            # if block.shortcut.mask is None:
-            #     share_mask = block.shortcut.mask
-            # elif block.layers[-1].mask is None:
-            #     share_mask = block.layers[-1].mask
-            # else:
             share_mask = block.shortcut.mask + block.layers[-1].mask
             block.shortcut.mask = share_mask
             block.layers[-1].mask = share_mask

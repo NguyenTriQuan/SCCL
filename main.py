@@ -93,7 +93,7 @@ if args.approach == 'joint':
 for t, ncla in taskcla[start_task:]:
     if t >= args.tasknum: break
     print('*' * 100)
-    print('Task {:2d} ({:s})'.format(t, data[t]['name']))
+    print('Task {:2d} ({:s}), Train-{}/Test-{}'.format(t, data[t]['name'], data[t]['train_loader'].dataset.tensors[0].shape[0], data[t]['test_loader'].dataset.tensors[0].shape[0]))
     print('*' * 100)
     task = t
     train_start = time.time()

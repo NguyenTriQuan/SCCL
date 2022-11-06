@@ -92,15 +92,15 @@ def get(args, pc_valid=0.10):
         if args.cil:
             labels += n_old
 
-        r=np.arange(images.size(0))
-        r=np.array(shuffle(r,random_state=args.seed),dtype=int)
-        nvalid=int(pc_valid*len(r))
-        ivalid=torch.LongTensor(r[:nvalid])
-        itrain=torch.LongTensor(r[nvalid:])
-        data[t]['train_loader'] = DataLoader(TensorDataset(images[itrain], labels[itrain]), batch_size=args.batch_size, shuffle=True)
-        data[t]['valid_loader'] = DataLoader(TensorDataset(images[ivalid], labels[ivalid]), batch_size=args.val_batch_size, shuffle=False)
+        # r=np.arange(images.size(0))
+        # r=np.array(shuffle(r,random_state=args.seed),dtype=int)
+        # nvalid=int(pc_valid*len(r))
+        # ivalid=torch.LongTensor(r[:nvalid])
+        # itrain=torch.LongTensor(r[nvalid:])
+        # data[t]['train_loader'] = DataLoader(TensorDataset(images[itrain], labels[itrain]), batch_size=args.batch_size, shuffle=True)
+        # data[t]['valid_loader'] = DataLoader(TensorDataset(images[ivalid], labels[ivalid]), batch_size=args.val_batch_size, shuffle=False)
 
-        # data[t]['train_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.batch_size, shuffle=True)
+        data[t]['train_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.batch_size, shuffle=True)
 
         #test
         ids = (test_targets//10 == task_order[t])
@@ -109,7 +109,7 @@ def get(args, pc_valid=0.10):
         if args.cil:
             labels += n_old
         data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.val_batch_size, shuffle=False)
-
+        data[t]['valid_loader'] = data[t]['test_loader']
         n_old += 10
 
     if args.augment:

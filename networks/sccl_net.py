@@ -83,7 +83,7 @@ class _DynamicModel(nn.Module):
             layers_count.append(count)
 
         print('| num params:', model_count, end=' |')
-        print(layers_count)
+        # print(layers_count)
         return model_count, layers_count
 
     def proximal_gradient_descent(self, lr, lamb):

@@ -143,7 +143,7 @@ class Appr(object):
             self.check_point = None
             return 
 
-        self.prune(t, train_loader, valid_transform, thres=self.thres)
+        # self.prune(t, train_loader, valid_transform, thres=self.thres)
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
@@ -264,13 +264,13 @@ class Appr(object):
         # else:
         outputs = self.model.forward(images, t=t)
         loss = self.ce(outputs, targets)
-        if squeeze:
-            loss += self.lamb * self.model.group_lasso_reg()
+        # if squeeze:
+        #     loss += self.lamb * self.model.group_lasso_reg()
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
-        # if squeeze:
-        #     self.model.proximal_gradient_descent(lr, self.lamb)
+        if squeeze:
+            self.model.proximal_gradient_descent(lr, self.lamb)
 
     def eval_batch(self, t, images, targets):
         if t is None:
@@ -322,8 +322,9 @@ class Appr(object):
                             
             self.train_batch(t, images, targets, squeeze, lr)
         
-        # if squeeze:
-        #     self.model.squeeze(self.optimizer.state)
+        if squeeze:
+            self.model.squeeze(self.optimizer.state)
+            model_count, layers_count = self.model.count_params()
 
 
     def eval(self, t, data_loader, valid_transform):

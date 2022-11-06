@@ -295,6 +295,47 @@ class _DynamicLayer(nn.Module):
                 norm *= self.norm_layer.norm()
 
         return norm
+    
+    def proximal_gradient_descent(self, lr, lamb, total_strength):
+
+        with torch.no_grad():
+            strength_in = self.strength_in/total_strength
+            strength_out = self.strength_out/total_strength
+            strength = self.strength/total_strength
+            # group lasso weights in
+            norm = self.norm_in()
+            aux = 1 - lamb * lr * strength_in / norm
+            aux = F.threshold(aux, 0, 0, False)
+            self.mask = (aux > 0)
+
+            self.weight[-1].data *= aux.view(self.view_in)
+            self.fwt_weight[-1].data *= aux.view(self.view_in)
+            if self.bias:
+                self.bias[-1].data[self.shape_out[-2]:] *= aux
+
+            # group lasso weights out
+            if len(self.next_layers) > 0:
+                mask_temp = False
+                for n, m in enumerate(self.next_layers):
+                    norm = self.norm_out(n)
+                    aux = 1 - lamb * lr * strength_out / norm
+                    aux = F.threshold(aux, 0, 0, False)
+                    mask_temp += (aux > 0)
+                    if isinstance(m, DynamicLinear) and isinstance(self, DynamicConv2D):
+                        aux = aux.view(-1, 1, 1).expand(aux.size(0), m.s, m.s).contiguous().view(-1)
+                    m.weight[-1].data *= aux.view(m.view_out)
+                    m.bwt_weight[-1].data *= aux.view(m.view_out)                  
+                self.mask *= mask_temp
+            # group lasso affine weights
+            if self.norm_layer:
+                if self.norm_layer.affine:
+                    norm = self.norm_layer.norm()
+                    aux = 1 - lamb * lr * strength_in / norm
+                    aux = F.threshold(aux, 0, 0, False)
+                    self.mask *= (aux > 0)
+
+                    self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux
+                    self.norm_layer.bias[-1].data[self.norm_layer.shape[-2]:] *= aux
 
 class DynamicLinear(_DynamicLayer):
 

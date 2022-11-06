@@ -198,16 +198,18 @@ class Appr(object):
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
                 if squeeze:
-                    if self.prune_method == 'pgd':
-                        self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
-                        torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                    else:
-                        if train_acc >= best_acc:
-                            best_acc = train_acc
-                            self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
-                            torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                            patience = self.lr_patience
-                            print(' *', end='')
+                    self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
+                    torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                    # if self.prune_method == 'pgd':
+                    #     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
+                    #     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                    # else:
+                    #     if train_acc >= best_acc:
+                    #         best_acc = train_acc
+                    #         self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
+                    #         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                    #         patience = self.lr_patience
+                    #         print(' *', end='')
 
                     # model_count, layers_count = self.model.count_params()
                     # if self.logger is not None:

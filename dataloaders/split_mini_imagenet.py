@@ -62,12 +62,14 @@ def get(args, pc_valid=0.10):
     data={}
     taskcla=[]
     size=[3, 84, 84]
-    task_order=shuffle(np.arange(20),random_state=args.seed)
+    max_tasks = 20
+    n_cla = 5
+    task_order=shuffle(np.arange(max_tasks),random_state=args.seed)
     print('Task order =',task_order+1)
     mean = torch.tensor([0.485, 0.456, 0.406])
     std = torch.tensor([0.229, 0.224, 0.225])
-    if args.tasknum > 20:
-        tasknum = 20
+    if args.tasknum > max_tasks:
+        tasknum = max_tasks
     else:
         tasknum = args.tasknum
     # CIFAR100    
@@ -84,11 +86,11 @@ def get(args, pc_valid=0.10):
     for t in range(tasknum):
         data[t]={}
         data[t]['name']='mini_imagenet-'+str(task_order[t]+1)
-        data[t]['ncla']=5
+        data[t]['ncla']=n_cla
         #train and valid
-        ids = (train_targets//5 == task_order[t])
+        ids = (train_targets//n_cla == task_order[t])
         images = train_data[ids]
-        labels = train_targets[ids]%5 
+        labels = train_targets[ids]%n_cla 
         if args.cil:
             labels += n_old
 
@@ -103,14 +105,14 @@ def get(args, pc_valid=0.10):
         data[t]['train_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.batch_size, shuffle=True)
 
         #test
-        ids = (test_targets//5 == task_order[t])
+        ids = (test_targets//n_cla == task_order[t])
         images = test_data[ids]
-        labels = test_targets[ids]%5
+        labels = test_targets[ids]%n_cla
         if args.cil:
             labels += n_old
         data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.val_batch_size, shuffle=False)
         data[t]['valid_loader'] = data[t]['test_loader']
-        n_old += 5
+        n_old += n_cla
 
     if args.augment:
         data['train_transform'] = torch.nn.Sequential(

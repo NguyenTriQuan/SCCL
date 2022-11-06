@@ -213,7 +213,7 @@ class VGG(_DynamicModel):
 def make_layers(cfg, nchannels, norm_type=None, bias=True):
     layers = []
     in_channels = nchannels
-    layers += DynamicConv2D(in_channels, cfg[0], kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)
+    layers += DynamicConv2D(in_channels, cfg[0]//2, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)
     in_channels = cfg[0]
     for v in cfg[1:]:
         if v == 'M':

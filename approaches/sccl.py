@@ -53,6 +53,7 @@ class Appr(object):
         self.ablation = args.ablation
         self.logger = None
         self.thres = args.thres
+        self.prune_method = args.prune_method
 
         self.args = args
         self.lambs = [float(i) for i in args.lamb.split('_')]
@@ -143,7 +144,8 @@ class Appr(object):
             self.check_point = None
             return 
 
-        # self.prune(t, train_loader, valid_transform, thres=self.thres)
+        if self.prune_method == 'bs':
+            self.prune(t, train_loader, valid_transform, thres=self.thres)
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
 
@@ -196,15 +198,16 @@ class Appr(object):
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
                 if squeeze:
-                    # if train_acc >= best_acc:
-                    #     best_acc = train_acc
-                    #     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
-                    #     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                    #     patience = self.lr_patience
-                    #     print(' *', end='')
-
-                    self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
-                    torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                    if self.prune_method == 'pgd':
+                        self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
+                        torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                    else:
+                        if train_acc >= best_acc:
+                            best_acc = train_acc
+                            self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
+                            torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                            patience = self.lr_patience
+                            print(' *', end='')
 
                     # model_count, layers_count = self.model.count_params()
                     # if self.logger is not None:
@@ -264,12 +267,12 @@ class Appr(object):
         # else:
         outputs = self.model.forward(images, t=t)
         loss = self.ce(outputs, targets)
-        # if squeeze:
-        #     loss += self.lamb * self.model.group_lasso_reg()
+        if squeeze and self.prune_method == 'bs':
+            loss += self.lamb * self.model.group_lasso_reg()
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
-        if squeeze:
+        if squeeze and self.prune_method == 'pgd':
             self.model.proximal_gradient_descent(lr, self.lamb)
 
     def eval_batch(self, t, images, targets):
@@ -322,7 +325,7 @@ class Appr(object):
                             
             self.train_batch(t, images, targets, squeeze, lr)
         
-        if squeeze:
+        if squeeze and self.prune_method == 'pgd':
             self.model.squeeze(self.optimizer.state)
             model_count, layers_count = self.model.count_params()
 

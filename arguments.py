@@ -108,6 +108,7 @@ def get_args():
     parser.add_argument('--norm_type', default=None, type=str, required=False, help='normalization layer type')
     parser.add_argument('--affine', default=False, action='store_true', help='(default=%(default)s)')
     parser.add_argument('--augment', default=False, action='store_true', help='(default=%(default)s)')
+    parser.add_argument('--prune_method', type=str, default='pgd', help='(default=%(default)s)')
     
     
 

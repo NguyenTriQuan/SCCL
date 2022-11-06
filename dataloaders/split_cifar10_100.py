@@ -49,7 +49,7 @@ def get(args, pc_valid=0.10):
     nvalid=int(pc_valid*len(r))
     ivalid=torch.LongTensor(r[:nvalid])
     itrain=torch.LongTensor(r[nvalid:])
-    data[0]['train_loader'] = DataLoader(TensorDataset(train_data[itrain], train_targets[itrain]), batch_size=args.batch_size, shuffle=True)
+    data[0]['train_loader'] = DataLoader(TensorDataset(train_data[itrain], train_targets[itrain]), batch_size=256, shuffle=True)
     data[0]['valid_loader'] = DataLoader(TensorDataset(train_data[ivalid], train_targets[ivalid]), batch_size=args.val_batch_size, shuffle=False)
     # data[0]['train_loader'] = DataLoader(TensorDataset(train_data, train_targets), batch_size=256, shuffle=True)
     #test

@@ -66,7 +66,7 @@ class Appr(object):
         self.cur_task = len(self.shape_out)-2
         self.ce = torch.nn.CrossEntropyLoss()
 
-        self.get_name(self.tasknum+1)
+        self.get_name(self.tasknum-1)
 
     def get_name(self, t):
         self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(
@@ -75,15 +75,15 @@ class Appr(object):
                                     self.lr, self.batch_size, self.nepochs, self.optim, self.fix, self.norm_type)
         
     def resume(self):
-        for t in range(1, self.tasknum + 1):
+        for t in range(self.tasknum):
             try:
                 self.get_name(t)
 
                 self.check_point = torch.load(f'../result_data/trained_model/{self.log_name}.model')
                 self.model = self.check_point['model']
-                print('Resume from task', t-1)
+                print('Resume from task', t)
 
-                return t-1
+                return t
             except:
                 continue
         return 0

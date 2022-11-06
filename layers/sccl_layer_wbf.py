@@ -492,10 +492,11 @@ class DynamicNorm(nn.Module):
             mean = self.running_mean[t]
             var = self.running_var[t]
 
-        if 'res' in self.norm_type:
-            return input / (torch.sqrt(var.view(shape) + self.eps))
-        else:
-            return (input - mean.view(shape)) / (torch.sqrt(var.view(shape) + self.eps))
+        # if 'res' in self.norm_type:
+        #     return input / (torch.sqrt(var.view(shape) + self.eps))
+        # else:
+        #     return (input - mean.view(shape)) / (torch.sqrt(var.view(shape) + self.eps))
+        return (input - mean.view(shape)) / (torch.sqrt(var.view(shape) + self.eps))
 
     def layer_norm(self, input):
         if len(input.shape) == 4:
@@ -519,21 +520,21 @@ class DynamicNorm(nn.Module):
 
     def forward(self, input, t=-1):
 
-        output = self.batch_norm(input, t)
-        # if 'res' in self.norm_type:
-        #     output = self.batch_norm(input, t) + input
-        # else:
-        #     output = self.batch_norm(input, t)
+        # input = self.batch_norm(input, t)
+        if 'res' in self.norm_type:
+            input = self.batch_norm(input, t) + input
+        else:
+            input = self.batch_norm(input, t)
 
         if self.affine:
             weight = self.weight[t]
             bias = self.bias[t]
             if len(input.shape) == 4:
-                output = output * weight.view(1,-1,1,1) + bias.view(1,-1,1,1)
+                input = input * weight.view(1,-1,1,1) + bias.view(1,-1,1,1)
             else:
-                output = output * weight.view(1,-1) + bias.view(1,-1)
+                input = input * weight.view(1,-1) + bias.view(1,-1)
 
-        return output
+        return input
 
 
 class re_sigma(torch.autograd.Function):

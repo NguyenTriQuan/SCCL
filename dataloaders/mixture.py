@@ -122,8 +122,8 @@ def get(args, pc_valid=0.15,fixed_order=False):
             mean=[0.4377,0.4438,0.4728]
             std=[0.198,0.201,0.197]
             dat = {}
-            dat['train']=datasets.SVHN('../dat/',split='train',download=True)
-            dat['test']=datasets.SVHN('../dat/',split='test',download=True)
+            train_set=datasets.SVHN('../dat/',split='train',download=True)
+            test_set=datasets.SVHN('../dat/',split='test',download=True)
             data[n] = {}
             data[n]['name']='svhn'
             data[n]['ncla']=10

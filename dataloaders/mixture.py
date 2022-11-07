@@ -127,8 +127,8 @@ def get(args, pc_valid=0.15,fixed_order=False):
             data[n] = {}
             data[n]['name']='svhn'
             data[n]['ncla']=10
-            train_data, train_targets = torch.FloatTensor(train_set.data), torch.LongTensor(train_set.targets)
-            test_data, test_targets = torch.FloatTensor(test_set.data), torch.LongTensor(test_set.targets)
+            train_data, train_targets = torch.FloatTensor(train_set.data), torch.LongTensor(train_set.labels)
+            test_data, test_targets = torch.FloatTensor(test_set.data), torch.LongTensor(test_set.labels)
             train_data = train_data.permute(0, 3, 1, 2)/255.0
             test_data = test_data.permute(0, 3, 1, 2)/255.0
             r=np.arange(train_data.size(0))

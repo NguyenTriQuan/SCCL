@@ -158,7 +158,7 @@ class VGG8(_DynamicModel):
             DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.5),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.5),
+            nn.Dropout(0.25),
             ])
 
         s = size
@@ -172,6 +172,7 @@ class VGG8(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(128*s*s, 256, norm_type=norm_type, s=s),
             nn.ReLU(),
+            nn.Dropout(0.5),
             DynamicLinear(256, 0, last_layer=True)
             ])
 

@@ -24,7 +24,7 @@ def get(args, pc_valid=0.15,fixed_order=False):
     if not fixed_order:
         idata=list(shuffle(idata,random_state=args.seed))
 
-    idata = [7, 2, 0, 1, 3, 4, 5, 6]
+    # idata = [7, 2, 0, 1, 3, 4, 5, 6]
     print('Task order =',idata)
     if args.tasknum > 8:
         tasknum = 8

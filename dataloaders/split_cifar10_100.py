@@ -55,6 +55,22 @@ def get(args, pc_valid=0.10):
     #test
     data[0]['test_loader'] = DataLoader(TensorDataset(test_data, test_targets), batch_size=args.val_batch_size, shuffle=False)
 
+    if args.augment:
+        data[0]['train_transform'] = torch.nn.Sequential(
+            K.augmentation.RandomResizedCrop(size=(32, 32), scale=(0.2, 1.0), same_on_batch=False),
+            K.augmentation.RandomHorizontalFlip(),
+            K.augmentation.ColorJitter(0.4, 0.4, 0.4, 0.1, p=0.8, same_on_batch=False),
+            K.augmentation.RandomGrayscale(p=0.2),
+            K.augmentation.Normalize(mean, std),
+        )
+    else:
+        data[0]['train_transform'] = torch.nn.Sequential(
+            K.augmentation.Normalize(mean, std),
+        )
+        
+    data[0]['valid_transform'] = torch.nn.Sequential(
+        K.augmentation.Normalize(mean, std),
+    )
     # CIFAR100
     train_set = datasets.CIFAR100('../dat/',train=True,download=True)
     test_set = datasets.CIFAR100('../dat/',train=False,download=True)

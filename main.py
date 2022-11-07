@@ -99,24 +99,24 @@ for t, ncla in taskcla[start_task:]:
     train_start = time.time()
     # Train
     if 'sccl' in args.approach:
-        appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'], ncla=ncla)
+        appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
     else:
         # appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'])
-        appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'])
+        appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'])
     print('-' * 100)
     print(f'Task {t} training time: {time.time() - train_start} s')
     # Test
     for u in range(t + 1):
         if 'sccl' in args.approach:
             if args.cil:
-                test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data['valid_transform'])
+                test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'])
             else:
-                test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data['valid_transform'])
+                test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'])
                 # if 'ensemble' not in args.ablation:
                 #     print('>>> Test w/o ensemble on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
                 #     test_loss, test_acc = appr.eval_ensemble(u, data[u]['test_loader'], data['valid_transform'])
         else:
-            test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data['valid_transform'])
+            test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[t]['valid_transform'])
 
         print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
         acc[t, u] = test_acc

@@ -264,17 +264,17 @@ class Alexnet(_DynamicModel):
         self.layers = nn.ModuleList([
             DynamicConv2D(ncha,64,kernel_size=size//8, first_layer=True, norm_type=norm_type),
             nn.ReLU(),
-            # nn.Dropout(0.2),
+            nn.Dropout(0.2),
             nn.MaxPool2d(2),
 
             DynamicConv2D(64,128,kernel_size=size//10, norm_type=norm_type),
-            # nn.Dropout(0.2),
+            nn.Dropout(0.2),
             nn.ReLU(),
             nn.MaxPool2d(2),
 
             DynamicConv2D(128,256,kernel_size=2, norm_type=norm_type),
             nn.ReLU(),
-            # nn.Dropout(0.5),
+            nn.Dropout(0.5),
             nn.MaxPool2d(2),
             ])
 

@@ -104,7 +104,8 @@ for t, ncla in taskcla[start_task:]:
     if 'sccl' in args.approach:
         appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
     else:
-        # appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data['train_transform'], data['valid_transform'])
+        if args.experiment == 'mixture':
+            appr.factor = data[t]['factor']
         appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'])
     print('-' * 100)
     print(f'Task {t} training time: {time.time() - train_start} s')

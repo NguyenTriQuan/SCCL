@@ -45,6 +45,7 @@ def get(args, pc_valid=0.15,fixed_order=False):
 
             train_data, train_targets = torch.FloatTensor(train_set.data), torch.LongTensor(train_set.targets)
             test_data, test_targets = torch.FloatTensor(test_set.data), torch.LongTensor(test_set.targets)
+            data[n]['factor'] = train_data.numel()
             train_data = train_data.permute(0, 3, 1, 2)/255.0
             test_data = test_data.permute(0, 3, 1, 2)/255.0
             # print(idx, train_data.shape)
@@ -71,6 +72,7 @@ def get(args, pc_valid=0.15,fixed_order=False):
             data[n]['ncla']=100
             train_data, train_targets = torch.FloatTensor(train_set.data), torch.LongTensor(train_set.targets)
             test_data, test_targets = torch.FloatTensor(test_set.data), torch.LongTensor(test_set.targets)
+            data[n]['factor'] = train_data.numel()
             train_data = train_data.permute(0, 3, 1, 2)/255.0
             test_data = test_data.permute(0, 3, 1, 2)/255.0
             # print(idx, train_data.shape)
@@ -99,6 +101,7 @@ def get(args, pc_valid=0.15,fixed_order=False):
             data[n]['ncla']=10
             train_data, train_targets = train_set.data.float(), train_set.targets.long()
             test_data, test_targets = test_set.data.float(), test_set.targets.long()
+            data[n]['factor'] = train_data.numel()
             train_data = train_data.unsqueeze(1)/255.0
             test_data = test_data.unsqueeze(1)/255.0
             train_data = train_data.expand(train_data.size(0), 3, train_data.size(2), train_data.size(3))
@@ -131,6 +134,7 @@ def get(args, pc_valid=0.15,fixed_order=False):
             data[n]['ncla']=10
             train_data, train_targets = torch.FloatTensor(train_set.data), torch.LongTensor(train_set.labels)
             test_data, test_targets = torch.FloatTensor(test_set.data), torch.LongTensor(test_set.labels)
+            data[n]['factor'] = train_data.numel()
             train_data = train_data/255.0
             test_data = test_data/255.0
             # print(idx, train_data.shape)
@@ -157,6 +161,7 @@ def get(args, pc_valid=0.15,fixed_order=False):
             data[n]['ncla']=10
             train_data, train_targets = train_set.data.float(), train_set.targets.long()
             test_data, test_targets = test_set.data.float(), test_set.targets.long()
+            data[n]['factor'] = train_data.numel()
             train_data = train_data.unsqueeze(1)/255.0
             test_data = test_data.unsqueeze(1)/255.0
             train_data = train_data.expand(train_data.size(0), 3, train_data.size(2), train_data.size(3))
@@ -190,6 +195,7 @@ def get(args, pc_valid=0.15,fixed_order=False):
             data[n]['ncla']=43
             train_data, train_targets = torch.FloatTensor(train_set.data), torch.LongTensor(train_set.labels)
             test_data, test_targets = torch.FloatTensor(test_set.data), torch.LongTensor(test_set.labels)
+            data[n]['factor'] = train_data.numel()
             train_data = train_data/255.0
             test_data = test_data/255.0
             # print(idx, train_data.shape)
@@ -216,6 +222,7 @@ def get(args, pc_valid=0.15,fixed_order=False):
             data[n]['ncla']=100
             train_data, train_targets = torch.FloatTensor(train_set.data), torch.LongTensor(train_set.labels)
             test_data, test_targets = torch.FloatTensor(test_set.data), torch.LongTensor(test_set.labels)
+            data[n]['factor'] = train_data.numel()
             train_data = train_data/255.0
             test_data = test_data/255.0
             # print(idx, train_data.shape)
@@ -242,6 +249,7 @@ def get(args, pc_valid=0.15,fixed_order=False):
             data[n]['ncla']=10
             train_data, train_targets = torch.FloatTensor(train_set.data), torch.LongTensor(train_set.labels)
             test_data, test_targets = torch.FloatTensor(test_set.data), torch.LongTensor(test_set.labels)
+            data[n]['factor'] = train_data.numel()
             train_data = train_data/255.0
             test_data = test_data/255.0
             train_data = train_data.expand(train_data.size(0), 3, train_data.size(2), train_data.size(3))

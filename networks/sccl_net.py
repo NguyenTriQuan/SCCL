@@ -172,7 +172,7 @@ class VGG8(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(128*s*s, 256, norm_type=norm_type, s=s),
             nn.ReLU(),
-            # nn.Dropout(0.5),
+            nn.Dropout(0.25),
             DynamicLinear(256, 0, last_layer=True)
             ])
 

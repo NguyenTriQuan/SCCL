@@ -106,6 +106,7 @@ for t, ncla in taskcla[start_task:]:
     else:
         if args.experiment == 'mixture':
             appr.factor = data[t]['factor']
+            print(appr.factor)
         appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'])
     print('-' * 100)
     print(f'Task {t} training time: {time.time() - train_start} s')

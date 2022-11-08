@@ -82,9 +82,12 @@ if args.approach == 'joint':
     valid_loaders = [data[t]['valid_loader'] for t, ncla in taskcla]
     test_loaders = [data[t]['test_loader'] for t, ncla in taskcla]
 
-    appr.train(train_loaders, valid_loaders, data['train_transform'], data['valid_transform'])
+    train_transforms = [data[t]['train_transform'] for t, ncla in taskcla]
+    valid_transforms = [data[t]['valid_transform'] for t, ncla in taskcla]
 
-    test_losses, test_accs = appr.eval(test_loaders, data['valid_transform'])
+    appr.train(train_loaders, valid_loaders, train_transforms, valid_transforms)
+
+    test_losses, test_accs = appr.eval(test_loaders, valid_transforms)
     for t in range(len(test_accs)):
         print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(t, data[t]['name'], test_losses[t], 100 * test_accs[t]))
     print('Avg acc={:5.2f}%'.format(100*np.mean(test_accs)))

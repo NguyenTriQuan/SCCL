@@ -46,7 +46,7 @@ class Appr(object):
             return torch.optim.Adam(self.model.parameters(), lr=lr)
 #         return torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
 
-    def train(self, train_loaders, valid_loaders, train_transform, valid_transform):
+    def train(self, train_loaders, valid_loaders, train_transforms, valid_transforms):
         best_acc = -np.inf
         best_model = utils.get_model(self.model)
         lr = self.lr
@@ -57,10 +57,10 @@ class Appr(object):
             # Train
             clock0=time.time()
                         
-            self.train_epoch(train_loaders, train_transform)
+            self.train_epoch(train_loaders, train_transforms)
             
             clock1=time.time()
-            train_losses,train_accs=self.eval(train_loaders, valid_transform)
+            train_losses,train_accs=self.eval(train_loaders, valid_transforms)
             train_loss = np.mean(train_losses)
             train_acc = np.mean(train_accs)
             clock2=time.time()
@@ -68,7 +68,7 @@ class Appr(object):
                 e+1,1000*self.sbatch*(clock1-clock0),
                 1000*self.sbatch*(clock2-clock1),train_loss,100*train_acc,end=''))
             # Valid)
-            valid_losses,valid_accs=self.eval(valid_loaders, valid_transform)
+            valid_losses,valid_accs=self.eval(valid_loaders, valid_transforms)
             valid_loss = np.mean(valid_losses)
             valid_acc = np.mean(valid_accs)
             print(' Valid: loss={:.3f}, acc={:5.1f}% |'.format(valid_loss,100*valid_acc),end='')
@@ -106,7 +106,7 @@ class Appr(object):
 
         return
 
-    def train_epoch(self, data_loaders, train_transform):
+    def train_epoch(self, data_loaders, train_transforms):
         self.model.train()
         # Loop batches
         cycle_loaders = []
@@ -124,8 +124,8 @@ class Appr(object):
                 images, targets = batch_task
                 images=images.to(device)
                 targets=targets.to(device)
-                if train_transform:
-                    images = train_transform(images)
+                if train_transforms[i]:
+                    images = train_transforms[i](images)
                 
                 # Forward current model
                 outputs = self.model.forward(images, i)
@@ -140,7 +140,7 @@ class Appr(object):
 
         return
 
-    def eval(self, data_loaders, valid_transform):
+    def eval(self, data_loaders, valid_transforms):
         total_losses=[]
         total_accs=[]
         self.model.eval()
@@ -152,8 +152,8 @@ class Appr(object):
             for images, targets in data_loader:
                 images=images.to(device)
                 targets=targets.to(device)
-                if valid_transform:
-                    images = valid_transform(images)
+                if valid_transforms[i]:
+                    images = valid_transforms[i](images)
                 
                 # Forward
                 outputs = self.model.forward(images, i)

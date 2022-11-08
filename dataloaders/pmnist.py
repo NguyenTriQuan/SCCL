@@ -54,20 +54,20 @@ def get(args, pc_valid=0.0):
         if args.cil:
             n_old += 10
 
-    if args.augment:
-        data['train_transform'] = torch.nn.Sequential(
-            K.augmentation.RandomResizedCrop(size=(28, 28), scale=(0.2, 1.0), same_on_batch=False),
-            K.augmentation.RandomHorizontalFlip(),
+        if args.augment:
+            data[t]['train_transform'] = torch.nn.Sequential(
+                K.augmentation.RandomResizedCrop(size=(28, 28), scale=(0.2, 1.0), same_on_batch=False),
+                K.augmentation.RandomHorizontalFlip(),
+                K.augmentation.Normalize(mean, std),
+            )
+        else:
+            data[t]['train_transform'] = torch.nn.Sequential(
+                K.augmentation.Normalize(mean, std),
+            )
+            
+        data[t]['valid_transform'] = torch.nn.Sequential(
             K.augmentation.Normalize(mean, std),
         )
-    else:
-        data['train_transform'] = torch.nn.Sequential(
-            K.augmentation.Normalize(mean, std),
-        )
-        
-    data['valid_transform'] = torch.nn.Sequential(
-        K.augmentation.Normalize(mean, std),
-    )
     # Others
     n=0
     for t in range(tasknum):

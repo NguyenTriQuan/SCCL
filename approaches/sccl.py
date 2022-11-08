@@ -136,7 +136,7 @@ class Appr(object):
         self.cur_task = len(self.shape_out)-2
 
         if self.experiment == 'mixture':
-            self.lamb = self.lambs[self.cur_task] / self.factor
+            self.lamb = self.lambs[self.cur_task] / (self.factor**0.5)
         else:
             self.lamb = self.lambs[self.cur_task]
         print('lambda', self.lamb)

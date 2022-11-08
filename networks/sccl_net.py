@@ -275,7 +275,7 @@ class Alexnet(_DynamicModel):
 
             DynamicConv2D(128,256,kernel_size=2, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.2),
             nn.MaxPool2d(2),
             ])
 
@@ -290,10 +290,10 @@ class Alexnet(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(256*s*s, 2048, s=s, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.2),
             DynamicLinear(2048, 2048, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.2),
             DynamicLinear(2048, 0, last_layer=True, norm_type=norm_type)
         ])
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]

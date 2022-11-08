@@ -137,7 +137,7 @@ class Appr(object):
 
         if self.experiment == 'mixture':
             num_train = train_loader.dataset.tensors[0].shape[0]
-            self.lamb = self.lambs[self.cur_task] * num_train
+            self.lamb = self.lambs[self.cur_task] / num_train
         else:
             self.lamb = self.lambs[self.cur_task]
         print('lambda', self.lamb)

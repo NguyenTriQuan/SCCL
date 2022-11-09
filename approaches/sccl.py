@@ -151,8 +151,8 @@ class Appr(object):
             self.prune(t, train_loader, valid_transform, thres=self.thres)
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-
-        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
+        if 'phase2' not in self.ablation:
+            self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
 
         self.check_point = None  
 

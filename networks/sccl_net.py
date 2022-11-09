@@ -184,12 +184,12 @@ class VGG(_DynamicModel):
     '''
     VGG model 
     '''
-    def __init__(self, input_size, cfg, norm_type=None):
+    def __init__(self, input_size, cfg, norm_type=None, mul=1):
         super(VGG, self).__init__()
 
         nchannels, size, _ = input_size
 
-        self.layers = make_layers(cfg, nchannels, norm_type=norm_type)
+        self.layers = make_layers(cfg, nchannels, norm_type=norm_type, mul=mul)
 
         s = size
         for m in self.layers:
@@ -200,11 +200,11 @@ class VGG(_DynamicModel):
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(512//2*s*s, 4096//2, s=s),
+            DynamicLinear(int(512*s*s*mul), int(4096*mul), s=s),
             nn.ReLU(True),
-            DynamicLinear(4096//2, 4096//2),
+            DynamicLinear(int(4096*mul), int(4096*mul)),
             nn.ReLU(True),
-            DynamicLinear(4096//2, 0, last_layer=True),
+            DynamicLinear(int(4096*mul), 0, last_layer=True),
         ])
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
@@ -212,16 +212,16 @@ class VGG(_DynamicModel):
             m.next_layers = [self.DM[i+1]]
 
 
-def make_layers(cfg, nchannels, norm_type=None, bias=True):
+def make_layers(cfg, nchannels, norm_type=None, bias=True, mul=1):
     layers = []
     in_channels = nchannels
-    layers += DynamicConv2D(in_channels, cfg[0]//2, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)
-    in_channels = cfg[0]//2
+    layers += DynamicConv2D(in_channels, int(cfg[0]*mul), kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)
+    in_channels = int(cfg[0]*mul)
     for v in cfg[1:]:
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
-            v = v // 2
+            v = int(v*mul)
             layers += [DynamicConv2D(in_channels, v, kernel_size=3, padding=1, norm_type=norm_type, bias=bias), nn.ReLU(inplace=True)]
             in_channels = v
 
@@ -246,6 +246,10 @@ def VGG13(input_size, norm_type):
     return VGG(input_size, cfg['B'], norm_type=norm_type)
 
 def VGG16(input_size, norm_type):
+    """VGG 16-layer model (configuration "D")"""
+    return VGG(input_size, cfg['C'], norm_type=norm_type)
+
+def VGG16_small(input_size, norm_type, mul=2):
     """VGG 16-layer model (configuration "D")"""
     return VGG(input_size, cfg['C'], norm_type=norm_type)
 

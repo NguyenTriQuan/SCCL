@@ -23,7 +23,8 @@ def get(args, pc_valid=0.15,fixed_order=False):
     idata=np.arange(8)
     if not fixed_order:
         idata=list(shuffle(idata,random_state=args.seed))
-
+    if args.mixture_task is not None:
+        idata = [int(args.mixture_task)]
     # idata = [7, 2, 0, 1, 3, 4, 5, 6]
     print('Task order =',idata)
     if args.tasknum > 8:

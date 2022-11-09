@@ -88,6 +88,7 @@ def get_args():
     parser.add_argument('--c', default='0.9', type=float, help='(default=%(default)f)')
     parser.add_argument('--date', type=str, default='', help='(default=%(default)s)')
     parser.add_argument('--tasknum', default=10, type=int, help='(default=%(default)s)')
+    parser.add_argument('--mixture_task', default=None, type=int, help='(default=%(default)s)')
     parser.add_argument('--start_task', default=0, type=int, help='(default=%(default)s)')
     parser.add_argument('--conv-net', action='store_true', default=False, help='Using convolution network')
     parser.add_argument('--rebuttal', action='store_true', default=False, help='Using convolution network')

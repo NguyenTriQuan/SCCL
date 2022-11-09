@@ -70,10 +70,10 @@ class Appr(object):
         self.get_name(self.tasknum-1)
 
     def get_name(self, t):
-        self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}'.format(
+        self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}_drop_{}'.format(
                                         self.experiment, self.approach, self.ablation, self.arch, self.seed,
                                                 '_'.join([str(lamb) for lamb in self.lambs[:t+1]]), 
-                                    self.lr, self.batch_size, self.nepochs, self.optim, self.fix, self.norm_type)
+                                    self.lr, self.batch_size, self.nepochs, self.optim, self.fix, self.norm_type, self.args.ensemble_drop)
         
     def resume(self):
         for t in range(self.tasknum):

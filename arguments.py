@@ -62,10 +62,10 @@ def get_args():
                                  'Adam'], 
                         help='(default=%(default)s)')
     parser.add_argument('--ablation', default='full', type=str, required=False,
-                        choices=['no_ensemble',
-                                'no_scale',
-                                'no_scale_ensemble',
-                                'full'], 
+                        # choices=['no_ensemble',
+                        #         'no_scale',
+                        #         'no_scale_ensemble',
+                        #         'full'], 
                         help='(default=%(default)s)')
     parser.add_argument('--output', default='', type=str, required=False, help='(default=%(default)s)')
     parser.add_argument('--nepochs', default=100, type=int, required=False, help='(default=%(default)d)')

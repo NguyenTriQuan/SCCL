@@ -249,7 +249,7 @@ def VGG16(input_size, norm_type):
     """VGG 16-layer model (configuration "D")"""
     return VGG(input_size, cfg['C'], norm_type=norm_type)
 
-def VGG16_small(input_size, norm_type, mul=2):
+def VGG16_small(input_size, norm_type, mul=0.5):
     """VGG 16-layer model (configuration "D")"""
     return VGG(input_size, cfg['C'], norm_type=norm_type)
 

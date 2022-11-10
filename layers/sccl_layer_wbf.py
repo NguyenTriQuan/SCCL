@@ -224,6 +224,9 @@ class _DynamicLayer(nn.Module):
             self.strength_out.append(strength_out)
         self.strength_out = sum(self.strength_out)
 
+        self.strength_in = self.strength_in ** 0.5
+        self.strength_out = self.strength_out ** 0.5
+
         self.strength = (self.strength_in + self.strength_out)
 
     def expand(self, add_in=None, add_out=None, ablation='full'):

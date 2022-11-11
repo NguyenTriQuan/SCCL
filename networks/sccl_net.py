@@ -14,7 +14,8 @@ from layers.sccl_layer_wbf import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys
-
+from arguments import get_args
+args = get_args()
 def compute_conv_output_size(Lin,kernel_size,stride=1,padding=0,dilation=1):
     return int(np.floor((Lin+2*padding-dilation*(kernel_size-1)-1)/float(stride)+1))
     
@@ -113,9 +114,12 @@ class MLP(_DynamicModel):
         self.mul = mul
         self.input_size = input_size
         N = 400
+        p = 1
+        if 'drop_arch' in args.ablation:
+            p = 0
         self.layers = nn.ModuleList([
             nn.Flatten(),
-            nn.Dropout(0.25),
+            nn.Dropout(0.25*p),
             DynamicLinear(np.prod(input_size), N, first_layer=True, bias=True, norm_type=norm_type),
             nn.ReLU(),
             # nn.Dropout(0.25),
@@ -137,28 +141,30 @@ class VGG8(_DynamicModel):
         nchannels, size, _ = input_size
         self.mul = mul
         self.input_size = input_size
-
+        p = 1
+        if 'drop_arch' in args.ablation:
+            p = 0
         self.layers = nn.ModuleList([
             DynamicConv2D(nchannels, 32, kernel_size=3, padding=1, norm_type=norm_type, first_layer=True, bias=bias),
             nn.ReLU(),
             DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.25),
+            nn.Dropout(0.25*p),
 
             DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.25),
+            nn.Dropout(0.25*p),
 
             DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.5),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.5),
+            nn.Dropout(0.5*p),
             ])
 
         s = size
@@ -265,21 +271,23 @@ class Alexnet(_DynamicModel):
 
         ncha, size, _ = input_size
         self.mul = mul
-
+        p = 1
+        if 'drop_arch' in args.ablation:
+            p = 0
         self.layers = nn.ModuleList([
             DynamicConv2D(ncha,64,kernel_size=size//8, first_layer=True, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.2*p),
             nn.MaxPool2d(2),
 
             DynamicConv2D(64,128,kernel_size=size//10, norm_type=norm_type),
-            nn.Dropout(0.2),
+            nn.Dropout(0.2*p),
             nn.ReLU(),
             nn.MaxPool2d(2),
 
             DynamicConv2D(128,256,kernel_size=2, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.5*p),
             nn.MaxPool2d(2),
             ])
 
@@ -294,10 +302,10 @@ class Alexnet(_DynamicModel):
             nn.Flatten(),
             DynamicLinear(256*s*s, 2048, s=s, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.5*p),
             DynamicLinear(2048, 2048, norm_type=norm_type),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.5*p),
             DynamicLinear(2048, 0, last_layer=True, norm_type=norm_type)
         ])
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]

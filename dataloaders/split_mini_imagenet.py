@@ -62,8 +62,8 @@ def get(args, pc_valid=0.10):
     data={}
     taskcla=[]
     size=[3, 84, 84]
-    max_tasks = 10
-    n_cla = 10
+    max_tasks = 20
+    n_cla = 5
     task_order=shuffle(np.arange(max_tasks),random_state=args.seed)
     print('Task order =',task_order+1)
     mean = torch.tensor([0.485, 0.456, 0.406])

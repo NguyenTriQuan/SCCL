@@ -197,7 +197,7 @@ class VGG(_DynamicModel):
 
         self.layers = make_layers(cfg, nchannels, norm_type=norm_type, mul=mul)
 
-        self.p = 0.2
+        self.p = 0.1
         s = size
         for m in self.layers:
             if isinstance(m, DynamicConv2D):
@@ -226,7 +226,7 @@ def make_layers(cfg, nchannels, norm_type=None, bias=True, mul=1):
     in_channels = nchannels
     layers += DynamicConv2D(in_channels, int(cfg[0]*mul), kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)
     in_channels = int(cfg[0]*mul)
-    p = 0.2
+    p = 0.1
     for v in cfg[1:]:
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]

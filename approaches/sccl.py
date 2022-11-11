@@ -177,6 +177,8 @@ class Appr(object):
         start_epoch = self.check_point['epoch'] + 1
         squeeze = self.check_point['squeeze']
 
+        train_accs = []
+        valid_accs = []
         if squeeze:
             best_acc = train_acc
         else:
@@ -237,6 +239,8 @@ class Appr(object):
                             self.optimizer = self._get_optimizer(lr)
 
                 print()
+                train_accs.append(train_acc)
+                valid_accs.append(valid_acc)
                 # if self.logger is not None:
                 #     self.logger.log_metrics({
                 #         'train acc':train_acc,
@@ -250,6 +254,8 @@ class Appr(object):
 
         self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
         self.model = self.check_point['model']
+        print(train_accs)
+        print(valid_accs)
 
     def train_batch(self, t, images, targets, squeeze, lr):
         # if self.args.cil:

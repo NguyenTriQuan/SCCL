@@ -197,6 +197,7 @@ class VGG(_DynamicModel):
 
         self.layers = make_layers(cfg, nchannels, norm_type=norm_type, mul=mul)
 
+        self.p = 0.2
         s = size
         for m in self.layers:
             if isinstance(m, DynamicConv2D):
@@ -207,10 +208,10 @@ class VGG(_DynamicModel):
         self.layers += nn.ModuleList([
             nn.Flatten(),
             DynamicLinear(int(512*s*s*mul), int(4096*mul), s=s),
-            nn.Dropout(args.ensemble_drop),
+            nn.Dropout(self.p),
             nn.ReLU(True),
             DynamicLinear(int(4096*mul), int(4096*mul)),
-            nn.Dropout(args.ensemble_drop),
+            nn.Dropout(self.p),
             nn.ReLU(True),
             DynamicLinear(int(4096*mul), 0, last_layer=True),
         ])
@@ -225,12 +226,13 @@ def make_layers(cfg, nchannels, norm_type=None, bias=True, mul=1):
     in_channels = nchannels
     layers += DynamicConv2D(in_channels, int(cfg[0]*mul), kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)
     in_channels = int(cfg[0]*mul)
+    p = 0.2
     for v in cfg[1:]:
         if v == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
             v = int(v*mul)
-            layers += [DynamicConv2D(in_channels, v, kernel_size=3, padding=1, norm_type=norm_type, bias=bias), nn.Dropout(args.ensemble_drop), nn.ReLU(inplace=True)]
+            layers += [DynamicConv2D(in_channels, v, kernel_size=3, padding=1, norm_type=norm_type, bias=bias), nn.Dropout(p), nn.ReLU(inplace=True)]
             in_channels = v
 
     return nn.ModuleList(layers)

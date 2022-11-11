@@ -200,7 +200,7 @@ class Appr(object):
                 valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
-                if squeeze:
+                if squeeze and 'phase2' not in self.ablation:
                     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
                     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
                     # if self.prune_method == 'pgd':

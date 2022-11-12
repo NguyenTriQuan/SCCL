@@ -208,10 +208,10 @@ class VGG(_DynamicModel):
         self.layers += nn.ModuleList([
             nn.Flatten(),
             DynamicLinear(int(512*s*s*mul), int(4096*mul), s=s),
-            nn.Dropout(self.p),
+            # nn.Dropout(self.p),
             nn.ReLU(True),
             DynamicLinear(int(4096*mul), int(4096*mul)),
-            nn.Dropout(self.p),
+            # nn.Dropout(self.p),
             nn.ReLU(True),
             DynamicLinear(int(4096*mul), 0, last_layer=True),
         ])
@@ -232,7 +232,7 @@ def make_layers(cfg, nchannels, norm_type=None, bias=True, mul=1):
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
             v = int(v*mul)
-            layers += [DynamicConv2D(in_channels, v, kernel_size=3, padding=1, norm_type=norm_type, bias=bias), nn.Dropout(p), nn.ReLU(inplace=True)]
+            layers += [DynamicConv2D(in_channels, v, kernel_size=3, padding=1, norm_type=norm_type, bias=bias), nn.ReLU(inplace=True)]
             in_channels = v
 
     return nn.ModuleList(layers)

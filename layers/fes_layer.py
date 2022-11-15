@@ -38,10 +38,8 @@ class _DynamicLayer(nn.Module):
         self.out_features = 0
             
         self.weight = []
-        if bias:
-            self.bias = []
-        else:
-            self.bias = None
+        bias = None # !!!!!
+        self.bias = [] if bias else None
 
         self.scale = []
 
@@ -64,8 +62,8 @@ class _DynamicLayer(nn.Module):
         
         self.cur_task = -1
 
-    def forward(self, x, t, ensemble=False):    
-        weight, bias = self.get_parameters(t)
+    def forward(self, x, n, m):    
+        weight, bias = self.get_parameters(n, m)
 
         if weight.numel() == 0:
             return None
@@ -76,7 +74,7 @@ class _DynamicLayer(nn.Module):
             output = F.linear(x, weight, bias)
 
         if self.norm_layer is not None:
-            output = self.norm_layer(output, t)
+            output = self.norm_layer(output, m)
         # if not self.last_layer:
         #     output = F.dropout(output, 0.2, self.training)
         return output
@@ -158,38 +156,34 @@ class _DynamicLayer(nn.Module):
                     self.norm_layer.weight[-2].requires_grad = False
                     self.norm_layer.bias[-2].requires_grad = False
 
-    def get_parameters(self, t):
-        if self.first_layer:
-            weight = torch.cat(self.weight[0][:t+1], dim=0)
+    def get_parameters(self, n, m):
+        if self.last_layer:
+            weight = self.weight[n][m]
+            bias = self.bias[n][m] if self.bias is not None else None
+        elif self.first_layer:
+            weight = torch.empty(0).to(device)
+            for j in range(m):
+                weight = torch.cat([weight, self.weight[0][j]], dim=0)
+            bias = self.bias[m] if self.bias is not None else None
         else:
             weight = torch.empty(0).to(device)
             fwt_weight = torch.empty(0).to(device)
             bwt_weight = torch.empty(0).to(device)
-            for i in range(t):
+            for i in range(n):
                 temp = torch.empty(0).to(device)
-                for j in range(t):
-                    temp = torch.cat([temp, self.weight[i][j] * self.scale[t][i][j] 
-                                    * (torch.rand(self.weight[i][j].shape[0]).to(device) > self.p).view(self.view_in) 
-                                    if self.training else self.weight[i][j] * self.scale[t][i][j]], dim=0)
+                for j in range(m):
+                    temp = torch.cat([temp, self.weight[i][j] * self.scale[n][i][j]], dim=0)
 
                 weight = torch.cat([weight, temp], dim=1)
-                fwt_weight = torch.cat([fwt_weight, self.weight[i][t]], dim=1)
-                bwt_weight = torch.cat([bwt_weight, self.weight[t][i]], dim=0)
-
-            if weight.numel() != 0 and self.training:
-                total_num = weight[0].numel() + bwt_weight[0].numel()
-                non_zero_num = (weight != 0).sum(self.dim_in) + bwt_weight[0].numel()
-                factor = (total_num / non_zero_num).view(self.view_in)
-            else:
-                factor = 1
+                fwt_weight = torch.cat([fwt_weight, self.weight[i][m]], dim=1)
             
-            weight = torch.cat([weight, bwt_weight], dim=1) * factor
-            weight = torch.cat([weight, torch.cat([fwt_weight, self.weight[t][t]], dim=1)], dim=0)
-
-        if self.bias is not None:
-            bias = self.bias[t]
-        else:
-            bias = None
+            for j in range(m):
+                bwt_weight = torch.cat([bwt_weight, self.weight[n][j]], dim=0)
+            
+            weight = F.dropout(weight, self.p, self.training)
+            weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 
+                                torch.cat([fwt_weight, self.weight[n][m]], dim=1)], dim=0)
+            bias = self.bias[m] if self.bias is not None else None
 
         return weight, bias
 
@@ -413,6 +407,232 @@ class DynamicConv2D(_DynamicConvNd):
         self.dim_in = [1, 2, 3]
         self.dim_out = [0, 2, 3]
 
+class DynamicClassifier(nn.Module):
+
+    def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
+        super(DynamicClassifier, self).__init__()
+        self.base_in_features = in_features
+        self.base_out_features = out_features
+        self.in_features = 0
+        self.out_features = 0
+            
+        self.weight = []
+        bias = None # !!!!!
+        self.bias = [] if bias else None
+
+        self.num_in = []
+        self.num_out = []
+
+        self.shape_out = [self.out_features]
+        self.shape_in = [self.in_features]
+
+        self.cur_task = -1
+
+    def forward(self, x, n, m):    
+        weight, bias = self.get_parameters(n, m)
+        output = F.linear(x, weight, bias)
+        return output
+
+    def expand(self, add_in=None, add_out=None, ablation='full'):
+        self.cur_task += 1
+        if add_in is None:
+            add_in = self.base_in_features
+        if add_out is None:
+            add_out = self.base_out_features
+
+        self.in_features += add_in
+        self.out_features += add_out
+
+        self.num_out.append(add_out)
+        self.num_in.append(add_in)
+
+        self.shape_in.append(self.in_features)
+        self.shape_out.append(self.out_features)
+
+        self.weight.append([])
+        if self.bias is not None:
+            self.bias.append([])
+        gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        for i in range(self.cur_task+1):
+            bound_std = gain / math.sqrt(self.shape_in[i])
+            self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.shape_in[i]).normal_(0, bound_std).to(device)))
+
+            if self.bias is not None:
+                self.bias[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1]).uniform_(0, 0).to(device)))            
+
+        # freeze old params
+        if self.cur_task > 0:
+            for i in range(self.cur_task):
+                self.weight[-2][i].requires_grad = False
+                if self.bias is not None:
+                    self.bias[-2][i].requires_grad = False
+
+    def get_parameters(self, n, m):
+        weight = self.weight[m][n]
+        bias = self.bias[m][n] if self.bias is not None else None
+        return weight, bias
+
+    def get_optim_params(self):
+        params += self.weight[-1]
+        if self.bias:
+            params += self.bias[-1]
+        if self.norm_layer:
+            if self.norm_layer.affine:
+                params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
+
+        return params
+
+    def count_params(self, t):
+        count = 0
+        for i in range(t+1):
+            for j in range(t+1):
+                count += self.weight[i][j].numel()
+        for k in range(t+1):
+            for i in range(k):
+                for j in range(k):
+                    count += self.scale[k][i][j].numel()
+            if self.bias:
+                count += self.bias[k].numel()
+            if self.norm_layer:
+                if self.norm_layer.affine:
+                    count += self.norm_layer.weight[k].numel() + self.norm_layer.bias[k].numel()
+        return count
+
+    def norm_in(self):
+        weight = torch.cat([self.weight[i][-1] for i in range(self.cur_task+1)], dim=1)
+        norm = weight.norm(2, dim=self.dim_in)
+        if self.bias is not None:
+            norm = (norm ** 2 + self.bias[-1][self.shape_out[-2]:] ** 2) ** 0.5
+        return norm
+
+    def norm_out(self, n):
+        weight = torch.cat(self.next_layers[n].weight[-1], dim=0)
+        if isinstance(self, DynamicConv2D) and isinstance(self.next_layers[n], DynamicLinear):
+            weight = weight.view(self.next_layers[n].out_features, 
+                                self.num_out[-1], self.next_layers[n].s, self.next_layers[n].s)
+        return weight.norm(2, dim=self.dim_out)
+
+    def get_reg_strength(self):
+        self.strength_in = self.weight[-1][-1].numel()
+        for i in range(self.cur_task):
+            self.strength_in += self.weight[i][-1].numel()
+        self.strength_out = [0]
+        for m in self.next_layers:
+            strength_out = m.weight[-1][-1].numel()
+            for i in range(m.cur_task):
+                strength_out += m.weight[-1][i].data.numel()
+            self.strength_out.append(strength_out)
+        self.strength_out = max(self.strength_out)
+
+        self.strength = (self.strength_in + self.strength_out)
+
+    def squeeze(self, optim_state):
+        def apply_mask_out(param, mask_out):
+            param.data = param.data[mask_out].clone()
+            param.grad = None
+            param_states = optim_state[param]
+            for name, state in param_states.items():
+                if isinstance(state, torch.Tensor):
+                    if len(state.shape) > 0:
+                        param_states[name] = state[mask_out].clone()
+
+        def apply_mask_in(param, mask_in):
+            param.data = param.data[:, mask_in].clone()
+            param.grad = None
+            param_states = optim_state[param]
+            for name, state in param_states.items():
+                if isinstance(state, torch.Tensor):
+                    if len(state.shape) > 0:
+                        param_states[name] = state[:, mask_in].clone()
+
+        if self.mask is not None:
+            mask_out = self.mask
+            apply_mask_out(self.weight[-1][-1], mask_out)
+            for i in range(self.cur_task):
+                apply_mask_out(self.weight[i][-1], mask_out)
+
+            self.num_out[-1] = self.weight[-1][-1].shape[0]
+            self.out_features = sum(self.num_out)
+            self.shape_out[-1] = self.out_features
+
+            mask = torch.ones(self.shape_out[-2], dtype=bool, device=device)
+            mask = torch.cat([mask, mask_out])
+
+            if self.bias is not None:
+                apply_mask_out(self.bias[-1], mask)
+
+            if self.norm_layer:
+                if self.norm_layer.affine:
+                    apply_mask_out(self.norm_layer.weight[-1], mask)
+                    apply_mask_out(self.norm_layer.bias[-1], mask)
+
+                if self.norm_layer.track_running_stats:
+                    self.norm_layer.running_mean[-1] = self.norm_layer.running_mean[-1][mask]
+                    self.norm_layer.running_var[-1] = self.norm_layer.running_var[-1][mask]
+
+                self.norm_layer.num_features = self.out_features
+                self.norm_layer.shape[-1] = self.out_features
+
+            for m in self.next_layers:
+                if isinstance(m, DynamicLinear) and isinstance(self, DynamicConv2D):
+                    mask_in = self.mask.view(-1,1,1).expand(self.mask.size(0),m.s,m.s).contiguous().view(-1)
+                else:
+                    mask_in = self.mask
+
+                apply_mask_in(m.weight[-1][-1], mask_in)
+                for i in range(m.cur_task):
+                    apply_mask_in(m.weight[-1][i], mask_in)
+
+                m.num_in[-1] = m.weight[-1][-1].shape[1]
+                self.in_features = sum(self.num_in)
+                self.shape_in[-1] = self.in_features
+  
+            self.mask = None
+            self.get_reg_strength()
+
+    def proximal_gradient_descent(self, lr, lamb, total_strength):
+        eps = 0
+        with torch.no_grad():
+            strength_in = self.strength_in/total_strength
+            strength_out = self.strength_out/total_strength
+            strength = self.strength/total_strength
+            # group lasso weights in
+            norm = self.norm_in()
+            aux = 1 - lamb * lr * strength_in / norm
+            aux = F.threshold(aux, 0, eps, False)
+            self.mask = (aux > eps)
+
+            self.weight[-1][-1].data *= aux.view(self.view_in)
+            for i in range(self.cur_task):
+                self.weight[i][-1].data *= aux.view(self.view_in)
+            if self.bias is not None:
+                self.bias[-1].data[self.shape_out[-2]:] *= aux
+
+            # group lasso weights out
+            if len(self.next_layers) > 0:
+                mask_temp = False
+                for n, m in enumerate(self.next_layers):
+                    norm = self.norm_out(n)
+                    aux = 1 - lamb * lr * strength_out / norm
+                    aux = F.threshold(aux, 0, eps, False)
+                    mask_temp += (aux > eps)
+
+                    if isinstance(m, DynamicLinear) and isinstance(self, DynamicConv2D):
+                        aux = aux.view(-1, 1, 1).expand(aux.size(0), m.s, m.s).contiguous().view(-1)
+                    m.weight[-1][-1].data *= aux.view(m.view_out)
+                    for i in range(self.cur_task):
+                        m.weight[-1][i].data *= aux.view(m.view_out)                  
+                self.mask *= mask_temp
+            # group lasso affine weights
+            if self.norm_layer:
+                if self.norm_layer.affine:
+                    norm = self.norm_layer.norm()
+                    aux = 1 - lamb * lr * strength / norm
+                    aux = F.threshold(aux, 0, eps, False)
+                    self.mask *= (aux > eps)
+
+                    self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux
+                    self.norm_layer.bias[-1].data[self.norm_layer.shape[-2]:] *= aux
 
 class DynamicNorm(nn.Module):
     def __init__(self, num_features, eps=1e-5, momentum=0.1,

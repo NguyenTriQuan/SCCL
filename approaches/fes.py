@@ -96,9 +96,6 @@ class Appr(object):
 
         params = self.model.get_optim_params()
         params = [{'params': params, 'lr':lr}]
-        # if 'scale' not in self.ablation and self.lr_rho != 0:
-        #     scales = self.model.get_optim_scales(lr*self.lr_rho)
-        #     params += scales
 
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
@@ -164,9 +161,6 @@ class Appr(object):
         train_loss,train_acc=self.eval(t,train_loader,valid_transform)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
 
-        # if 'ensemble' not in self.ablation:
-        #     valid_loss,valid_acc=self.eval_ensemble(t,valid_loader,valid_transform)
-        # else:
         valid_loss,valid_acc=self.eval(t,valid_loader,valid_transform)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
@@ -195,25 +189,12 @@ class Appr(object):
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),train_loss,100*train_acc),end='')
 
-                # if 'ensemble' not in self.ablation:
-                #     valid_loss,valid_acc=self.eval_ensemble(t, valid_loader, valid_transform)
-                # else:
                 valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
                 if squeeze and 'phase2' not in self.ablation:
                     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
                     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                    # if self.prune_method == 'pgd':
-                    #     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
-                    #     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                    # else:
-                    #     if train_acc >= best_acc:
-                    #         best_acc = train_acc
-                    #         self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
-                    #         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                    #         patience = self.lr_patience
-                    #         print(' *', end='')
 
                     # model_count, layers_count = self.model.count_params()
                     # if self.logger is not None:
@@ -259,24 +240,25 @@ class Appr(object):
     def train_batch(self, t, images, targets, squeeze, lr):
         # if self.args.cil:
         #     targets -= sum(self.shape_out[:t])
-        # if 'ensemble' not in self.ablation:
-        #     loss = 0
-        #     for i in range(t+1):
-        #         outputs = self.model.forward(images, t=i)
-        #         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-        #         loss += self.ce(outputs, targets)
+        if 'ensemble' not in self.ablation:
+            loss = 0
+            for i in range(t+1):
+                outputs = self.model.forward(images, i)
+                outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+                loss += self.ce(outputs, targets)
 
-        #     # batch_size, n_channels, s, s = images.shape
-        #     # images = images.unsqueeze(0).expand(t, batch_size, n_channels, s, s)
-        #     # images = images.reshape(-1, n_channels, s, s)
-        #     # outputs = self.model.forward(images, t=t, assemble=True)
-        #     # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-        #     # targets = targets.unsqueeze(0).expand(t, batch_size)
-        #     # targets = targets.reshape(-1)
-        #     # loss = self.ce(outputs, targets)
-        # else:
-        outputs = self.model.forward(images, t=t)
-        loss = self.ce(outputs, targets)
+            # batch_size, n_channels, s, s = images.shape
+            # images = images.unsqueeze(0).expand(t, batch_size, n_channels, s, s)
+            # images = images.reshape(-1, n_channels, s, s)
+            # outputs = self.model.forward(images, t=t, assemble=True)
+            # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
+            # targets = targets.unsqueeze(0).expand(t, batch_size)
+            # targets = targets.reshape(-1)
+            # loss = self.ce(outputs, targets)
+        else:
+            outputs = self.model.forward(images, t)
+            loss = self.ce(outputs, targets)
+            
         if squeeze and self.prune_method == 'bs':
             loss += self.lamb * self.model.group_lasso_reg()
         self.optimizer.zero_grad()

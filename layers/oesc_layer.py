@@ -89,8 +89,8 @@ class _DynamicLayer(nn.Module):
                 x *= self.mask.view(view)
             elif self.track:
                 self.out_tracked = x
-        if 'pcdrop' in args.ablation:
-            F.dropout(x, self.p, self.training)
+        if 'pcdrop' in args.ablation and not self.last_layer:
+            x = F.dropout(x, self.p, self.training)
         return x
 
     def norm_in(self):

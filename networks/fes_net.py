@@ -10,7 +10,7 @@ import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
 # from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
-from layers.oesc_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.fes_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys
@@ -59,16 +59,14 @@ class _DynamicModel(nn.Module):
             m.squeeze(optim_state)
             self.total_strength += m.strength
 
-    def forward(self, input, t=-1):
-        if t == -1:
-            t = len(self.DM[-1].shape_out)-2
-
-        for module in self.layers:
+    def forward(self, input, task_list):
+        n = 0
+        for m, module in zip(task_list, self.layers):
             if isinstance(module, _DynamicLayer):
-                input = module(input, t)
+                input = module(input, n, m)
+                n = m
             else:
                 input = module(input)
-
         return input
 
     def count_params(self, t=-1):

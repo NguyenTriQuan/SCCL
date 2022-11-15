@@ -10,7 +10,7 @@ import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
 # from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
-from layers.sccl_layer_wbf import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.oesc_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys
@@ -208,10 +208,8 @@ class VGG(_DynamicModel):
         self.layers += nn.ModuleList([
             nn.Flatten(),
             DynamicLinear(int(512*s*s*mul), int(4096*mul), s=s),
-            # nn.Dropout(self.p),
             nn.ReLU(True),
             DynamicLinear(int(4096*mul), int(4096*mul)),
-            # nn.Dropout(self.p),
             nn.ReLU(True),
             DynamicLinear(int(4096*mul), 0, last_layer=True),
         ])
@@ -224,7 +222,7 @@ class VGG(_DynamicModel):
 def make_layers(cfg, nchannels, norm_type=None, bias=True, mul=1):
     layers = []
     in_channels = nchannels
-    layers += DynamicConv2D(in_channels, int(cfg[0]*mul), kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)
+    layers += [DynamicConv2D(in_channels, int(cfg[0]*mul), kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)]
     in_channels = int(cfg[0]*mul)
     p = 0.1
     for v in cfg[1:]:

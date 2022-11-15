@@ -15,12 +15,11 @@ import kornia as K
 import time
 import csv
 from utils import *
-import networks.sccl_net as network
+import networks.oesc_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from sklearn.utils import shuffle
 from torch.utils.data import  TensorDataset, DataLoader
-# from pykeops.torch import LazyTensor
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -97,9 +96,6 @@ class Appr(object):
 
         params = self.model.get_optim_params()
         params = [{'params': params, 'lr':lr}]
-        # if 'scale' not in self.ablation and self.lr_rho != 0:
-        #     scales = self.model.get_optim_scales(lr*self.lr_rho)
-        #     params += scales
 
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
@@ -110,7 +106,6 @@ class Appr(object):
         return optimizer
 
     def train(self, t, train_loader, valid_loader, train_transform, valid_transform, ncla=0):
-
         if self.check_point is None:
             print('Training new task')
             self.model.expand(ncla, self.ablation)
@@ -165,9 +160,6 @@ class Appr(object):
         train_loss,train_acc=self.eval(t,train_loader,valid_transform)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
 
-        # if 'ensemble' not in self.ablation:
-        #     valid_loss,valid_acc=self.eval_ensemble(t,valid_loader,valid_transform)
-        # else:
         valid_loss,valid_acc=self.eval(t,valid_loader,valid_transform)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
@@ -196,9 +188,6 @@ class Appr(object):
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),train_loss,100*train_acc),end='')
 
-                # if 'ensemble' not in self.ablation:
-                #     valid_loss,valid_acc=self.eval_ensemble(t, valid_loader, valid_transform)
-                # else:
                 valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
@@ -254,28 +243,10 @@ class Appr(object):
 
         self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
         self.model = self.check_point['model']
-        print(train_accs)
-        print(valid_accs)
+        print('train acc', train_accs)
+        print('valid acc', valid_accs)
 
     def train_batch(self, t, images, targets, squeeze, lr):
-        # if self.args.cil:
-        #     targets -= sum(self.shape_out[:t])
-        # if 'ensemble' not in self.ablation:
-        #     loss = 0
-        #     for i in range(t+1):
-        #         outputs = self.model.forward(images, t=i)
-        #         outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-        #         loss += self.ce(outputs, targets)
-
-        #     # batch_size, n_channels, s, s = images.shape
-        #     # images = images.unsqueeze(0).expand(t, batch_size, n_channels, s, s)
-        #     # images = images.reshape(-1, n_channels, s, s)
-        #     # outputs = self.model.forward(images, t=t, assemble=True)
-        #     # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-        #     # targets = targets.unsqueeze(0).expand(t, batch_size)
-        #     # targets = targets.reshape(-1)
-        #     # loss = self.ce(outputs, targets)
-        # else:
         outputs = self.model.forward(images, t=t)
         loss = self.ce(outputs, targets)
         if squeeze and self.prune_method == 'bs':
@@ -291,35 +262,6 @@ class Appr(object):
             outputs = self.model.forward(images, t=self.cur_task)
         else:
             outputs = self.model.forward(images, t=t)
-            # if self.args.cil:
-            #     targets -= sum(self.shape_out[:t])
-        loss=self.ce(outputs,targets)
-        values,indices=outputs.max(1)
-        hits=(indices==targets).float()
-
-        return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
-
-    def eval_batch_ensemble(self, t, images, targets):
-        if t is None:
-            outputs = self.model.forward(images, t=self.cur_task)
-        else:
-            assembled_outputs = 0
-            for i in range(t+1):
-                outputs = self.model.forward(images, t=i)
-                outputs = outputs
-                assembled_outputs += outputs
-            outputs = assembled_outputs / t
-
-            # batch_size, n_channels, s, s = images.shape
-            # images = images.unsqueeze(0).expand(t, batch_size, n_channels, s, s)
-            # images = images.reshape(-1, n_channels, s, s)
-            # outputs = self.model.forward(images, t=t, assemble=True)
-            # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-            # outputs = outputs.reshape(t, batch_size, -1)
-            # outputs = outputs.mean(0)
-
-            # if self.args.cil:
-            #     targets -= sum(self.shape_out[:t])
         loss=self.ce(outputs,targets)
         values,indices=outputs.max(1)
         hits=(indices==targets).float()
@@ -359,26 +301,6 @@ class Appr(object):
             total_num += len(targets)
                 
         return total_loss/total_num,total_acc/total_num
-
-    def eval_ensemble(self, t, data_loader, valid_transform):
-        total_loss=0
-        total_acc=0
-        total_num=0
-        self.model.eval()
-
-        for images, targets in data_loader:
-            images=images.to(device)
-            targets=targets.to(device)
-            if valid_transform:
-                images = valid_transform(images)
-                    
-            loss, hits = self.eval_batch_ensemble(t, images, targets)
-            total_loss += loss
-            total_acc += hits
-            total_num += len(targets)
-                
-        return total_loss/total_num,total_acc/total_num
-
 
     def prune(self, t, data_loader, valid_transform, thres=0.0):
         self.model.eval()

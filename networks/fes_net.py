@@ -10,7 +10,7 @@ import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
 # from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
-from layers.fes_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.fes_layer import DynamicLinear, DynamicConv2D, _DynamicLayer, DynamicClassifier
 
 from utils import *
 import sys
@@ -27,10 +27,6 @@ class _DynamicModel(nn.Module):
         super(_DynamicModel, self).__init__()
         self.permute = [None]
 
-    def restrict_gradients(self, t, requires_grad):
-        for m in self.DM:
-            m.restrict_gradients(t, requires_grad)
-
     def get_optim_params(self):
         params = []
         for m in self.DM:
@@ -44,27 +40,38 @@ class _DynamicModel(nn.Module):
         return params
 
     def expand(self, new_class, ablation='full'):
-        for m in self.DM[:-1]:
-            m.expand(add_in=None, add_out=None, ablation=ablation)
-        self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
 
-        self.total_strength = 1
-        for m in self.DM[:-1]:
-            m.get_reg_strength()
-            self.total_strength += m.strength
+        self.DM[0].expand(add_in=0, add_out=None, ablation=ablation)
+        self.total_strength = self.DM[0].strength_in
+        for m in self.DM[1:-1]:
+            m.expand(add_in=None, add_out=None, ablation=ablation)
+            self.total_strength += m.strength_in + m.strength_out
+        self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
+        self.total_strength += self.DM[-1].strength_out
 
     def squeeze(self, optim_state):
-        self.total_strength = 1
-        for m in self.DM[:-1]:
-            m.squeeze(optim_state)
-            self.total_strength += m.strength
+        mask_in = None
+        mask_out = self.DM[0].mask_out * self.DM[1].mask_in
+        self.DM[0].squeeze(optim_state, mask_in, mask_out)
+        mask_in = mask_out
+        self.total_strength = self.DM[0].strength_in
+        for i, m in enumerate(self.DM[1:-1]):
+            mask_out = self.DM[i].mask_out * self.DM[i+1].mask_in
+            m.squeeze(optim_state, mask_in, mask_out)
+            mask_in = mask_out
+            self.total_strength += m.strength_in + m.strength_out
+        self.DM[-1].squeeze(optim_state, mask_in, None)
+        self.total_strength += self.DM[-1].strength_out
 
     def forward(self, input, task_list):
         n = 0
-        for m, module in zip(task_list, self.layers):
+        i = 0
+        for module in self.layers:
             if isinstance(module, _DynamicLayer):
+                m = task_list[i]
                 input = module(input, n, m)
                 n = m
+                i += 1
             else:
                 input = module(input)
         return input
@@ -87,19 +94,8 @@ class _DynamicModel(nn.Module):
         return model_count, layers_count
 
     def proximal_gradient_descent(self, lr, lamb):
-        for m in self.DM[:-1]:
+        for m in self.DM:
             m.proximal_gradient_descent(lr, lamb, self.total_strength)
-
-    def group_lasso_reg(self):
-        reg = 0
-        for m in self.DM[:-1]:
-            reg += m.get_reg()
-        return reg / self.total_strength
-
-    def set_track(self, track):
-        for m in self.DM[:-1]:
-            m.track = track
-            m.out_tracked = None
     
     def report(self):
         for m in self.DM:
@@ -123,8 +119,12 @@ class MLP(_DynamicModel):
             # nn.Dropout(0.25),
             DynamicLinear(N, N, bias=True, norm_type=norm_type),
             nn.ReLU(),
+            DynamicLinear(N, N, bias=True, norm_type=norm_type),
+            nn.ReLU(),
+            DynamicLinear(N, N, bias=True, norm_type=norm_type),
+            nn.ReLU(),
             # nn.Dropout(0.25),
-            DynamicLinear(N, 0, bias=True, last_layer=True),
+            DynamicClassifier(N, 0, bias=True),
             ])
         
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]

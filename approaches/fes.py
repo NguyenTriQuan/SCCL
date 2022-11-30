@@ -67,6 +67,7 @@ class Appr(object):
         self.ce = torch.nn.CrossEntropyLoss()
 
         self.get_name(self.tasknum-1)
+        self.best_path = []
 
     def get_name(self, t):
         self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}_drop_{}'.format(
@@ -122,7 +123,8 @@ class Appr(object):
                 pass
             self.get_name(t)
             torch.save(self.check_point, f'../result_data/trained_model/{self.log_name}.model')
-                
+            self.best_path.append(None)
+            self.best_loss = 999999
         else: 
             print('Continue training current task')
 
@@ -143,8 +145,6 @@ class Appr(object):
             self.check_point = None
             return 
 
-        if self.prune_method == 'bs':
-            self.prune(t, train_loader, valid_transform, thres=self.thres)
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
         if 'phase2' not in self.ablation:
@@ -153,6 +153,11 @@ class Appr(object):
         self.check_point = None  
 
         self.model.count_params()
+        print(self.best_path)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, ensemble=True)
+        print(' Valid ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, ensemble=False)
+        print(' Valid no ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
 
@@ -238,69 +243,40 @@ class Appr(object):
         print(valid_accs)
 
     def train_batch(self, t, images, targets, squeeze, lr):
-        # if self.args.cil:
-        #     targets -= sum(self.shape_out[:t])
         if 'ensemble' not in self.ablation:
             loss = 0
-            for i in range(t+1):
-                outputs = self.model.forward(images, i)
-                outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-                loss += self.ce(outputs, targets)
+            if t > 1:
+                for i in range(10):
+                    path = list(np.random.randint(t, size=len(self.model.DM[:-1])))+[t]
+                    outputs = self.model.forward(images, task_list=path)
+                    temp = self.ce(outputs, targets)
+                    if self.best_loss > temp:
+                        self.best_loss = temp.detach()
+                        self.best_path[t] = path
+                    loss += temp
+                outputs = self.model.forward(images, task_list=self.best_path[t])
+                temp = self.ce(outputs, targets)
+                loss += temp
 
-            # batch_size, n_channels, s, s = images.shape
-            # images = images.unsqueeze(0).expand(t, batch_size, n_channels, s, s)
-            # images = images.reshape(-1, n_channels, s, s)
-            # outputs = self.model.forward(images, t=t, assemble=True)
-            # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-            # targets = targets.unsqueeze(0).expand(t, batch_size)
-            # targets = targets.reshape(-1)
-            # loss = self.ce(outputs, targets)
+            outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
+            loss += self.ce(outputs, targets)
         else:
-            outputs = self.model.forward(images, t)
+            outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
             loss = self.ce(outputs, targets)
-            
-        if squeeze and self.prune_method == 'bs':
-            loss += self.lamb * self.model.group_lasso_reg()
+
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
-        if squeeze and self.prune_method == 'pgd':
+        if squeeze:
             self.model.proximal_gradient_descent(lr, self.lamb)
 
-    def eval_batch(self, t, images, targets):
-        if t is None:
-            outputs = self.model.forward(images, t=self.cur_task)
+    def eval_batch(self, t, images, targets, ensemble=True):
+        if ensemble:
+            outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
+            if self.best_path[t] is not None:
+                outputs += self.model.forward(images, task_list=self.best_path[t])
         else:
-            outputs = self.model.forward(images, t=t)
-            # if self.args.cil:
-            #     targets -= sum(self.shape_out[:t])
-        loss=self.ce(outputs,targets)
-        values,indices=outputs.max(1)
-        hits=(indices==targets).float()
-
-        return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
-
-    def eval_batch_ensemble(self, t, images, targets):
-        if t is None:
-            outputs = self.model.forward(images, t=self.cur_task)
-        else:
-            assembled_outputs = 0
-            for i in range(t+1):
-                outputs = self.model.forward(images, t=i)
-                outputs = outputs
-                assembled_outputs += outputs
-            outputs = assembled_outputs / t
-
-            # batch_size, n_channels, s, s = images.shape
-            # images = images.unsqueeze(0).expand(t, batch_size, n_channels, s, s)
-            # images = images.reshape(-1, n_channels, s, s)
-            # outputs = self.model.forward(images, t=t, assemble=True)
-            # outputs = outputs[:, self.shape_out[t-1]:self.shape_out[t]]
-            # outputs = outputs.reshape(t, batch_size, -1)
-            # outputs = outputs.mean(0)
-
-            # if self.args.cil:
-            #     targets -= sum(self.shape_out[:t])
+            outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
         loss=self.ce(outputs,targets)
         values,indices=outputs.max(1)
         hits=(indices==targets).float()
@@ -317,12 +293,15 @@ class Appr(object):
                             
             self.train_batch(t, images, targets, squeeze, lr)
         
-        if squeeze and self.prune_method == 'pgd':
+        if squeeze:
             self.model.squeeze(self.optimizer.state)
             model_count, layers_count = self.model.count_params()
 
+        if t > 1:
+            print(self.best_path[-1], self.best_loss.item())
 
-    def eval(self, t, data_loader, valid_transform):
+
+    def eval(self, t, data_loader, valid_transform, ensemble=True):
         total_loss=0
         total_acc=0
         total_num=0
@@ -334,26 +313,7 @@ class Appr(object):
             if valid_transform:
                 images = valid_transform(images)
                     
-            loss, hits = self.eval_batch(t, images, targets)
-            total_loss += loss
-            total_acc += hits
-            total_num += len(targets)
-                
-        return total_loss/total_num,total_acc/total_num
-
-    def eval_ensemble(self, t, data_loader, valid_transform):
-        total_loss=0
-        total_acc=0
-        total_num=0
-        self.model.eval()
-
-        for images, targets in data_loader:
-            images=images.to(device)
-            targets=targets.to(device)
-            if valid_transform:
-                images = valid_transform(images)
-                    
-            loss, hits = self.eval_batch_ensemble(t, images, targets)
+            loss, hits = self.eval_batch(t, images, targets, ensemble)
             total_loss += loss
             total_acc += hits
             total_num += len(targets)
@@ -361,104 +321,12 @@ class Appr(object):
         return total_loss/total_num,total_acc/total_num
 
 
-    def prune(self, t, data_loader, valid_transform, thres=0.0):
-        self.model.eval()
-        data, label = data_loader.dataset.tensors
-        masks = [torch.ones(m.shape_out[-1], dtype=bool, device=device) for m in self.model.DM[:-1]]
-
-        data_loader = DataLoader(TensorDataset(data, label), batch_size=self.val_batch_size, shuffle=False)
-        loss, acc = self.eval(t, data_loader, valid_transform)
-        pre_acc = acc
-        print('Pre Prune: loss={:.3f}, acc={:5.2f}% |'.format(loss, 100*acc))
-        t1 = time.time()
-        for i, m in enumerate(self.model.DM[:-1]):
-            norm = m.get_importance()
-            low = 0 
-            high = m.shape_out[-1] - m.shape_out[-2]
-            if norm.shape[0] != 0:
-                v, _ = norm.sort(descending=True)
-                while True:
-                    k = (high+low)//2
-                    # Select top-k biggest norm
-                    m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>v[k])], dim=0)
-                    loss, acc = self.eval(t, data_loader, valid_transform)
-                    post_acc = acc
-                    if  pre_acc - post_acc <= thres:
-                        # k is satisfy, try smaller k
-                        high = k
-                    else:
-                        # k is not satisfy, try bigger k
-                        low = k
-                    if k == (high+low)//2:
-                        break
-            if high != norm.shape[0]:
-                # found k = high is the smallest k satisfy
-                m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>v[high])], dim=0)
-                masks[i] = m.mask
-            m.mask = None
-
-        print('num mask:', end=' ')
-        for i, m in enumerate(self.model.DM[:-1]):
-            m.mask = masks[i]
-            print(m.mask.sum().item()-m.shape_out[-2], end=' ')
-        print()
-        self.model.squeeze(self.optimizer.state)
-        self.model.count_params()
-        loss,acc=self.eval(t,data_loader,valid_transform)
-        print('Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
-
-    def fast_prune(self, t, data_loader, valid_transform, thres=0.0):
-        self.model.eval()
-        images, targets = data_loader.dataset.tensors
-        masks = [torch.zeros(m.shape_out[-1], dtype=bool, device=device) for m in self.model.DM[:-1]]
-        self.model.set_track(True)
-        for i, m in enumerate(self.model.DM[:-1]):
-            m.mask = torch.ones(m.shape_out[-1], dtype=bool, device=device)
-
-        images = images.to(device)
-        targets = targets.to(device)
-        if valid_transform:
-            images = valid_transform(images)
-        outputs = self.model.forward(images, t=t)
-        values,indices=outputs.max(1)
-        hits=(indices==targets).sum().item()
-        pre_hits = hits
-        t1 = time.time()
-        for i, m in enumerate(self.model.DM[:-1]):
-            norm = m.get_importance()
-            low = 0 
-            high = m.shape_out[-1] - m.shape_out[-2]
-            if norm.shape[0] != 0:
-                v, _ = norm.sort(descending=True)
-                while True:
-                    k = (high+low)//2
-                    # Select top-k biggest norm
-                    m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>v[k])], dim=0)
-                    outputs = self.model.forward(images, t=t)
-                    values,indices=outputs.max(1)
-                    hits=(indices==targets).sum().item()
-                    post_hits = hits
-                    if  pre_hits - post_hits <= thres:
-                        # k is satisfy, try smaller k
-                        high = k
-                    else:
-                        # k is not satisfy, try bigger k
-                        low = k
-                    if k == (high+low)//2:
-                        break
-            if high != norm.shape[0]:
-                # found k = high is the smallest k satisfy
-                m.mask = torch.cat([torch.ones(m.shape_out[-2], dtype=bool, device=device), (norm>v[high])], dim=0)
-                masks[i] += m.mask
-            m.mask = None
-
-        self.model.set_track(False)
-        print('num mask:', end=' ')
-        for i, m in enumerate(self.model.DM[:-1]):
-            m.mask = masks[i]
-            print(m.mask.sum().item()-m.shape_out[-2], end=' ')
-        self.model.squeeze(self.optimizer.state)
-        self.model.count_params()
-        loss,acc=self.eval(t,data_loader,valid_transform)
-        print('Post Prune: loss={:.3f}, acc={:5.2f}% | Time={:5.1f}ms |'.format(loss, 100*acc, (time.time()-t1)*1000))
-        print()
+class ACO():
+    def __init__(self, num_layer, num_task):
+        self.num_layer = num_layer
+        self.num_task = num_task
+        self.pheromone = np.ones(num_layer, num_layer)
+        self.pheromone_first = np.ones(num_layer)
+    def sample_path(self):
+        path = []
+        m = np.random.choice(self.length)

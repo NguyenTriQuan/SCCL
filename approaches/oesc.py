@@ -133,7 +133,8 @@ class Appr(object):
         if self.experiment == 'mixture':
             self.lamb = self.lambs[self.cur_task] / (self.factor**0.5)
         else:
-            self.lamb = self.lambs[self.cur_task]
+            # self.lamb = self.lambs[self.cur_task]
+            self.lamb = self.lambs[0] + self.lambs[1]
         print('lambda', self.lamb)
         print(self.log_name)
 

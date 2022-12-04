@@ -117,7 +117,7 @@ for t, ncla in taskcla[start_task:]:
                 # if 'ensemble' not in args.ablation:
                 #     print('>>> Test w/o ensemble on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
                 #     test_loss, test_acc = appr.eval_ensemble(u, data[u]['test_loader'], data['valid_transform'])
-        test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[t]['valid_transform'])
+        test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'])
 
         print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
         acc[t, u] = test_acc

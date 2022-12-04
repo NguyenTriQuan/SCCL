@@ -119,7 +119,7 @@ class MLP(_DynamicModel):
             p = 0
         self.layers = nn.ModuleList([
             nn.Flatten(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.25),
             DynamicLinear(np.prod(input_size), N, first_layer=True, bias=True, norm_type=norm_type),
             nn.ReLU(),
             # nn.Dropout(0.25),

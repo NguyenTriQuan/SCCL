@@ -89,7 +89,7 @@ class _DynamicLayer(nn.Module):
                 x *= self.mask.view(view)
             elif self.track:
                 self.out_tracked = x
-        if 'pcdrop' in args.ablation and not self.last_layer:
+        if args.dropout_method == 'drop' and not self.last_layer:
             x = F.dropout(x, self.p, self.training)
         return x
 
@@ -140,10 +140,16 @@ class _DynamicLayer(nn.Module):
             weight = torch.cat([torch.cat([weight, self.bwt_weight[i]], dim=1), 
                                 torch.cat([self.fwt_weight[i], self.weight[i]], dim=1)], dim=0)
 
-        if 'pcdrop' not in args.ablation:
+        fwt_weight = torch.cat([self.fwt_weight[t], self.weight[t]], dim=1)
+        bwt_weight = self.bwt_weight[t]
+
+        if args.dropout_method == 'pcdrop':
             weight = F.dropout(weight, self.p, self.training)
-        weight = torch.cat([torch.cat([weight, self.bwt_weight[t]], dim=1),
-                            torch.cat([self.fwt_weight[t], self.weight[t]], dim=1)], dim=0)
+        if args.dropout_method == 'ncdrop':
+            fwt_weight = F.dropout(fwt_weight, self.p, self.training)
+            bwt_weight = F.dropout(bwt_weight, self.p, self.training)
+
+        weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), fwt_weight], dim=0)
 
         bias = self.bias[t] if self.bias is not None else None
         return weight, bias

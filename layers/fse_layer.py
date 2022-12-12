@@ -56,7 +56,7 @@ class _DynamicLayer(nn.Module):
         self.out_features = 0
             
         self.weight = []
-        bias = False # !!!!!
+        # bias = False # !!!!!
         self.bias = [] if bias else None
 
         self.scale = []
@@ -457,7 +457,6 @@ class DynamicClassifier(DynamicLinear):
 
             if self.bias is not None:
                 self.bias[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1]).uniform_(0, 0).to(device)))            
-            
         # freeze old params
         if self.cur_task > 0:
             for i in range(self.cur_task):
@@ -473,9 +472,12 @@ class DynamicClassifier(DynamicLinear):
         return weight, bias
 
     def get_optim_params(self):
-        params = self.weight[-1]
-        if self.bias:
-            params += self.bias[-1]
+        params = []
+        # params = [self.weight[-1][-1], self.bias[-1][-1]]
+        for i in range(self.cur_task+1):
+            params += [self.weight[-1][i]]
+            if self.bias:
+                params += [self.bias[-1][i]]
         return params
 
     def count_params(self, t):

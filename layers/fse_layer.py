@@ -473,7 +473,7 @@ class DynamicClassifier(DynamicLinear):
 
     def get_optim_params(self):
         params = []
-        # params = [self.weight[-1][-1], self.bias[-1][-1]]
+        # params = [self.weight[-1][-1], self.bias[-1][-1]]-
         for i in range(self.cur_task+1):
             params += [self.weight[-1][i]]
             if self.bias:

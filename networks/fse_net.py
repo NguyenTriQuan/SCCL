@@ -185,7 +185,7 @@ class VGG8(_DynamicModel):
             DynamicLinear(128*s*s, 256, norm_type=norm_type, s=s),
             nn.ReLU(),
             # nn.Dropout(0.5),
-            DynamicLinear(256, 0, last_layer=True)
+            DynamicClassifier(256, 0, last_layer=True)
             ])
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
@@ -219,7 +219,7 @@ class VGG(_DynamicModel):
             DynamicLinear(int(4096*mul), int(4096*mul)),
             # nn.Dropout(self.p),
             nn.ReLU(True),
-            DynamicLinear(int(4096*mul), 0, last_layer=True),
+            DynamicClassifier(int(4096*mul), 0, last_layer=True),
         ])
 
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]

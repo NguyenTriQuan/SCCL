@@ -15,7 +15,7 @@ import kornia as K
 import time
 import csv
 from utils import *
-import networks.fes_net as network
+import networks.fse_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from sklearn.utils import shuffle
@@ -140,7 +140,12 @@ class Appr(object):
         print('lambda', self.lamb)
         print(self.log_name)
 
-        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, True)
+        # self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+        # if t > 0:
+        #     self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, ensemble=True)
+
+        # self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=True, ensemble=False)
         if not self.check_point['squeeze']:
             self.check_point = None
             return 
@@ -148,25 +153,25 @@ class Appr(object):
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
         if 'phase2' not in self.ablation:
-            self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, False)
+            self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, ensemble=False)
 
         self.check_point = None  
 
         self.model.count_params()
         print(self.best_path)
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, ensemble=True)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
         print(' Valid ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, ensemble=False)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, paths=[[t for _ in range(len(self.model.DM))]])
         print(' Valid no ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
-    def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze):
+    def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, ensemble):
 
         self.model.count_params()
-
-        train_loss,train_acc=self.eval(t,train_loader,valid_transform)
+        paths = [[t for _ in range(len(self.model.DM))]]
+        train_loss,train_acc=self.eval(t, train_loader, valid_transform)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
 
-        valid_loss,valid_acc=self.eval(t,valid_loader,valid_transform)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
         lr = self.check_point['lr']
@@ -185,16 +190,17 @@ class Appr(object):
         try:
             for e in range(start_epoch, self.nepochs):
                 clock0=time.time()
-                self.train_epoch(t, train_loader, train_transform, squeeze, lr)
-            
+                self.train_epoch(t, train_loader, train_transform, squeeze, lr, ensemble)
+                if ensemble:
+                    paths = [self.best_path[t]]
                 clock1=time.time()
-                train_loss,train_acc=self.eval(t, train_loader, valid_transform)
+                train_loss,train_acc=self.eval(t, train_loader, valid_transform, paths)
                 clock2=time.time()
                 print('| Epoch {:2d}, time={:5.1f}ms/{:5.1f}ms | Train: loss={:.3f}, acc={:5.2f}% |'.format(
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),train_loss,100*train_acc),end='')
 
-                valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
+                valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, paths)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
                 if squeeze and 'phase2' not in self.ablation:
@@ -243,69 +249,82 @@ class Appr(object):
         print(valid_accs)
 
     def train_batch(self, t, images, targets, squeeze, lr):
-        if 'ensemble' not in self.ablation:
-            loss = 0
-            if t > 1:
-                for i in range(10):
-                    path = list(np.random.randint(t, size=len(self.model.DM[:-1])))+[t]
-                    outputs = self.model.forward(images, task_list=path)
-                    temp = self.ce(outputs, targets)
-                    if self.best_loss > temp:
-                        self.best_loss = temp.detach()
-                        self.best_path[t] = path
-                    loss += temp
-                outputs = self.model.forward(images, task_list=self.best_path[t])
-                temp = self.ce(outputs, targets)
-                loss += temp
-
-            outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
-            loss += self.ce(outputs, targets)
-        else:
-            outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
-            loss = self.ce(outputs, targets)
-
+        outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
+        loss = self.ce(outputs, targets)
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
         if squeeze:
             self.model.proximal_gradient_descent(lr, self.lamb)
 
-    def eval_batch(self, t, images, targets, ensemble=True):
-        if ensemble:
-            outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
-            if self.best_path[t] is not None:
-                outputs += self.model.forward(images, task_list=self.best_path[t])
-        else:
-            outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
+    def train_batch_ensemble(self, t, images, targets):
+        loss = 0
+        if t == 1:
+            self.best_path[t] = [0 for _ in range(len(self.model.DM)-1)] + [t]
+            outputs = self.model.forward(images, task_list=self.best_path[t])
+            temp = self.ce(outputs, targets)
+            loss += temp
+        elif t > 1:
+            for i in range(10):
+                path = list(np.random.randint(t, size=len(self.model.DM[:-1])))+[t]
+                outputs = self.model.forward(images, task_list=path)
+                temp = self.ce(outputs, targets)
+                if self.best_loss > temp:
+                    self.best_loss = temp.detach().item()
+                    self.best_path[t] = path
+                loss += temp
+            outputs = self.model.forward(images, task_list=self.best_path[t])
+            temp = self.ce(outputs, targets)
+            loss += temp
+        
+        self.optimizer.zero_grad()
+        loss.backward() 
+        self.optimizer.step()
+
+    def eval_batch(self, t, images, targets, paths):
+        self.model.eval()
+        with torch.no_grad():
+            outputs = []
+            for path in paths:
+                outputs += [self.model.forward(images, task_list=path)]
+            outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
         loss=self.ce(outputs,targets)
         values,indices=outputs.max(1)
         hits=(indices==targets).float()
-
         return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
 
-    def train_epoch(self, t, data_loader, train_transform, squeeze, lr):
+
+    def train_epoch(self, t, data_loader, train_transform, squeeze, lr, ensemble):
         self.model.train()
         for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
             if train_transform:
                 images = train_transform(images)
-                            
-            self.train_batch(t, images, targets, squeeze, lr)
+            
+            if ensemble:
+                self.train_batch_ensemble(t, images, targets)
+            else:
+                self.train_batch(t, images, targets, squeeze, lr)
         
         if squeeze:
             self.model.squeeze(self.optimizer.state)
             model_count, layers_count = self.model.count_params()
 
-        if t > 1:
-            print(self.best_path[-1], self.best_loss.item())
+        if ensemble:
+            print(self.best_path[-1], self.best_loss)
 
 
-    def eval(self, t, data_loader, valid_transform, ensemble=True):
+    def eval(self, t, data_loader, valid_transform, paths=None):
         total_loss=0
         total_acc=0
         total_num=0
         self.model.eval()
+
+        if paths is None:
+            paths = [[t for _ in range(len(self.model.DM))]]
+            if self.best_path[t] is not None:
+                paths += [self.best_path[t]]
 
         for images, targets in data_loader:
             images=images.to(device)
@@ -313,13 +332,42 @@ class Appr(object):
             if valid_transform:
                 images = valid_transform(images)
                     
-            loss, hits = self.eval_batch(t, images, targets, ensemble)
+            loss, hits = self.eval_batch(t, images, targets, paths)
             total_loss += loss
             total_acc += hits
             total_num += len(targets)
                 
         return total_loss/total_num,total_acc/total_num
+    
+    def eval_batch_cil(self, t, images, targets):
+        self.model.eval()
+        with torch.no_grad():
+            if t is None:
+                joint_entropy_tasks = []
+                outputs_tasks = []
+                for i in range(self.cur_task+1):
+                    outputs = []
+                    outputs += [self.model.forward(images, task_list=[i for _ in range(len(self.model.DM))])]
+                    # if self.best_path[i] is not None:
+                    #     outputs += [self.model.forward(images, task_list=self.best_path[i])]
+                    outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
+                    outputs_tasks += [outputs]
+                    outputs = torch.exp(outputs)
+                    joint_entropy = -torch.sum(outputs * torch.log(outputs+0.0001), dim=1)
+                    joint_entropy_tasks.append(joint_entropy)
 
+                outputs_tasks = torch.stack(outputs_tasks, dim=1)
+                joint_entropy_tasks = torch.stack(joint_entropy_tasks)
+                joint_entropy_tasks = joint_entropy_tasks.transpose(0, 1)
+                predicted_task = torch.argmin(joint_entropy_tasks, axis=1)
+                outputs = outputs_tasks[range(outputs_tasks.shape[0]), predicted_task]
+            else:
+                outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
+
+        loss=self.ce(outputs,targets)
+        values,indices=outputs.max(1)
+        hits=(indices==targets).float()
+        return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
 
 class ACO():
     def __init__(self, num_layer, num_task):

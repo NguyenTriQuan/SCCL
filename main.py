@@ -104,9 +104,9 @@ for t, ncla in taskcla[start_task:]:
     # if args.experiment == 'mixture':
     #     appr.factor = data[t]['factor']
     #     print('dataset factor', appr.factor)
-    if args.approach == 'oesc' or args.approach == 'fes':
-        appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
-        # appr.train(task, data[t]['train_loader'], data[t]['test_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
+    if args.approach == 'dad' or args.approach == 'fse':
+        # appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
+        appr.train(task, data[t]['train_loader'], data[t]['test_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
     else:
         appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'])
 

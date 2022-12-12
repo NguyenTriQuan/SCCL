@@ -10,7 +10,7 @@ import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
 # from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
-from layers.fes_layer import DynamicLinear, DynamicConv2D, _DynamicLayer, DynamicClassifier
+from layers.dad_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys
@@ -27,6 +27,10 @@ class _DynamicModel(nn.Module):
         super(_DynamicModel, self).__init__()
         self.permute = [None]
 
+    def restrict_gradients(self, t, requires_grad):
+        for m in self.DM:
+            m.restrict_gradients(t, requires_grad)
+
     def get_optim_params(self):
         params = []
         for m in self.DM:
@@ -40,40 +44,31 @@ class _DynamicModel(nn.Module):
         return params
 
     def expand(self, new_class, ablation='full'):
-
-        self.DM[0].expand(add_in=0, add_out=None, ablation=ablation)
-        self.total_strength = self.DM[0].strength_in
-        for m in self.DM[1:-1]:
+        for m in self.DM[:-1]:
             m.expand(add_in=None, add_out=None, ablation=ablation)
-            self.total_strength += m.strength_in + m.strength_out
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
-        self.total_strength += self.DM[-1].strength_out
+
+        self.total_strength = 1
+        for m in self.DM[:-1]:
+            m.get_reg_strength()
+            self.total_strength += m.strength
 
     def squeeze(self, optim_state):
-        mask_in = None
-        mask_out = self.DM[0].mask_out * self.DM[1].mask_in
-        self.DM[0].squeeze(optim_state, mask_in, mask_out)
-        mask_in = mask_out
-        self.total_strength = self.DM[0].strength_in
-        for i, m in enumerate(self.DM[1:-1]):
-            mask_out = self.DM[i].mask_out * self.DM[i+1].mask_in
-            m.squeeze(optim_state, mask_in, mask_out)
-            mask_in = mask_out
-            self.total_strength += m.strength_in + m.strength_out
-        self.DM[-1].squeeze(optim_state, mask_in, None)
-        self.total_strength += self.DM[-1].strength_out
+        self.total_strength = 1
+        for m in self.DM[:-1]:
+            m.squeeze(optim_state)
+            self.total_strength += m.strength
 
-    def forward(self, input, task_list):
-        n = 0
-        i = 0
+    def forward(self, input, t=-1):
+        if t == -1:
+            t = len(self.DM[-1].shape_out)-2
+
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
-                m = task_list[i]
-                input = module(input, n, m)
-                n = m
-                i += 1
+                input = module(input, t)
             else:
                 input = module(input)
+
         return input
 
     def count_params(self, t=-1):
@@ -94,8 +89,19 @@ class _DynamicModel(nn.Module):
         return model_count, layers_count
 
     def proximal_gradient_descent(self, lr, lamb):
-        for m in self.DM:
+        for m in self.DM[:-1]:
             m.proximal_gradient_descent(lr, lamb, self.total_strength)
+
+    def group_lasso_reg(self):
+        reg = 0
+        for m in self.DM[:-1]:
+            reg += m.get_reg()
+        return reg / self.total_strength
+
+    def set_track(self, track):
+        for m in self.DM[:-1]:
+            m.track = track
+            m.out_tracked = None
     
     def report(self):
         for m in self.DM:
@@ -113,18 +119,14 @@ class MLP(_DynamicModel):
             p = 0
         self.layers = nn.ModuleList([
             nn.Flatten(),
-            nn.Dropout(0.25*p),
+            nn.Dropout(0.25),
             DynamicLinear(np.prod(input_size), N, first_layer=True, bias=True, norm_type=norm_type),
             nn.ReLU(),
             # nn.Dropout(0.25),
             DynamicLinear(N, N, bias=True, norm_type=norm_type),
             nn.ReLU(),
-            DynamicLinear(N, N, bias=True, norm_type=norm_type),
-            nn.ReLU(),
-            DynamicLinear(N, N, bias=True, norm_type=norm_type),
-            nn.ReLU(),
             # nn.Dropout(0.25),
-            DynamicClassifier(N, 0, bias=True),
+            DynamicLinear(N, 0, bias=True, last_layer=True),
             ])
         
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
@@ -139,30 +141,28 @@ class VGG8(_DynamicModel):
         nchannels, size, _ = input_size
         self.mul = mul
         self.input_size = input_size
-        p = 1
-        if 'drop_arch' in args.ablation:
-            p = 0
+    
         self.layers = nn.ModuleList([
             DynamicConv2D(nchannels, 32, kernel_size=3, padding=1, norm_type=norm_type, first_layer=True, bias=bias),
             nn.ReLU(),
             DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.25*p),
+            # nn.Dropout(0.25),
 
             DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.25*p),
+            # nn.Dropout(0.25),
 
             DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.5),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.5*p),
+            # nn.Dropout(0.5),
             ])
 
         s = size
@@ -206,10 +206,8 @@ class VGG(_DynamicModel):
         self.layers += nn.ModuleList([
             nn.Flatten(),
             DynamicLinear(int(512*s*s*mul), int(4096*mul), s=s),
-            # nn.Dropout(self.p),
             nn.ReLU(True),
             DynamicLinear(int(4096*mul), int(4096*mul)),
-            # nn.Dropout(self.p),
             nn.ReLU(True),
             DynamicLinear(int(4096*mul), 0, last_layer=True),
         ])
@@ -222,7 +220,7 @@ class VGG(_DynamicModel):
 def make_layers(cfg, nchannels, norm_type=None, bias=True, mul=1):
     layers = []
     in_channels = nchannels
-    layers += DynamicConv2D(in_channels, int(cfg[0]*mul), kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)
+    layers += [DynamicConv2D(in_channels, int(cfg[0]*mul), kernel_size=3, padding=1, norm_type=norm_type, bias=bias, first_layer=True), nn.ReLU(inplace=True)]
     in_channels = int(cfg[0]*mul)
     p = 0.1
     for v in cfg[1:]:

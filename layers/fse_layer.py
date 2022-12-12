@@ -155,22 +155,27 @@ class _DynamicLayer(nn.Module):
                 if self.weight[i][-2].numel() == 0:
                     self.scale[i].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                 else:
-                    w_std = self.weight[i][-2].std()
+                    w_std = self.weight[i][-2].std(dim=self.dim_in, unbiased=False).view(self.view_in)
                     self.scale[i].append(nn.Parameter(1/w_std))
 
                 if self.weight[-2][i].numel() == 0:
                     self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                 else:
-                    w_std = self.weight[i][-2].std()
+                    w_std = self.weight[-2][i].std(dim=self.dim_in, unbiased=False).view(self.view_in)
                     self.scale[-1].append(nn.Parameter(1/w_std))
             
             if self.weight[-2][-2].numel() == 0:
                 self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
             else:
-                w_std = self.weight[-2][-2].std()
+                w_std = self.weight[-2][-2].std(dim=self.dim_in, unbiased=False).view(self.view_in)
                 self.scale[-1].append(nn.Parameter(1/w_std))
-        # else:
-        #     self.scale.append([[nn.Parameter(torch.ones(1).to(device), requires_grad=False) for j in range(self.cur_task)] for i in range(self.cur_task)])
+        else:
+            self.scale.append([])
+            for i in range(self.cur_task):
+                self.scale[i].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+            
+            self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
 
         if self.bias is not None:
             self.bias.append(nn.Parameter(torch.Tensor(self.out_features).uniform_(0, 0).to(device)))

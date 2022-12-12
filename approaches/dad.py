@@ -15,7 +15,7 @@ import kornia as K
 import time
 import csv
 from utils import *
-import networks.oesc_net as network
+import networks.dad_net as network
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from sklearn.utils import shuffle

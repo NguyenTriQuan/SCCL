@@ -23,6 +23,31 @@ import torch.nn.functional as F
 # feature_extractor = nn.Sequential(*list(resnet_model.children())[:-4])
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def logmeanexp(x, dim=None, keepdim=False):
+    """Stable computation of log(mean(exp(x))"""
+
+    
+    if dim is None:
+        x, dim = x.view(-1), 0
+    x_max, _ = torch.max(x, dim, keepdim=True)
+    x = x_max + torch.log(torch.mean(torch.exp(x - x_max), dim, keepdim=True))
+    return x if keepdim else x.squeeze(dim)
+
+def ensemble_outputs(outputs):
+    """
+        pre_outputs: with batch_size repeated to batch_size * ensemble_numbers
+        bs:          real batch_size
+    """
+    ## a list of outputs with length [num_member], each with shape [bs, num_cls]
+    # outputs = pre_outputs.split(bs)
+    ## with shape [bs, num_cls, num_member]
+    # outputs = torch.stack(outputs, dim=-1)
+    outputs = F.log_softmax(outputs, dim=-2)
+    ## with shape [bs, num_cls]
+    log_outputs = logmeanexp(outputs, dim=-1)
+
+    return log_outputs
+
 def _calculate_fan_in_and_fan_out(tensor):
     dimensions = tensor.dim()
     if dimensions < 2:

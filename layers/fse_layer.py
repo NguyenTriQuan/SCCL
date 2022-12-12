@@ -551,12 +551,12 @@ class DynamicNorm(nn.Module):
             self.track_running_stats = False
 
         if self.affine:
-            self.weight = [None]
-            self.bias = [None]
+            self.weight = []
+            self.bias = []
 
         if self.track_running_stats:
-            self.running_mean = [None]
-            self.running_var = [None]
+            self.running_mean = []
+            self.running_var = []
             self.num_batches_tracked = 0
         else:
             self.running_mean = None

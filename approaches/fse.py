@@ -133,10 +133,12 @@ class Appr(object):
         self.shape_out = self.model.DM[-1].shape_out
         self.cur_task = len(self.shape_out)-2
 
+        self.lamb = sum(self.lambs[:self.cur_task+1])
+
         if self.experiment == 'mixture':
-            self.lamb = self.lambs[self.cur_task] / (self.factor**0.5)
-        else:
-            self.lamb = self.lambs[self.cur_task]
+            self.factor = train_loader.dataset.tensors[0].shape[0]
+            self.lamb = self.lamb / (self.factor**0.5)
+            
         print('lambda', self.lamb)
         print(self.log_name)
 

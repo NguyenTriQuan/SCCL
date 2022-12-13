@@ -121,7 +121,8 @@ class _DynamicLayer(nn.Module):
 
         self.weight.append([])
         if isinstance(self, DynamicConv2D):
-            self.gain = torch.nn.init.calculate_gain('relu')
+            # self.gain = torch.nn.init.calculate_gain('relu')
+            self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
             fan_in = self.in_features * np.prod(self.kernel_size)
             bound_std = self.gain / math.sqrt(fan_in)
             for i in range(self.cur_task):

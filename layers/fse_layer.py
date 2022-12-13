@@ -60,6 +60,7 @@ class _DynamicLayer(nn.Module):
         self.bias = [] if bias else None
 
         self.scale = []
+        self.shift = []
 
         self.num_in = []
         self.num_out = []
@@ -142,42 +143,66 @@ class _DynamicLayer(nn.Module):
             self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[-1]).normal_(0, bound_std).to(device)))
 
         # rescale old tasks params
-        if 'scale' not in ablation and not self.last_layer and self.cur_task > 0:
+        if self.cur_task > 0:
             self.scale.append([])
-            # for i in range(self.cur_task):
-            #     self.scale[-1].append([])
-            #     for j in range(self.cur_task):
-            #         if self.weight[i][j].numel() == 0:
-            #             self.scale[-1][-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-            #         else:
-            #             w_std = self.weight[i][j].std()
-            #             # self.scale[-1][-1].append(nn.Parameter(bound_std/w_std))
-            #             self.scale[-1][-1].append(nn.Parameter(1/w_std))
-            for i in range(self.cur_task):
-                if self.weight[i][-2].numel() == 0:
-                    self.scale[i].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-                else:
-                    w_std = self.weight[i][-2].std(dim=self.dim_in, unbiased=False).view(self.view_in)
-                    self.scale[i].append(nn.Parameter(1/w_std))
-
-                if self.weight[-2][i].numel() == 0:
-                    self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-                else:
-                    w_std = self.weight[-2][i].std(dim=self.dim_in, unbiased=False).view(self.view_in)
-                    self.scale[-1].append(nn.Parameter(1/w_std))
-            
-            if self.weight[-2][-2].numel() == 0:
-                self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+            self.shift.append([])
+            if 'scale' not in ablation:
+                for i in range(self.cur_task):
+                    self.scale[-1].append([])
+                    self.shift[-1].append([])
+                    for j in range(self.cur_task):
+                        if self.weight[i][j].numel() == 0:
+                            self.shift[-1][-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
+                            self.scale[-1][-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                        else:
+                            w_mean = self.weight[i][j].mean(dim=self.dim_in).view(self.view_in)
+                            self.shift[-1][-1].append(nn.Parameter(w_mean))
+                            w_std = self.weight[i][j].std(dim=self.dim_in, unbiased=False).view(self.view_in)
+                            self.scale[-1][-1].append(nn.Parameter(w_std))
             else:
-                w_std = self.weight[-2][-2].std(dim=self.dim_in, unbiased=False).view(self.view_in)
-                self.scale[-1].append(nn.Parameter(1/w_std))
-        else:
-            self.scale.append([])
-            for i in range(self.cur_task):
-                self.scale[i].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                for i in range(self.cur_task):
+                    self.shift[i].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
+                    self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
+                    self.scale[i].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                    self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
                 self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-            
-            self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+            #     if self.cur_task > 1:
+            #         for i in range(self.cur_task):
+            #             if self.weight[i][-2].numel() == 0:
+            #                 self.shift[i].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
+            #                 self.scale[i].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+            #             else:
+            #                 w_mean = self.weight[i][-2].mean(dim=self.dim_in).view(self.view_in)
+            #                 self.shift[i].append(nn.Parameter(w_mean))
+            #                 w_std = self.weight[i][-2].std(dim=self.dim_in, unbiased=False).view(self.view_in)
+            #                 self.scale[i].append(nn.Parameter(w_std))
+                            
+            #             if self.weight[-2][i].numel() == 0:
+            #                 self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
+            #                 self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+            #             else:
+            #                 w_mean = self.weight[-2][i].mean(dim=self.dim_in).view(self.view_in)
+            #                 self.shift[-1].append(nn.Parameter(w_mean))
+            #                 w_std = self.weight[-2][i].std(dim=self.dim_in, unbiased=False).view(self.view_in)
+            #                 self.scale[-1].append(nn.Parameter(w_std))
+                
+            #     if self.weight[-2][-2].numel() == 0:
+            #         self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
+            #         self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+            #     else:
+            #         w_mean = self.weight[-2][-2].mean(dim=self.dim_in).view(self.view_in)
+            #         self.shift[-1].append(nn.Parameter(w_mean))
+            #         w_std = self.weight[-2][-2].std(dim=self.dim_in, unbiased=False).view(self.view_in)
+            #         self.scale[-1].append(nn.Parameter(w_std))
+            # else:
+            #     for i in range(self.cur_task):
+            #         self.shift[i].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
+            #         self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
+            #         self.scale[i].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+            #         self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+            #     self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
+            #     self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
 
         if self.bias is not None:
             self.bias.append(nn.Parameter(torch.Tensor(self.out_features).uniform_(0, 0).to(device)))
@@ -202,6 +227,12 @@ class _DynamicLayer(nn.Module):
 
         self.get_reg_strength()
 
+        # for i in range(self.cur_task):
+        #     for j in range(self.cur_task):
+        #         print(list(self.scale[-1][i][j].shape), end=' ')
+        #     print()
+        # print()
+
     def get_parameters(self, n, m):
         if self.last_layer:
             weight = self.weight[n][m]
@@ -212,14 +243,17 @@ class _DynamicLayer(nn.Module):
                 weight = torch.cat([weight, self.weight[0][j]], dim=0)
             bias = self.bias[m] if self.bias is not None else None
         else:
-            bound_std = self.gain / math.sqrt(self.shape_in[n+1])
+            if 'scale' in args.ablation:
+                bound_std = 1
+            else:
+                bound_std = self.gain / math.sqrt(self.shape_in[n+1])
             weight = torch.empty(0).to(device)
             fwt_weight = torch.empty(0).to(device)
             bwt_weight = torch.empty(0).to(device)
             for i in range(n):
                 temp = torch.empty(0).to(device)
                 for j in range(m):
-                    temp = torch.cat([temp, self.weight[i][j] * self.scale[i][j] * bound_std], dim=0)
+                    temp = torch.cat([temp, bound_std * (self.weight[i][j] - self.shift[m-1][i][j]) / self.scale[m-1][i][j]], dim=0)
 
                 weight = torch.cat([weight, temp], dim=1)
                 fwt_weight = torch.cat([fwt_weight, self.weight[i][m]], dim=1)
@@ -243,7 +277,6 @@ class _DynamicLayer(nn.Module):
         if self.norm_layer:
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
-
         return params
 
     def get_optim_scales(self, lr):
@@ -255,7 +288,7 @@ class _DynamicLayer(nn.Module):
                     N /= self.weight[i][j].shape[0]
                 else:
                     N = 1
-                params += [{'params':[self.scale[-1][i][j]], 'lr':lr/N}]
+                params += [{'params':[self.scale[-1][i][j], self.shift[-1][i][j]], 'lr':lr/N}]
         return params
 
     def count_params(self, t):

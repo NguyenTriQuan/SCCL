@@ -35,7 +35,7 @@ class _DynamicModel(nn.Module):
 
     def get_optim_scales(self, lr):
         params = []
-        for m in self.DM:
+        for m in self.DM[:-1]:
             params += m.get_optim_scales(lr)
         return params
 
@@ -158,21 +158,21 @@ class VGG8(_DynamicModel):
             DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.25*p),
+            # nn.Dropout(0.25*p),
 
             DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.25*p),
+            # nn.Dropout(0.25*p),
 
             DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
             DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.5),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Dropout(0.5*p),
+            # nn.Dropout(0.5*p),
             ])
 
         s = size

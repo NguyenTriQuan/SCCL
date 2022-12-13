@@ -97,7 +97,7 @@ class Appr(object):
 
         params = self.model.get_optim_params()
         params = [{'params': params, 'lr':lr}]
-
+        params += self.model.get_optim_scales(lr)
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
                           weight_decay=0.0, momentum=0.9)
@@ -138,7 +138,7 @@ class Appr(object):
         if self.experiment == 'mixture':
             self.factor = train_loader.dataset.tensors[0].shape[0]
             self.lamb = self.lamb / (self.factor**0.5)
-            
+
         print('lambda', self.lamb)
         print(self.log_name)
 

@@ -120,10 +120,11 @@ class _DynamicLayer(nn.Module):
         self.shape_out.append(self.out_features)
 
         self.weight.append([])
-        gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        # gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        self.gain = torch.nn.init.calculate_gain('relu')
         if isinstance(self, DynamicConv2D):
             fan_in = self.in_features * np.prod(self.kernel_size)
-            bound_std = gain / math.sqrt(fan_in)
+            bound_std = self.gain / math.sqrt(fan_in)
             for i in range(self.cur_task):
                 self.weight[i].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[i] // self.groups,
                                                             *self.kernel_size).normal_(0, bound_std).to(device)))
@@ -133,7 +134,7 @@ class _DynamicLayer(nn.Module):
                                                             *self.kernel_size).normal_(0, bound_std).to(device)))
         else:
             fan_in = self.in_features
-            bound_std = gain / math.sqrt(fan_in)
+            bound_std = self.gain / math.sqrt(fan_in)
             for i in range(self.cur_task):
                 self.weight[i].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[i]).normal_(0, bound_std).to(device)))
                 self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[i], self.num_in[-1]).normal_(0, bound_std).to(device)))
@@ -210,8 +211,7 @@ class _DynamicLayer(nn.Module):
                 weight = torch.cat([weight, self.weight[0][j]], dim=0)
             bias = self.bias[m] if self.bias is not None else None
         else:
-            gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-            bound_std = gain / math.sqrt(self.shape_in[n+1])
+            bound_std = self.gain / math.sqrt(self.shape_in[n+1])
             weight = torch.empty(0).to(device)
             fwt_weight = torch.empty(0).to(device)
             bwt_weight = torch.empty(0).to(device)

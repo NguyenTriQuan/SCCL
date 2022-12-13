@@ -373,7 +373,7 @@ class _DynamicLayer(nn.Module):
             if self.norm_layer:
                 if self.norm_layer.affine:
                     norm = self.norm_layer.norm()
-                    aux = 1 - lamb * lr * strength / norm
+                    aux = 1 - lamb * lr * strength_in / norm
                     aux = F.threshold(aux, 0, eps, False)
                     self.mask_out *= (aux > eps)
                     self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux

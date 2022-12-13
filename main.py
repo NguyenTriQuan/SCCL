@@ -108,7 +108,8 @@ for t, ncla in taskcla[start_task:]:
         # appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
         appr.train(task, data[t]['train_loader'], data[t]['test_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
     else:
-        appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'])
+        # appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'])
+        appr.train(task, data[t]['train_loader'], data[t]['test_loader'], data[t]['train_transform'], data[t]['valid_transform'])
 
     print('-' * 100)
     print(f'Task {t} training time: {time.time() - train_start} s')

@@ -125,12 +125,12 @@ class _DynamicLayer(nn.Module):
             fan_in = self.in_features * np.prod(self.kernel_size)
             bound_std = gain / math.sqrt(fan_in)
             for i in range(self.cur_task):
-                self.weight[i].append(nn.Parameter(torch.Tensor(self.num_out[-1], 
-                                                    self.num_in[i] // self.groups, *self.kernel_size).normal_(0, bound_std).to(device)))
-                self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[i], 
-                                                    self.num_in[-1] // self.groups, *self.kernel_size).normal_(0, bound_std).to(device)))
-            self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], 
-                                                self.num_in[-1] // self.groups, *self.kernel_size).normal_(0, bound_std).to(device)))
+                self.weight[i].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[i] // self.groups,
+                                                            *self.kernel_size).normal_(0, bound_std).to(device)))
+                self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[i], self.num_in[-1] // self.groups, 
+                                                            *self.kernel_size).normal_(0, bound_std).to(device)))
+            self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[-1] // self.groups, 
+                                                            *self.kernel_size).normal_(0, bound_std).to(device)))
         else:
             fan_in = self.in_features
             bound_std = gain / math.sqrt(fan_in)
@@ -346,26 +346,28 @@ class _DynamicLayer(nn.Module):
             strength_out = self.strength_out/total_strength
             strength = self.strength/total_strength
             # group lasso weights in
-            norm = self.norm_in()
-            aux = 1 - lamb * lr * strength_in / norm
-            aux = F.threshold(aux, 0, eps, False)
-            self.mask_out = (aux > eps)
-            self.weight[-1][-1].data *= aux.view(self.view_in)
-            for i in range(self.cur_task):
-                self.weight[i][-1].data *= aux.view(self.view_in)
-            if self.bias is not None:
-                self.bias[-1].data[self.shape_out[-2]:] *= aux
+            if not self.last_layer:
+                norm = self.norm_in()
+                aux = 1 - lamb * lr * strength_in / norm
+                aux = F.threshold(aux, 0, eps, False)
+                self.mask_out = (aux > eps)
+                self.weight[-1][-1].data *= aux.view(self.view_in)
+                for i in range(self.cur_task):
+                    self.weight[i][-1].data *= aux.view(self.view_in)
+                if self.bias is not None:
+                    self.bias[-1].data[self.shape_out[-2]:] *= aux
 
             # group lasso weights out
-            norm = self.norm_out()
-            aux = 1 - lamb * lr * strength_out / norm
-            aux = F.threshold(aux, 0, eps, False)
-            self.mask_in = (aux > eps)
-            if self.s != 1:
-                aux = aux.view(-1, 1, 1).expand(aux.size(0), self.s, self.s).contiguous().view(-1)
-            self.weight[-1][-1].data *= aux.view(self.view_out)
-            for i in range(self.cur_task):
-                self.weight[-1][i].data *= aux.view(self.view_out)    
+            if not self.first_layer:
+                norm = self.norm_out()
+                aux = 1 - lamb * lr * strength_out / norm
+                aux = F.threshold(aux, 0, eps, False)
+                self.mask_in = (aux > eps)
+                if self.s != 1:
+                    aux = aux.view(-1, 1, 1).expand(aux.size(0), self.s, self.s).contiguous().view(-1)
+                self.weight[-1][-1].data *= aux.view(self.view_out)
+                for i in range(self.cur_task):
+                    self.weight[-1][i].data *= aux.view(self.view_out)    
 
             # group lasso affine weights
             if self.norm_layer:
@@ -385,7 +387,10 @@ class DynamicLinear(_DynamicLayer):
         self.view_in = [-1, 1]
         self.view_out = [1, -1]
         self.dim_in = [1]
-        self.dim_out = [0]
+        if s == 1:
+            self.dim_out = [0]
+        else:
+            self.dim_out = [0, 2, 3]
             
         
 class _DynamicConvNd(_DynamicLayer):

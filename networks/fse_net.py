@@ -61,11 +61,13 @@ class _DynamicModel(nn.Module):
         self.DM[0].squeeze(optim_state, mask_in, mask_out)
         mask_in = mask_out
         self.total_strength = self.DM[0].strength_in
-        for i, m in enumerate(self.DM[1:-1]):
+        i = 1
+        for m in self.DM[1:-1]:
             mask_out = self.DM[i].mask_out * self.DM[i+1].mask_in
             m.squeeze(optim_state, mask_in, mask_out)
             mask_in = mask_out
             self.total_strength += m.strength_in + m.strength_out
+            i += 1
         self.DM[-1].squeeze(optim_state, mask_in, None)
         self.total_strength += self.DM[-1].strength_out
 

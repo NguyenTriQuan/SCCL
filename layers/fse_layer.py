@@ -82,8 +82,8 @@ class _DynamicLayer(nn.Module):
         
         self.cur_task = -1
 
-    def forward(self, x, n, m):    
-        weight, bias = self.get_parameters(n, m)
+    def forward(self, x, t, n, m):    
+        weight, bias = self.get_parameters(t, n, m)
 
         if weight.numel() == 0:
             return None
@@ -161,12 +161,12 @@ class _DynamicLayer(nn.Module):
                             self.scale[-1][-1].append(nn.Parameter(w_std))
             else:
                 for i in range(self.cur_task):
-                    self.shift[i].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
-                    self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
-                    self.scale[i].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-                    self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-                self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
-                self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                    self.scale[-1].append([])
+                    self.shift[-1].append([])
+                    for j in range(self.cur_task):
+                        self.shift[-1][-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
+                        self.scale[-1][-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
+                    
             #     if self.cur_task > 1:
             #         for i in range(self.cur_task):
             #             if self.weight[i][-2].numel() == 0:
@@ -227,13 +227,13 @@ class _DynamicLayer(nn.Module):
 
         self.get_reg_strength()
 
-        # for i in range(self.cur_task):
-        #     for j in range(self.cur_task):
-        #         print(list(self.scale[-1][i][j].shape), end=' ')
-        #     print()
-        # print()
+        for i in range(self.cur_task):
+            for j in range(self.cur_task):
+                print(list(self.scale[-1][i][j].shape), end=' ')
+            print()
+        print()
 
-    def get_parameters(self, n, m):
+    def get_parameters(self, t, n, m):
         if self.last_layer:
             weight = self.weight[n][m]
             bias = self.bias[n][m] if self.bias is not None else None
@@ -253,7 +253,7 @@ class _DynamicLayer(nn.Module):
             for i in range(n):
                 temp = torch.empty(0).to(device)
                 for j in range(m):
-                    temp = torch.cat([temp, bound_std * (self.weight[i][j] - self.shift[m-1][i][j]) / self.scale[m-1][i][j]], dim=0)
+                    temp = torch.cat([temp, bound_std * (self.weight[i][j] - self.shift[t-1][i][j]) / self.scale[t-1][i][j]], dim=0)
 
                 weight = torch.cat([weight, temp], dim=1)
                 fwt_weight = torch.cat([fwt_weight, self.weight[i][m]], dim=1)
@@ -465,8 +465,8 @@ class DynamicClassifier(DynamicLinear):
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
         super(DynamicClassifier, self).__init__(in_features, out_features, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
-    def forward(self, x, n, m):    
-        weight, bias = self.get_parameters(n, m)
+    def forward(self, x, t, n, m):    
+        weight, bias = self.get_parameters(t, n, m)
         x = F.linear(x, weight, bias)
         return x
 
@@ -505,7 +505,7 @@ class DynamicClassifier(DynamicLinear):
 
         self.get_reg_strength()
 
-    def get_parameters(self, n, m):
+    def get_parameters(self, t, n, m):
         weight = self.weight[m][n]
         bias = self.bias[m][n] if self.bias is not None else None
         return weight, bias

@@ -71,15 +71,13 @@ class _DynamicModel(nn.Module):
         self.DM[-1].squeeze(optim_state, mask_in, None)
         self.total_strength += self.DM[-1].strength_out
 
-    def forward(self, input, task_list):
+    def forward(self, input, t, task_list):
         n = 0
         i = 0
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
                 m = task_list[i]
-                input = module(input, n, m)
-                # input = input[:, self.permute[m][i]]
-                    
+                input = module(input, t, n, m)                    
                 n = m
                 i += 1
             else:

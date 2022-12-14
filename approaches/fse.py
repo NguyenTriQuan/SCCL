@@ -97,7 +97,7 @@ class Appr(object):
 
         params = self.model.get_optim_params()
         params = [{'params': params, 'lr':lr}]
-        params += self.model.get_optim_scales(lr)
+        params += self.model.get_optim_scales(lr*self.lr_rho)
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
                           weight_decay=0.0, momentum=0.9)
@@ -251,7 +251,7 @@ class Appr(object):
         print(valid_accs)
 
     def train_batch(self, t, images, targets, squeeze, lr):
-        outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
+        outputs = self.model.forward(images, t, task_list=[t for _ in range(len(self.model.DM))])
         loss = self.ce(outputs, targets)
         self.optimizer.zero_grad()
         loss.backward() 
@@ -263,19 +263,19 @@ class Appr(object):
         loss = 0
         if t == 1:
             self.best_path[t] = [0 for _ in range(len(self.model.DM)-1)] + [t]
-            outputs = self.model.forward(images, task_list=self.best_path[t])
+            outputs = self.model.forward(images, t, task_list=self.best_path[t])
             temp = self.ce(outputs, targets)
             loss += temp
         elif t > 1:
             for i in range(10):
                 path = list(np.random.randint(t, size=len(self.model.DM[:-1])))+[t]
-                outputs = self.model.forward(images, task_list=path)
+                outputs = self.model.forward(images, t, task_list=path)
                 temp = self.ce(outputs, targets)
                 if self.best_loss > temp:
                     self.best_loss = temp.detach().item()
                     self.best_path[t] = path
                 loss += temp
-            outputs = self.model.forward(images, task_list=self.best_path[t])
+            outputs = self.model.forward(images, t, task_list=self.best_path[t])
             temp = self.ce(outputs, targets)
             loss += temp
         
@@ -288,7 +288,7 @@ class Appr(object):
         with torch.no_grad():
             outputs = []
             for path in paths:
-                outputs += [self.model.forward(images, task_list=path)]
+                outputs += [self.model.forward(images, t, task_list=path)]
             outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
         loss=self.ce(outputs,targets)
         values,indices=outputs.max(1)

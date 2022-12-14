@@ -157,13 +157,19 @@ class _DynamicLayer(nn.Module):
                         if 'shift' in args.ablation:
                             self.shift[-1][-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
                         else:
-                            w_mean = self.weight[i][j].mean(dim=self.dim_in).view(self.view_in)
-                            self.shift[-1][-1].append(nn.Parameter(w_mean))
+                            # w_mean = self.weight[i][j].mean(dim=self.dim_in).view(self.view_in)
+                            # self.shift[-1][-1].append(nn.Parameter(w_mean))
+                            w_mean = self.weight[i][j].mean()
+                            mean_param = torch.Tensor(self.weight[i][j].shape[0]).uniform_(w_mean, w_mean).to(device).view(self.view_in)
+                            self.shift[-1][-1].append(nn.Parameter(mean_param))
                         if 'scale' in args.ablation:
                             self.scale[-1][-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
                         else:
-                            w_std = self.weight[i][j].std(dim=self.dim_in, unbiased=False).view(self.view_in)
-                            self.scale[-1][-1].append(nn.Parameter(w_std))
+                            # w_std = self.weight[i][j].std(dim=self.dim_in, unbiased=False).view(self.view_in)
+                            # self.scale[-1][-1].append(nn.Parameter(w_std))
+                            w_std = self.weight[i][j].std(unbiased=False)
+                            std_param = torch.Tensor(self.weight[i][j].shape[0]).uniform_(w_std, w_std).to(device).view(self.view_in)
+                            self.scale[-1][-1].append(nn.Parameter(std_param))
                     
             #     if self.cur_task > 1:
             #         for i in range(self.cur_task):

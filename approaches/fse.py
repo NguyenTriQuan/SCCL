@@ -97,7 +97,8 @@ class Appr(object):
 
         params = self.model.get_optim_params()
         params = [{'params': params, 'lr':lr}]
-        params += self.model.get_optim_scales(lr*self.lr_rho)
+        if self.lr_rho > 0:
+            params += self.model.get_optim_scales(lr*self.lr_rho)
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
                           weight_decay=0.0, momentum=0.9)

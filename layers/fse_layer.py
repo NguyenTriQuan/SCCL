@@ -257,7 +257,7 @@ class _DynamicLayer(nn.Module):
             for i in range(n):
                 temp = torch.empty(0).to(device)
                 for j in range(m):
-                    temp = torch.cat([temp, bound_std * (self.weight[i][j] - self.shift[t-1][i][j]) / self.scale[t-1][i][j]], dim=0)
+                    temp = torch.cat([temp, bound_std * self.weight[i][j] / self.scale[t-1][i][j]], dim=0)
 
                 weight = torch.cat([weight, temp], dim=1)
                 fwt_weight = torch.cat([fwt_weight, self.weight[i][m]], dim=1)

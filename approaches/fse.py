@@ -133,7 +133,7 @@ class Appr(object):
                     )
                     print(f"Set sparsity of {i} to {self.model.DM[i].sparsity}")
                 self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
-                # self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, ensemble=True)
+                self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, ensemble=True)
                 self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
         else: 

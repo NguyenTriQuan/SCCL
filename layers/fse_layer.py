@@ -296,21 +296,7 @@ class _DynamicLayer(nn.Module):
                 bwt_weight = torch.cat([bwt_weight, self.weight[n][j]], dim=0)
             
             weight = F.dropout(weight, self.p, self.training)
-            if self.cur_task > 0:
-                if self.training:
-                    mask = GetSubnet.apply(
-                        self.score.abs(), self.sparsity
-                    )
-                    weight = weight * mask
-                    self.mask[t] = mask.detach().clone()
-                else:
-                    if self.mask[t] is not None:
-                        weight = weight * self.mask[t]
-            weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 
-                                torch.cat([fwt_weight, self.weight[n][m]], dim=1)], dim=0)
-            bias = self.bias[m] if self.bias is not None else None
-
-            # if m == t-1 and n == t-1:
+            # if self.cur_task > 0:
             #     if self.training:
             #         mask = GetSubnet.apply(
             #             self.score.abs(), self.sparsity
@@ -320,6 +306,20 @@ class _DynamicLayer(nn.Module):
             #     else:
             #         if self.mask[t] is not None:
             #             weight = weight * self.mask[t]
+            weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 
+                                torch.cat([fwt_weight, self.weight[n][m]], dim=1)], dim=0)
+            bias = self.bias[m] if self.bias is not None else None
+
+            if m == t-1 and n == t-1:
+                if self.training:
+                    mask = GetSubnet.apply(
+                        self.score.abs(), self.sparsity
+                    )
+                    weight = weight * mask
+                    self.mask[t] = mask.detach().clone()
+                else:
+                    if self.mask[t] is not None:
+                        weight = weight * self.mask[t]
 
         return weight, bias
 

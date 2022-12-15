@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from sklearn.utils import shuffle
 from torch.utils.data import  TensorDataset, DataLoader
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -115,9 +116,7 @@ class Appr(object):
             self.model = self.model.to(device)
             self.shape_out = self.model.DM[-1].shape_out
             self.cur_task = len(self.shape_out)-2
-
             self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
-
             try:
                 os.remove(f'../result_data/trained_model/{self.log_name}.model')
             except:
@@ -126,6 +125,17 @@ class Appr(object):
             torch.save(self.check_point, f'../result_data/trained_model/{self.log_name}.model')
             self.best_path.append(None)
             self.best_loss = 999999
+            if t > 0:
+                for i, m in enumerate(self.model.DM[:-1]):
+                    self.model.DM[i].sparsity = min(0.5,
+                        self.args.sparsity * (m.shape_out[-2] + m.shape_in[-2])
+                        / (m.shape_out[-2] * m.shape_in[-2] * m.fan_in),
+                    )
+                    print(f"Set sparsity of {i} to {self.model.DM[i].sparsity}")
+                self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+                # self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, ensemble=True)
+                self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+
         else: 
             print('Continue training current task')
 
@@ -143,11 +153,6 @@ class Appr(object):
         print('lambda', self.lamb)
         print(self.log_name)
 
-        # self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
-        # if t > 0:
-        #     self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, ensemble=True)
-
-        # self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=True, ensemble=False)
         if not self.check_point['squeeze']:
             self.check_point = None
@@ -171,11 +176,16 @@ class Appr(object):
 
         self.model.count_params()
         paths = [[t for _ in range(len(self.model.DM))]]
-        train_loss,train_acc=self.eval(t, train_loader, valid_transform)
+        train_loss,train_acc=self.eval(t, train_loader, valid_transform, paths)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
 
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, paths)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
+
+        # if ensemble:
+        #     self.nepochs = 100
+        # else:
+        #     self.nepochs = self.args.nepochs
 
         lr = self.check_point['lr']
         patience = self.check_point['patience']
@@ -189,7 +199,7 @@ class Appr(object):
             best_acc = train_acc
         else:
             best_acc = valid_acc
-    
+
         try:
             for e in range(start_epoch, self.nepochs):
                 clock0=time.time()
@@ -206,20 +216,25 @@ class Appr(object):
                 valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, paths)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
-                if squeeze and 'phase2' not in self.ablation:
+                if squeeze:
                     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
                     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-
                     # model_count, layers_count = self.model.count_params()
                     # if self.logger is not None:
                     #     self.logger.log_metric('num params', model_count, epoch=e)
+                elif ensemble:
+                    if valid_acc > best_acc:
+                        best_acc = valid_acc
+                        self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
+                        torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                        print(' *', end='')
                 else:
                     if valid_acc > best_acc:
                         best_acc = valid_acc
                         self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
                         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                        patience = self.lr_patience
                         print(' *', end='')
+                        patience = self.lr_patience
                     else:
                         patience -= 1
                         if patience <= 0:
@@ -256,32 +271,39 @@ class Appr(object):
         loss = self.ce(outputs, targets)
         self.optimizer.zero_grad()
         loss.backward() 
+        # if t > 0:
+        #     print(self.model.DM[0].score.grad.sum())
         self.optimizer.step()
         if squeeze:
             self.model.proximal_gradient_descent(lr, self.lamb)
 
     def train_batch_ensemble(self, t, images, targets):
         loss = 0
-        if t == 1:
-            self.best_path[t] = [0 for _ in range(len(self.model.DM)-1)] + [t]
-            outputs = self.model.forward(images, t, task_list=self.best_path[t])
-            temp = self.ce(outputs, targets)
-            loss += temp
-        elif t > 1:
-            for i in range(10):
-                path = list(np.random.randint(t, size=len(self.model.DM[:-1])))+[t]
-                outputs = self.model.forward(images, t, task_list=path)
-                temp = self.ce(outputs, targets)
-                if self.best_loss > temp:
-                    self.best_loss = temp.detach().item()
-                    self.best_path[t] = path
-                loss += temp
-            outputs = self.model.forward(images, t, task_list=self.best_path[t])
-            temp = self.ce(outputs, targets)
-            loss += temp
+        self.best_path[t] = [t-1 for _ in range(len(self.model.DM)-1)] + [t]
+        outputs = self.model.forward(images, t, task_list=self.best_path[t])
+        temp = self.ce(outputs, targets)
+        loss += temp
+        # if t == 1:
+        #     self.best_path[t] = [0 for _ in range(len(self.model.DM)-1)] + [t]
+        #     outputs = self.model.forward(images, t, task_list=self.best_path[t])
+        #     temp = self.ce(outputs, targets)
+        #     loss += temp
+        # elif t > 1:
+        #     for i in range(10):
+        #         path = list(np.random.randint(t, size=len(self.model.DM[:-1])))+[t]
+        #         outputs = self.model.forward(images, t, task_list=path)
+        #         temp = self.ce(outputs, targets)
+        #         if self.best_loss > temp:
+        #             self.best_loss = temp.detach().item()
+        #             self.best_path[t] = path
+        #         loss += temp
+        #     outputs = self.model.forward(images, t, task_list=self.best_path[t])
+        #     temp = self.ce(outputs, targets)
+        #     loss += temp
         
         self.optimizer.zero_grad()
         loss.backward() 
+        # print(self.model.DM[0].score.grad.sum())
         self.optimizer.step()
 
     def eval_batch(self, t, images, targets, paths):
@@ -314,8 +336,8 @@ class Appr(object):
             self.model.squeeze(self.optimizer.state)
             model_count, layers_count = self.model.count_params()
 
-        if ensemble:
-            print(self.best_path[-1], self.best_loss)
+        # if ensemble:
+        #     print(self.best_path[-1], self.best_loss)
 
 
     def eval(self, t, data_loader, valid_transform, paths=None):

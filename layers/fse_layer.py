@@ -42,6 +42,26 @@ def apply_mask_in(param, mask_in, optim_state):
             if len(state.shape) > 0:
                 param_states[name] = state[:, mask_in].clone()
 
+class GetSubnet(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, scores, k):
+        # Get the supermask by sorting the scores and using the top k%
+        out = scores.clone()
+        _, idx = scores.flatten().sort()
+        j = int((1 - k) * scores.numel())
+
+        # flat_out and out access the same memory.
+        flat_out = out.flatten()
+        flat_out[idx[:j]] = 0
+        flat_out[idx[j:]] = 1 / k
+
+        return out
+
+    @staticmethod
+    def backward(ctx, g):
+        # send the gradient g straight-through on the backward pass.
+        return g, None
+
 class _DynamicLayer(nn.Module):
 
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
@@ -81,6 +101,7 @@ class _DynamicLayer(nn.Module):
         self.mask_out = None
         
         self.cur_task = -1
+        self.mask = []
 
     def forward(self, x, t, n, m):    
         weight, bias = self.get_parameters(t, n, m)
@@ -133,6 +154,10 @@ class _DynamicLayer(nn.Module):
                                                             *self.kernel_size).normal_(0, bound_std).to(device)))
             self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[-1] // self.groups, 
                                                             *self.kernel_size).normal_(0, bound_std).to(device)))
+            if self.cur_task > 0:
+                # bound_std = self.gain / math.sqrt(self.shape_in[-2] * self.fan_in)
+                self.score = nn.Parameter(torch.Tensor(self.shape_out[-2], self.shape_in[-2] // self.groups, *self.kernel_size).to(device))
+                nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
         else:
             self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
             self.fan_in = 1
@@ -141,6 +166,10 @@ class _DynamicLayer(nn.Module):
                 self.weight[i].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[i]).normal_(0, bound_std).to(device)))
                 self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[i], self.num_in[-1]).normal_(0, bound_std).to(device)))
             self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[-1]).normal_(0, bound_std).to(device)))
+            if self.cur_task > 0:
+                # bound_std = self.gain / math.sqrt(self.shape_in[-2] * self.fan_in)
+                self.score = nn.Parameter(torch.Tensor(self.shape_out[-2], self.shape_in[-2]).to(device))
+                nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
 
         # rescale old tasks params
         if self.cur_task > 0:
@@ -230,6 +259,7 @@ class _DynamicLayer(nn.Module):
                     self.norm_layer.bias[-2].requires_grad = False
 
         self.get_reg_strength()
+        self.mask.append(None)
 
         # for i in range(self.cur_task):
         #     for j in range(self.cur_task):
@@ -266,9 +296,30 @@ class _DynamicLayer(nn.Module):
                 bwt_weight = torch.cat([bwt_weight, self.weight[n][j]], dim=0)
             
             weight = F.dropout(weight, self.p, self.training)
+            if self.cur_task > 0:
+                if self.training:
+                    mask = GetSubnet.apply(
+                        self.score.abs(), self.sparsity
+                    )
+                    weight = weight * mask
+                    self.mask[t] = mask.detach().clone()
+                else:
+                    if self.mask[t] is not None:
+                        weight = weight * self.mask[t]
             weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 
                                 torch.cat([fwt_weight, self.weight[n][m]], dim=1)], dim=0)
             bias = self.bias[m] if self.bias is not None else None
+
+            # if m == t-1 and n == t-1:
+            #     if self.training:
+            #         mask = GetSubnet.apply(
+            #             self.score.abs(), self.sparsity
+            #         )
+            #         weight = weight * mask
+            #         self.mask[t] = mask.detach().clone()
+            #     else:
+            #         if self.mask[t] is not None:
+            #             weight = weight * self.mask[t]
 
         return weight, bias
 
@@ -281,6 +332,8 @@ class _DynamicLayer(nn.Module):
         if self.norm_layer:
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
+        if self.cur_task > 0:
+            params += [self.score]
         return params
 
     def get_optim_scales(self, lr):

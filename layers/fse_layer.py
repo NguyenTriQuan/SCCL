@@ -199,43 +199,6 @@ class _DynamicLayer(nn.Module):
                             w_std = self.weight[i][j].std(unbiased=False)
                             # std_param = w_std * torch.ones(self.weight[i][j].shape[0]).to(device).view(self.view_in)
                             self.scale[-1][-1].append(nn.Parameter(w_std))
-                    
-            #     if self.cur_task > 1:
-            #         for i in range(self.cur_task):
-            #             if self.weight[i][-2].numel() == 0:
-            #                 self.shift[i].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
-            #                 self.scale[i].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-            #             else:
-            #                 w_mean = self.weight[i][-2].mean(dim=self.dim_in).view(self.view_in)
-            #                 self.shift[i].append(nn.Parameter(w_mean))
-            #                 w_std = self.weight[i][-2].std(dim=self.dim_in, unbiased=False).view(self.view_in)
-            #                 self.scale[i].append(nn.Parameter(w_std))
-                            
-            #             if self.weight[-2][i].numel() == 0:
-            #                 self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
-            #                 self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-            #             else:
-            #                 w_mean = self.weight[-2][i].mean(dim=self.dim_in).view(self.view_in)
-            #                 self.shift[-1].append(nn.Parameter(w_mean))
-            #                 w_std = self.weight[-2][i].std(dim=self.dim_in, unbiased=False).view(self.view_in)
-            #                 self.scale[-1].append(nn.Parameter(w_std))
-                
-            #     if self.weight[-2][-2].numel() == 0:
-            #         self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
-            #         self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-            #     else:
-            #         w_mean = self.weight[-2][-2].mean(dim=self.dim_in).view(self.view_in)
-            #         self.shift[-1].append(nn.Parameter(w_mean))
-            #         w_std = self.weight[-2][-2].std(dim=self.dim_in, unbiased=False).view(self.view_in)
-            #         self.scale[-1].append(nn.Parameter(w_std))
-            # else:
-            #     for i in range(self.cur_task):
-            #         self.shift[i].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
-            #         self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
-            #         self.scale[i].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-            #         self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
-            #     self.shift[-1].append(nn.Parameter(torch.zeros(1).to(device), requires_grad=False))
-            #     self.scale[-1].append(nn.Parameter(torch.ones(1).to(device), requires_grad=False))
 
         if self.bias is not None:
             self.bias.append(nn.Parameter(torch.Tensor(self.out_features).uniform_(0, 0).to(device)))
@@ -469,6 +432,7 @@ class _DynamicLayer(nn.Module):
                     self.mask_out *= (aux > eps)
                     self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux
                     self.norm_layer.bias[-1].data[self.norm_layer.shape[-2]:] *= aux
+
 
 class DynamicLinear(_DynamicLayer):
 

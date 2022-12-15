@@ -171,6 +171,9 @@ class Appr(object):
         print(' Valid ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, paths=[[t for _ in range(len(self.model.DM))]])
         print(' Valid no ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
+        valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform)
+        print(' Valid no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
+
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, ensemble):
 
@@ -182,10 +185,10 @@ class Appr(object):
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, paths)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
-        # if ensemble:
-        #     self.nepochs = 100
-        # else:
-        #     self.nepochs = self.args.nepochs
+        if ensemble:
+            self.nepochs = 100
+        else:
+            self.nepochs = self.args.nepochs
 
         lr = self.check_point['lr']
         patience = self.check_point['patience']
@@ -309,10 +312,34 @@ class Appr(object):
     def eval_batch(self, t, images, targets, paths):
         self.model.eval()
         with torch.no_grad():
-            outputs = []
-            for path in paths:
-                outputs += [self.model.forward(images, t, task_list=path)]
-            outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
+            if t is None:
+                joint_entropy_tasks = []
+                outputs_tasks = []
+                for i in range(self.cur_task+1):
+                    outputs = []
+                    outputs += [self.model.forward(images, i, task_list=[i for _ in range(len(self.model.DM))])]
+                    if self.best_path[i] is not None:
+                        outputs += [self.model.forward(images, i, task_list=self.best_path[i])]
+                    outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
+                    outputs_tasks += [outputs]
+                    outputs = torch.exp(outputs)
+                    joint_entropy = -torch.sum(outputs * torch.log(outputs+0.0001), dim=1)
+                    joint_entropy_tasks.append(joint_entropy)
+
+                outputs_tasks = torch.stack(outputs_tasks, dim=1)
+                joint_entropy_tasks = torch.stack(joint_entropy_tasks)
+                joint_entropy_tasks = joint_entropy_tasks.transpose(0, 1)
+                predicted_task = torch.argmin(joint_entropy_tasks, axis=1)
+                outputs = outputs_tasks[range(outputs_tasks.shape[0]), predicted_task]
+            else:
+                if paths is None:
+                    paths = [[t for _ in range(len(self.model.DM))]]
+                    if self.best_path[t] is not None:
+                        paths += [self.best_path[t]]
+                outputs = []
+                for path in paths:
+                    outputs += [self.model.forward(images, t, task_list=path)]
+                outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
         loss=self.ce(outputs,targets)
         values,indices=outputs.max(1)
         hits=(indices==targets).float()
@@ -346,11 +373,6 @@ class Appr(object):
         total_num=0
         self.model.eval()
 
-        if paths is None:
-            paths = [[t for _ in range(len(self.model.DM))]]
-            if self.best_path[t] is not None:
-                paths += [self.best_path[t]]
-
         for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
@@ -363,43 +385,4 @@ class Appr(object):
             total_num += len(targets)
                 
         return total_loss/total_num,total_acc/total_num
-    
-    def eval_batch_cil(self, t, images, targets):
-        self.model.eval()
-        with torch.no_grad():
-            if t is None:
-                joint_entropy_tasks = []
-                outputs_tasks = []
-                for i in range(self.cur_task+1):
-                    outputs = []
-                    outputs += [self.model.forward(images, task_list=[i for _ in range(len(self.model.DM))])]
-                    # if self.best_path[i] is not None:
-                    #     outputs += [self.model.forward(images, task_list=self.best_path[i])]
-                    outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
-                    outputs_tasks += [outputs]
-                    outputs = torch.exp(outputs)
-                    joint_entropy = -torch.sum(outputs * torch.log(outputs+0.0001), dim=1)
-                    joint_entropy_tasks.append(joint_entropy)
 
-                outputs_tasks = torch.stack(outputs_tasks, dim=1)
-                joint_entropy_tasks = torch.stack(joint_entropy_tasks)
-                joint_entropy_tasks = joint_entropy_tasks.transpose(0, 1)
-                predicted_task = torch.argmin(joint_entropy_tasks, axis=1)
-                outputs = outputs_tasks[range(outputs_tasks.shape[0]), predicted_task]
-            else:
-                outputs = self.model.forward(images, task_list=[t for _ in range(len(self.model.DM))])
-
-        loss=self.ce(outputs,targets)
-        values,indices=outputs.max(1)
-        hits=(indices==targets).float()
-        return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
-
-class ACO():
-    def __init__(self, num_layer, num_task):
-        self.num_layer = num_layer
-        self.num_task = num_task
-        self.pheromone = np.ones(num_layer, num_layer)
-        self.pheromone_first = np.ones(num_layer)
-    def sample_path(self):
-        path = []
-        m = np.random.choice(self.length)

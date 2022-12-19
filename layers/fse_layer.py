@@ -198,10 +198,11 @@ class _DynamicLayer(nn.Module):
         #             )
         if self.cur_task > 0:
             self.sparsity = args.sparsity
-            num = self.score.numel()
-            num_base = self.base_in_features * self.base_out_features * self.fan_in
-            self.sparsity = min(args.sparsity * num_base, num) / num
+            # num = self.score.numel()
+            # num_base = self.base_in_features * self.base_out_features * self.fan_in
+            # self.sparsity = min(args.sparsity * num_base, num) / num
             print(self.sparsity)
+
             mask = GetSubnet.apply(self.score.abs(), self.sparsity)
             self.mask.append(mask.detach().clone())
         else:

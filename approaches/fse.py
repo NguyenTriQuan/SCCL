@@ -82,6 +82,8 @@ class Appr(object):
 
                 self.check_point = torch.load(f'../result_data/trained_model/{self.log_name}.model')
                 self.model = self.check_point['model']
+                self.shape_out = self.model.DM[-1].shape_out
+                self.cur_task = len(self.shape_out)-2
                 print('Resume from task', t)
 
                 return t
@@ -164,18 +166,21 @@ class Appr(object):
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, mask_only=False)
         print(' Valid no ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
         valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=True, mask_only=False)
+        if t > 0:
+            print(' Valid mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
+            valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=True, mask_only=True)
         print(' Valid ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
         valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=False, mask_only=False)
         print(' Valid no ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
         self.model.update_scale()
-        for n, m in enumerate(self.model.DM[:-1]):
-            print('layer', n)
-            for i in range(m.cur_task+1):
-                for j in range(m.cur_task+1):
-                    print(m.scale[i][j], end=' ')
-                print()
-            print()
+        # for n, m in enumerate(self.model.DM[:-1]):
+        #     print('layer', n)
+        #     for i in range(m.cur_task+1):
+        #         for j in range(m.cur_task+1):
+        #             print(m.scale[i][j], end=' ')
+        #         print()
+        #     print()
 
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, mask):

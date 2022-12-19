@@ -61,13 +61,17 @@ if args.resume:
     # )
     start_task = appr.resume()
     # Test
-    temp = []
+    acc1 = []
+    acc2 = []
     for u in range(start_task + 1):
         test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'])
         print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
+        acc1.append(test_acc)
         test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=False, mask_only=False)
         print('>>> Test no ensemble on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
-        temp.append(test_acc)
+        acc2.append(test_acc)
+    print('Avg acc={:5.2f}%'.format(100*sum(acc1)/len(acc1)))
+    print('Avg acc no ensemble ={:5.2f}%'.format(100*sum(acc2)/len(acc2)))
 # else:
 #     appr.logger = Experiment(
 #         api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",

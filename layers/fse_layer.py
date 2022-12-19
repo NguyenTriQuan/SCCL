@@ -105,9 +105,9 @@ class _DynamicLayer(nn.Module):
         self.old_weight = torch.empty(0).to(device)
 
     def expand(self, add_in=None, add_out=None, ablation='full'):
+        self.cur_task += 1
         if self.cur_task > 0:
             self.update_scale()
-        self.cur_task += 1
         if add_in is None:
             add_in = self.base_in_features
         if add_out is None:
@@ -247,6 +247,8 @@ class _DynamicLayer(nn.Module):
             return weight, bias
         fwt_weight = torch.empty(0).to(device)
         bwt_weight = torch.empty(0).to(device)
+        if t > 0:
+            weight = weight * self.mask[t]
         for i in range(t):
             fwt_weight = torch.cat([fwt_weight, self.weight[i][t]], dim=1)
             bwt_weight = torch.cat([bwt_weight, self.weight[t][i]], dim=0)
@@ -296,7 +298,7 @@ class _DynamicLayer(nn.Module):
         for i in range(self.cur_task):
             params += [self.weight[i][-1], self.weight[-1][i]]
         if self.bias:
-            params += [self.bias[-1]]
+            params += [self.bias[-1], self.mask_bias[-1]]
         if self.norm_layer:
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
@@ -311,7 +313,7 @@ class _DynamicLayer(nn.Module):
                 count += self.weight[i][j].numel()
         for k in range(t+1):
             if self.bias:
-                count += self.bias[k].numel()
+                count += self.bias[k].numel() + self.mask_bias[k].numel()
             if self.norm_layer:
                 if self.norm_layer.affine:
                     count += self.norm_layer.weight[k].numel() + self.norm_layer.bias[k].numel()
@@ -536,11 +538,11 @@ class DynamicClassifier(DynamicLinear):
 
     def count_params(self, t):
         count = 0
-        # for i in range(t+1):
-        #     for j in range(i+1):
-        #         count += self.weight[i][j].numel()
-        #         if self.bias is not None:
-        #             count += self.bias[i][j].numel()
+        for i in range(t+1):
+            for j in range(2):
+                count += self.weight[i][j].numel()
+                if self.bias is not None:
+                    count += self.bias[i][j].numel()
         return count
 
     def norm_out(self):   

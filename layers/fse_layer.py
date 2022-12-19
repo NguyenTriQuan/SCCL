@@ -144,7 +144,6 @@ class _DynamicLayer(nn.Module):
             if self.cur_task > 0:
                 self.score = nn.Parameter(torch.Tensor(self.shape_out[-2], self.shape_in[-2] // self.groups, *self.kernel_size).to(device))
                 nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
-            
         else:
             self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
             self.fan_in = 1
@@ -197,9 +196,12 @@ class _DynamicLayer(nn.Module):
         #                 args.sparsity * (self.shape_out[-2] + self.shape_in[-2])
         #                 / (self.shape_out[-2] * self.shape_in[-2] * self.fan_in),
         #             )
-        self.sparsity = args.sparsity
-        print(self.sparsity)
         if self.cur_task > 0:
+            self.sparsity = args.sparsity
+            num = self.score.numel()
+            num_base = self.base_in_features * self.base_out_features * self.fan_in
+            self.sparsity = min(args.sparsity * num_base, num) / num
+            print(self.sparsity)
             mask = GetSubnet.apply(self.score.abs(), self.sparsity)
             self.mask.append(mask.detach().clone())
         else:

@@ -168,6 +168,15 @@ class Appr(object):
         valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=False, mask_only=False)
         print(' Valid no ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
+        self.model.update_scale()
+        for n, m in enumerate(self.model.DM[:-1]):
+            print('layer', n)
+            for i in range(m.cur_task+1):
+                for j in range(m.cur_task+1):
+                    print(m.scale[i][j], end=' ')
+                print()
+            print()
+
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, mask):
         if mask:
@@ -291,7 +300,7 @@ class Appr(object):
                     outputs = torch.exp(outputs)
                     joint_entropy = -torch.sum(outputs * torch.log(outputs+0.0001), dim=1)
                     if i == 0 and mask:
-                        joint_entropy *= 10
+                        joint_entropy *= self.args.factor
                     joint_entropy_tasks.append(joint_entropy)
 
                 outputs_tasks = torch.stack(outputs_tasks, dim=1)

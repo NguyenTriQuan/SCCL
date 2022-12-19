@@ -244,9 +244,6 @@ class _DynamicLayer(nn.Module):
                 else:
                     weight = weight * self.mask[t]
                 bias = self.mask_bias[t] if self.bias is not None else None
-            # else:
-            #     weight = self.dummy_weight
-            #     bias = self.dummy_bias
             return weight, bias
         fwt_weight = torch.empty(0).to(device)
         bwt_weight = torch.empty(0).to(device)

@@ -112,6 +112,7 @@ def get_args():
     parser.add_argument('--prune_method', type=str, default='pgd', help='(default=%(default)s)')
     parser.add_argument('--dropout_method', type=str, default='pcdrop', help='(default=%(default)s)')
     parser.add_argument('--sparsity', default=1000, type=float, required=False, help='(default=%(default)s)')
+    parser.add_argument('--factor', default=10, type=float, required=False, help='(default=%(default)s)')
     
     
 

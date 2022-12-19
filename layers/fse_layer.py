@@ -197,7 +197,8 @@ class _DynamicLayer(nn.Module):
         #                 args.sparsity * (self.shape_out[-2] + self.shape_in[-2])
         #                 / (self.shape_out[-2] * self.shape_in[-2] * self.fan_in),
         #             )
-        self.sparsity = 0.25
+        self.sparsity = args.sparsity
+        print(self.sparsity)
         if self.cur_task > 0:
             mask = GetSubnet.apply(self.score.abs(), self.sparsity)
             self.mask.append(mask.detach().clone())
@@ -247,8 +248,6 @@ class _DynamicLayer(nn.Module):
             return weight, bias
         fwt_weight = torch.empty(0).to(device)
         bwt_weight = torch.empty(0).to(device)
-        if t > 0:
-            weight = weight * self.mask[t]
         for i in range(t):
             fwt_weight = torch.cat([fwt_weight, self.weight[i][t]], dim=1)
             bwt_weight = torch.cat([bwt_weight, self.weight[t][i]], dim=0)

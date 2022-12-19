@@ -78,7 +78,6 @@ class _DynamicLayer(nn.Module):
         self.weight = []
         # bias = False # !!!!!
         self.bias = [] if bias else None
-        self.mask_bias = [] if bias else None
 
         self.scale = []
 
@@ -104,9 +103,23 @@ class _DynamicLayer(nn.Module):
         self.mask = []
         self.old_weight = torch.empty(0).to(device)
 
+    def forward(self, x, t, mask):    
+        weight, bias = self.get_parameters(t, mask)
+
+        if weight.numel() == 0:
+            return None
+    
+        if isinstance(self, DynamicConv2D):
+            output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
+        else:
+            output = F.linear(x, weight, bias)
+
+        if self.norm_layer is not None:
+            output = self.norm_layer(output, t)
+        
+        return output
+
     def expand(self, add_in=None, add_out=None, ablation='full'):
-        if self.cur_task > 0:
-            self.update_scale()
         self.cur_task += 1
         if add_in is None:
             add_in = self.base_in_features
@@ -143,8 +156,11 @@ class _DynamicLayer(nn.Module):
                                                             *self.kernel_size).normal_(0, bound_std).to(device)))
             if self.cur_task > 0:
                 self.score = nn.Parameter(torch.Tensor(self.shape_out[-2], self.shape_in[-2] // self.groups, *self.kernel_size).to(device))
-                nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
-            
+                # nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
+                nn.init.constant_(self.score, 0)
+            else:
+                self.dummy_weight = nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[-1] // self.groups, 
+                                                            *self.kernel_size).normal_(0, bound_std).to(device))
         else:
             self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
             self.fan_in = 1
@@ -155,8 +171,15 @@ class _DynamicLayer(nn.Module):
             self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[-1]).normal_(0, bound_std).to(device)))
             if self.cur_task > 0:
                 self.score = nn.Parameter(torch.Tensor(self.shape_out[-2], self.shape_in[-2]).to(device))
-                nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
+                # nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
+                nn.init.constant_(self.score, 0)
+            else:
+                self.dummy_weight = nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[-1]).normal_(0, bound_std).to(device))
         
+        if self.cur_task > 0:
+            nn.init.kaiming_uniform_(self.score_before, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.score_after, a=math.sqrt(5))
+
         # compute standard deviation of params
         self.scale.append([])
         for i in range(self.cur_task):
@@ -183,7 +206,8 @@ class _DynamicLayer(nn.Module):
 
         if self.bias is not None:
             self.bias.append(nn.Parameter(torch.Tensor(self.out_features).uniform_(0, 0).to(device)))
-            self.mask_bias.append(nn.Parameter(torch.Tensor(self.shape_out[-2]).uniform_(0, 0).to(device)))
+            if self.cur_task == 0:
+                self.dummy_bias = nn.Parameter(torch.Tensor(self.out_features).uniform_(0, 0).to(device))
 
         if self.norm_layer:
             self.norm_layer.expand(add_out)             
@@ -197,65 +221,41 @@ class _DynamicLayer(nn.Module):
         #                 args.sparsity * (self.shape_out[-2] + self.shape_in[-2])
         #                 / (self.shape_out[-2] * self.shape_in[-2] * self.fan_in),
         #             )
-        self.sparsity = 0.25
+        self.sparsity = 0.5
         if self.cur_task > 0:
-            mask = GetSubnet.apply(self.score.abs(), self.sparsity)
+            mask = GetSubnet.apply(self.score_before.abs(), self.sparsity)
             self.mask.append(mask.detach().clone())
-        else:
-            self.mask.append(None)
 
-    def forward(self, x, t, mask):    
-        weight, bias = self.get_params(t, mask)
-
-        if weight.numel() == 0:
-            return None
-    
-        if isinstance(self, DynamicConv2D):
-            output = F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
-        else:
-            output = F.linear(x, weight, bias)
-
-        if self.norm_layer is not None:
-            output = self.norm_layer(output, t)
-        
-        return output
-
-    def get_old_params(self, t):
+    def get_parameters(self, t, mask):
         if 'scale' in args.ablation:
             bound_std = 1
         else:
             bound_std = self.gain / math.sqrt(self.shape_in[t+1] * self.fan_in)
         self.old_weight = torch.empty(0).to(device)
+        fwt_weight = torch.empty(0).to(device)
+        bwt_weight = torch.empty(0).to(device)
         for i in range(t):
             temp = torch.empty(0).to(device)
             for j in range(t):
                 temp = torch.cat([temp, bound_std * self.weight[i][j] / self.scale[i][j]], dim=0)
 
             self.old_weight = torch.cat([self.old_weight, temp], dim=1)
-
-    def get_params(self, t, mask):
-        weight = F.dropout(self.old_weight, self.p, self.training)
-        if mask:
-            if t > 0:
-                if self.training:
-                    mask = GetSubnet.apply(self.score.abs(), self.sparsity)
-                    weight = weight * mask
-                    self.mask[t] = mask.detach().clone()
-                else:
-                    weight = weight * self.mask[t]
-                bias = self.mask_bias[t] if self.bias is not None else None
-            # else:
-            #     weight = self.dummy_weight
-            #     bias = self.dummy_bias
-            return weight, bias
-        fwt_weight = torch.empty(0).to(device)
-        bwt_weight = torch.empty(0).to(device)
-        for i in range(t):
-            fwt_weight = torch.cat([fwt_weight, self.weight[i][t]], dim=1)
-            bwt_weight = torch.cat([bwt_weight, self.weight[t][i]], dim=0)
+            fwt_weight = torch.cat([fwt_weight, bound_std * self.weight[i][t] / self.scale[i][t]], dim=1)
+            bwt_weight = torch.cat([bwt_weight, bound_std * self.weight[t][j] / self.scale[t][j]], dim=0)
+        
+        weight = F.dropout(weight, self.p, self.training)
         weight = torch.cat([torch.cat([weight, bwt_weight], dim=1), 
-                            torch.cat([fwt_weight, self.weight[t][t]], dim=1)], dim=0)
+                            torch.cat([fwt_weight, bound_std * self.weight[t][t] / self.scale[t][t]], dim=1)], dim=0)
         bias = self.bias[t] if self.bias is not None else None
+
+        if mask:
+            if self.training:
+                mask = GetSubnet.apply(self.score.abs(), self.sparsity)
+                weight = weight * mask
+                self.mask[t] = mask.detach().clone()
+            else:
+                weight = weight * self.mask[t]
+
         return weight, bias
 
     def freeze(self, t):
@@ -305,6 +305,10 @@ class _DynamicLayer(nn.Module):
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
         if self.cur_task > 0:
             params += [self.score]
+        else:
+            params += [self.dummy_weight]
+            if self.bias:
+                params += [self.dummy_bias]
         return params
 
     def count_params(self, t):
@@ -479,6 +483,11 @@ class DynamicClassifier(DynamicLinear):
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
         super(DynamicClassifier, self).__init__(in_features, out_features, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
+    def forward(self, x, t, mask_before, mask_after):    
+        weight, bias = self.get_parameters(t, mask_before, mask_after)
+        x = F.linear(x, weight, bias)
+        return x
+
     def expand(self, add_in=None, add_out=None, ablation='full'):
         self.cur_task += 1
         if add_in is None:
@@ -506,8 +515,7 @@ class DynamicClassifier(DynamicLinear):
             if self.bias is not None:
                 self.bias[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1]).uniform_(0, 0).to(device)))
         else:
-            bound_std = self.gain / math.sqrt(self.shape_in[-1])
-            self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.shape_in[-1]).normal_(0, bound_std).to(device)))
+            self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[-1]).to(device)))
             if self.bias is not None:
                 self.bias[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1]).uniform_(0, 0).to(device)))
 
@@ -516,22 +524,39 @@ class DynamicClassifier(DynamicLinear):
         if self.bias is not None:
             self.bias[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1]).uniform_(0, 0).to(device)))   
 
+        self.scale.append([])
+        for i in range(3):
+            w = self.weight[-1][i]
+            if w.numel() == 0 or 'scale' in args.ablation:
+                self.scale[-1].append(1.0)
+            else:
+                w_std = w.std(unbiased=False).item()
+                self.scale[-1].append(w_std)
+
         self.get_reg_strength()
 
-    def forward(self, x, t, mask):    
-        weight, bias = self.get_params(t, mask)
-        x = F.linear(x, weight, bias)
-        return x
-
-    def get_params(self, t, mask):
+    def get_parameters(self, t, mask):
         k = 0 if mask else 1
+        # bound_std = self.gain / math.sqrt(self.shape_in[t+1])
+        # weight = bound_std * self.weight[t][k] / self.scale[t][k]
         weight = self.weight[t][k]
         bias = self.bias[t][k] if self.bias is not None else None
         return weight, bias
+    
+    def update_scale(self):
+        for i in range(3):
+            w = self.weight[-1][i]
+            if w.numel() == 0 or 'scale' in args.ablation:
+                self.scale[-1][i] = 1.0
+            else:
+                w_std = w.std(unbiased=False).item()
+                self.scale[-1][i] = w_std
 
     def get_optim_params(self):
         params = []
-        for i in range(2):
+        # params = [self.weight[-1][-1], self.bias[-1][-1]]-
+        # for i in range(self.cur_task+1):
+        for i in range(3):
             params += [self.weight[-1][i]]
             if self.bias:
                 params += [self.bias[-1][i]]

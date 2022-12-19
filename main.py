@@ -114,15 +114,19 @@ for t, ncla in taskcla[start_task:]:
     print('-' * 100)
     print(f'Task {t} training time: {time.time() - train_start} s')
     # Test
+    temp = []
     for u in range(t + 1):
         test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'])
-
         print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
         acc[t, u] = test_acc
         lss[t, u] = test_loss
+        test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=False, mask_only=False)
+        print('>>> Test no ensemble on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
+        temp.append(test_acc)
 
     # Save
     print('Avg acc={:5.2f}%'.format(100*sum(acc[t])/(t+1)))
+    print('Avg acc no ensemble ={:5.2f}%'.format(100*sum(temp)/len(temp)))
     print('Save at ' + f'../result_data/{appr.log_name}.txt')
     np.savetxt(f'../result_data/{appr.log_name}.txt', acc, '%.4f')
 

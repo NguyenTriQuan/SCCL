@@ -49,12 +49,6 @@ class _DynamicModel(nn.Module):
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
         self.total_strength += self.DM[-1].strength_out
 
-        # permute = []
-        # for m in self.DM[:-1]:
-        #     permute.append(np.random.permutation(m.out_features))
-        # permute.append(np.random.permutation(new_class))
-        # self.permute.append(permute)
-
     def squeeze(self, optim_state):
         mask_in = None
         mask_out = self.DM[0].mask_out * self.DM[1].mask_in
@@ -71,14 +65,11 @@ class _DynamicModel(nn.Module):
         self.DM[-1].squeeze(optim_state, mask_in, None)
         self.total_strength += self.DM[-1].strength_out
 
-    def forward(self, input, t, task_list):
-        n = 0
+    def forward(self, input, t, mask=False):
         i = 0
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
-                m = task_list[i]
-                input = module(input, t, n, m)                    
-                n = m
+                input = module(input, t, mask)                    
                 i += 1
             else:
                 input = module(input)
@@ -104,7 +95,21 @@ class _DynamicModel(nn.Module):
     def proximal_gradient_descent(self, lr, lamb):
         for m in self.DM:
             m.proximal_gradient_descent(lr, lamb, self.total_strength)
+
+    def freeze(self, t):
+        for m in self.DM[:-1]:
+            m.freeze(t)
     
+    def update_scale(self):
+        for m in self.DM[:-1]:
+            m.update_scale()
+    
+    def get_old_params(self, t):
+        # get old parameters for task t
+        for m in self.DM[:-1]:
+            m.get_old_params(t)
+
+
     def report(self):
         for m in self.DM:
             print(m.__class__.__name__, m.in_features, m.out_features)

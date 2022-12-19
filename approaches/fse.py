@@ -161,14 +161,15 @@ class Appr(object):
 
         self.model.count_params()
         self.model.get_old_params(t)
+
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, mask_only=False)
         print(' Valid ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, mask_only=False)
         print(' Valid no ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-        valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=True, mask_only=False)
         if t > 0:
+            valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, mask_only=True)
             print(' Valid mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-            valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=True, mask_only=True)
+        valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=True, mask_only=False)
         print(' Valid ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
         valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=False, mask_only=False)
         print(' Valid no ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))

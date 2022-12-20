@@ -128,8 +128,6 @@ class Appr(object):
             if t > 0:
                 self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
                 self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, mask=True)
-                for m in self.model.DM[:-1]:
-                    m.mask_bias[-1].requires_grad = False
                 self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
         else: 
@@ -194,10 +192,10 @@ class Appr(object):
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, mask_only)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
-        # if mask:
-        #     self.nepochs = 50
-        # else:
-        #     self.nepochs = self.args.nepochs
+        if mask:
+            self.nepochs = 50
+        else:
+            self.nepochs = self.args.nepochs
 
         lr = self.check_point['lr']
         patience = self.check_point['patience']

@@ -252,7 +252,6 @@ class _DynamicLayer(nn.Module):
                 else:
                     weight = weight * self.mask[t]
             bias = self.mask_bias[t] if self.mask_bias is not None else None
-            # bias = None
             return weight, bias
         fwt_weight = torch.empty(0).to(device)
         bwt_weight = torch.empty(0).to(device)
@@ -434,7 +433,7 @@ class _DynamicLayer(nn.Module):
 class DynamicLinear(_DynamicLayer):
 
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
-        bias=True
+        # bias=True
         super(DynamicLinear, self).__init__(in_features, out_features, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
         self.view_in = [-1, 1]
@@ -471,7 +470,7 @@ class DynamicConv2D(_DynamicConvNd):
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
-        bias=True
+        # bias=True
         super(DynamicConv2D, self).__init__(in_features, out_features, kernel_size, 
                                             stride, padding, dilation, False, _pair(0), groups, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
@@ -532,8 +531,7 @@ class DynamicClassifier(DynamicLinear):
     def get_params(self, t, mask):
         k = 0 if mask else 1
         weight = self.weight[t][k]
-        # bias = self.bias[t][k] if self.bias is not None else None
-        bias = None
+        bias = self.bias[t][k] if self.bias is not None else None
         return weight, bias
 
     def get_optim_params(self):

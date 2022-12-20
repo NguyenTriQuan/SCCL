@@ -68,6 +68,7 @@ class Appr(object):
         self.ce = torch.nn.CrossEntropyLoss()
 
         self.get_name(self.tasknum-1)
+        self.model.mem = []
 
     def get_name(self, t):
         self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}_drop_{}'.format(
@@ -127,6 +128,8 @@ class Appr(object):
             if t > 0:
                 self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
                 self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, mask=True)
+                for m in self.model.DM[:-1]:
+                    m.mask_bias[-1].requires_grad = False
                 self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
         else: 
@@ -175,13 +178,7 @@ class Appr(object):
         print(' Valid no ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
         self.model.update_scale()
-        # for n, m in enumerate(self.model.DM[:-1]):
-        #     print('layer', n)
-        #     for i in range(m.cur_task+1):
-        #         for j in range(m.cur_task+1):
-        #             print(m.scale[i][j], end=' ')
-        #         print()
-        #     print()
+        
 
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, mask):

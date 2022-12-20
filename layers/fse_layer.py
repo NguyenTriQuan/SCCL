@@ -225,20 +225,24 @@ class _DynamicLayer(nn.Module):
         return output
 
     def get_old_params(self, t):
-        if 'scale' in args.ablation:
-            bound_std = 1
-        else:
-            bound_std = self.gain / math.sqrt(self.shape_in[t+1] * self.fan_in)
         self.old_weight = torch.empty(0).to(device)
         for i in range(t):
             temp = torch.empty(0).to(device)
             for j in range(t):
-                temp = torch.cat([temp, bound_std * self.weight[i][j] / self.scale[i][j]], dim=0)
+                temp = torch.cat([temp, self.weight[i][j] / self.scale[i][j]], dim=0)
 
             self.old_weight = torch.cat([self.old_weight, temp], dim=1)
 
     def get_params(self, t, mask):
-        weight = F.dropout(self.old_weight, self.p, self.training)
+        if 'scale' in args.ablation:
+            bound_std = 1
+        else:
+            if mask:
+                bound_std = self.gain / math.sqrt(self.shape_in[t] * self.fan_in)
+            else:
+                bound_std = self.gain / math.sqrt(self.shape_in[t+1] * self.fan_in)
+        weight = self.old_weight * bound_std
+        weight = F.dropout(weight, self.p, self.training)
         if mask:
             if t > 0:
                 if self.training:
@@ -430,7 +434,7 @@ class _DynamicLayer(nn.Module):
 class DynamicLinear(_DynamicLayer):
 
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
-        bias=False
+        bias=True
         super(DynamicLinear, self).__init__(in_features, out_features, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
         self.view_in = [-1, 1]
@@ -467,7 +471,7 @@ class DynamicConv2D(_DynamicConvNd):
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
-        bias=False
+        bias=True
         super(DynamicConv2D, self).__init__(in_features, out_features, kernel_size, 
                                             stride, padding, dilation, False, _pair(0), groups, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 

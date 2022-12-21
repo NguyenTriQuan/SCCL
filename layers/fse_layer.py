@@ -517,7 +517,10 @@ class DynamicClassifier(DynamicLinear):
     def expand(self, add_in=None, add_out=None, ablation='full'):
         self.cur_task += 1
         if add_in is None:
-            add_in = self.base_in_features
+            if args.fix:
+                add_in = self.base_in_features - self.in_features
+            else:
+                add_in = self.base_in_features
         if add_out is None:
             add_out = self.base_out_features
 

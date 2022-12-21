@@ -330,8 +330,8 @@ class _DynamicLayer(nn.Module):
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
         params += [self.score]
-        if self.bias_mem is not None:
-            params += [self.bias_mem]
+        # if self.bias_mem is not None:
+        #     params += [self.bias_mem]
         return params
 
     def count_params(self, t):
@@ -567,10 +567,10 @@ class DynamicClassifier(DynamicLinear):
             params += [self.weight[-1][i]]
             if self.bias is not None:
                 params += [self.bias[-1][i]]
-        if self.cur_task > 0:
-            params += [self.weight_mem]
-            if self.bias is not None:
-                params += [self.bias_mem]
+        # if self.cur_task > 0:
+        #     params += [self.weight_mem]
+        #     if self.bias is not None:
+        #         params += [self.bias_mem]
         return params
 
     def count_params(self, t):

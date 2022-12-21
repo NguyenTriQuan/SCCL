@@ -187,10 +187,10 @@ class Appr(object):
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, mask_only)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
-        # if mask:
-        #     self.nepochs = 50
-        # else:
-        #     self.nepochs = self.args.nepochs
+        if mask:
+            self.nepochs = 50
+        else:
+            self.nepochs = self.args.nepochs
 
         lr = self.check_point['lr']
         patience = self.check_point['patience']

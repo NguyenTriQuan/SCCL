@@ -241,7 +241,7 @@ class _DynamicLayer(nn.Module):
 
             self.old_weight = torch.cat([self.old_weight, temp], dim=1)
 
-    def get_params(self, t, mask, mem):
+    def get_params(self, t, mask, mem=False):
         weight = F.dropout(self.old_weight, self.p, self.training)
         if mask:
             fan_out = max(self.base_out_features, self.shape_out[t])
@@ -551,7 +551,7 @@ class DynamicClassifier(DynamicLinear):
         self.weight_mem = nn.Parameter(torch.Tensor(self.shape_out[-1], fan_in).normal_(0, bound_std).to(device))
         self.bias_mem = nn.Parameter(torch.Tensor(self.shape_out[-1]).uniform_(0, 0).to(device)) if self.bias else None
 
-    def get_params(self, t, mask, mem):
+    def get_params(self, t, mask, mem=False):
         if mem:
             weight = self.weight_mem
             bias = self.bias_mem if self.bias is not None else None

@@ -115,10 +115,17 @@ class _DynamicLayer(nn.Module):
         self.cur_task += 1
         if self.cur_task > 0 and 'scale' not in args.ablation:
             self.update_scale()
+
         if add_in is None:
-            add_in = self.base_in_features
+            if args.fix:
+                add_in = self.base_in_features - self.in_features
+            else:
+                add_in = self.base_in_features
         if add_out is None:
-            add_out = self.base_out_features
+            if args.fix:
+                add_out = self.base_out_features - self.out_features
+            else:
+                add_out = self.base_out_features
 
         if self.first_layer:
             if self.cur_task == 0:

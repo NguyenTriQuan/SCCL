@@ -273,9 +273,10 @@ class _DynamicLayer(nn.Module):
                 else:
                     weight = weight * self.mask[t] / self.sparsity
             if mem:
+                bias = self.bias_mem if self.bias_mem is not None else None
                 bias = self.mask_bias[t] if self.mask_bias is not None else None
             else:
-                bias = self.bias_mem if self.bias_mem is not None else None
+                bias = self.mask_bias[t] if self.mask_bias is not None else None
             return weight, bias
             
         bound_std = self.gain / math.sqrt(self.shape_in[t+1] * self.fan_in)

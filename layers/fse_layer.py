@@ -52,8 +52,8 @@ class GetSubnet(torch.autograd.Function):
 
         # flat_out and out access the same memory.
         flat_out = out.flatten()
-        flat_out[idx[:j]] = 0
-        flat_out[idx[j:]] = 1 / k
+        flat_out[idx[:j]] = False
+        flat_out[idx[j:]] = True
 
         return out
 
@@ -104,9 +104,16 @@ class _DynamicLayer(nn.Module):
         self.mask = []
         self.old_weight = torch.empty(0).to(device)
 
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+        self.dummy_weight = torch.Tensor(self.base_out_features * self.base_in_features * self.fan_in).to(device)
+        nn.init.normal_(self.dummy_weight, 0, 1)
+        self.dummy_weight.requires_grad = False
+
     def expand(self, add_in=None, add_out=None, ablation='full'):
         self.cur_task += 1
-        if self.cur_task > 0:
+        if self.cur_task > 0 and 'scale' not in args.ablation:
             self.update_scale()
         if add_in is None:
             add_in = self.base_in_features
@@ -129,10 +136,11 @@ class _DynamicLayer(nn.Module):
         self.shape_out.append(self.out_features)
 
         self.weight.append([])
+        fan_out = max(self.base_out_features, self.shape_out[-2])
+        fan_in = max(self.base_in_features, self.shape_in[-2])
         if isinstance(self, DynamicConv2D):
             # self.gain = torch.nn.init.calculate_gain('relu')
             self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-            self.fan_in = np.prod(self.kernel_size)
             bound_std = self.gain / math.sqrt(self.in_features * self.fan_in)
             for i in range(self.cur_task):
                 self.weight[i].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[i] // self.groups,
@@ -141,40 +149,36 @@ class _DynamicLayer(nn.Module):
                                                             *self.kernel_size).normal_(0, bound_std).to(device)))
             self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[-1] // self.groups, 
                                                             *self.kernel_size).normal_(0, bound_std).to(device)))
-            if self.cur_task > 0:
-                self.score = nn.Parameter(torch.Tensor(self.shape_out[-2], self.shape_in[-2] // self.groups, *self.kernel_size).to(device))
-                nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
+            self.score = nn.Parameter(torch.Tensor(fan_out, fan_in // self.groups, *self.kernel_size).to(device))
         else:
             self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-            self.fan_in = 1
             bound_std = self.gain / math.sqrt(self.in_features * self.fan_in)
             for i in range(self.cur_task):
                 self.weight[i].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[i]).normal_(0, bound_std).to(device)))
                 self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[i], self.num_in[-1]).normal_(0, bound_std).to(device)))
             self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[-1]).normal_(0, bound_std).to(device)))
-            if self.cur_task > 0:
-                self.score = nn.Parameter(torch.Tensor(self.shape_out[-2], self.shape_in[-2]).to(device))
-                nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
+            self.score = nn.Parameter(torch.Tensor(fan_out, fan_in).to(device))
+        nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
         
         # compute standard deviation of params
         self.scale.append([])
         for i in range(self.cur_task):
             w = self.weight[i][-1]
-            if w.numel() == 0 or 'scale' in args.ablation:
+            if w.numel() == 0:
                 self.scale[i].append(1.0)
             else:
                 w_std = w.std(unbiased=False).item()
                 self.scale[i].append(w_std)
 
             w = self.weight[-1][i]
-            if w.numel() == 0 or 'scale' in args.ablation:
+            if w.numel() == 0:
                 self.scale[-1].append(1.0)
             else:
                 w_std = w.std(unbiased=False).item()
                 self.scale[-1].append(w_std)
 
         w = self.weight[-1][-1]
-        if w.numel() == 0 or 'scale' in args.ablation:
+        if w.numel() == 0:
             self.scale[-1].append(1.0)
         else:
             w_std = w.std(unbiased=False).item()
@@ -182,7 +186,7 @@ class _DynamicLayer(nn.Module):
 
         if self.bias is not None:
             self.bias.append(nn.Parameter(torch.Tensor(self.out_features).uniform_(0, 0).to(device)))
-            self.mask_bias.append(nn.Parameter(torch.Tensor(self.shape_out[-2]).uniform_(0, 0).to(device)))
+            self.mask_bias.append(nn.Parameter(torch.Tensor(fan_out).uniform_(0, 0).to(device)))
 
         if self.norm_layer:
             self.norm_layer.expand(add_out)             
@@ -196,17 +200,14 @@ class _DynamicLayer(nn.Module):
         #                 args.sparsity * (self.shape_out[-2] + self.shape_in[-2])
         #                 / (self.shape_out[-2] * self.shape_in[-2] * self.fan_in),
         #             )
-        if self.cur_task > 0:
-            self.sparsity = args.sparsity
-            # num = self.score.numel()
-            # num_base = self.base_in_features * self.base_out_features * self.fan_in
-            # self.sparsity = min(args.sparsity * num_base, num) / num
-            print(self.sparsity)
+        self.sparsity = args.sparsity
+        # num = self.score.numel()
+        # num_base = self.base_in_features * self.base_out_features * self.fan_in
+        # self.sparsity = min(args.sparsity * num_base, num) / num
+        print(self.sparsity)
+        mask = GetSubnet.apply(self.score.abs(), self.sparsity)
+        self.mask.append(mask.detach().clone().bool())
 
-            mask = GetSubnet.apply(self.score.abs(), self.sparsity)
-            self.mask.append(mask.detach().clone())
-        else:
-            self.mask.append(None)
 
     def forward(self, x, t, mask):    
         weight, bias = self.get_params(t, mask)
@@ -234,25 +235,35 @@ class _DynamicLayer(nn.Module):
             self.old_weight = torch.cat([self.old_weight, temp], dim=1)
 
     def get_params(self, t, mask):
-        if 'scale' in args.ablation:
-            bound_std = 1
-        else:
-            if mask:
-                bound_std = self.gain / math.sqrt(self.shape_in[t] * self.fan_in)
-            else:
-                bound_std = self.gain / math.sqrt(self.shape_in[t+1] * self.fan_in)
-        weight = self.old_weight * bound_std
-        weight = F.dropout(weight, self.p, self.training)
+        weight = F.dropout(self.old_weight, self.p, self.training)
         if mask:
-            if t > 0:
-                if self.training:
-                    mask = GetSubnet.apply(self.score.abs(), self.sparsity)
-                    weight = weight * mask
-                    self.mask[t] = mask.detach().clone()
+            if weight.numel() < self.dummy_weight.numel():
+                fan_out = max(self.base_out_features, self.shape_out[t])
+                fan_in = max(self.base_in_features, self.shape_in[t])
+                add_out = max(self.base_out_features - self.shape_out[t], 0)
+                add_in = max(self.base_in_features - self.shape_in[t], 0)
+                n_0 = add_out * (fan_in-add_in) * self.fan_in
+                n_1 = fan_out * add_in * self.fan_in
+                if isinstance(self, DynamicConv2D):
+                    dummy_weight_0 = self.dummy_weight[:n_0].view(add_out, (fan_in-add_in) // self.groups, *self.kernel_size)
+                    dummy_weight_1 = self.dummy_weight[n_0:n_0+n_1].view(fan_out, add_in // self.groups, *self.kernel_size)
                 else:
-                    weight = weight * self.mask[t]
+                    dummy_weight_0 = self.dummy_weight[:n_0].view(add_out, (fan_in-add_in))
+                    dummy_weight_1 = self.dummy_weight[n_0:n_0+n_1].view(fan_out, add_in)
+                weight = torch.cat([torch.cat([weight, dummy_weight_0], dim=0), dummy_weight_1], dim=1)
+            bound_std = self.gain / math.sqrt(weight.shape[1] * self.fan_in)
+            weight = weight * bound_std
+            if self.training:
+                mask = GetSubnet.apply(self.score.abs(), self.sparsity)
+                weight = weight * mask / self.sparsity
+                self.mask[t] = mask.detach().clone().bool()
+            else:
+                weight = weight * self.mask[t] / self.sparsity
             bias = self.mask_bias[t] if self.mask_bias is not None else None
             return weight, bias
+            
+        bound_std = self.gain / math.sqrt(self.shape_in[t+1] * self.fan_in)
+        weight = weight * bound_std
         fwt_weight = torch.empty(0).to(device)
         bwt_weight = torch.empty(0).to(device)
         for i in range(t):
@@ -279,23 +290,17 @@ class _DynamicLayer(nn.Module):
     def update_scale(self):
         for i in range(self.cur_task):
             w = self.weight[i][-1]
-            if w.numel() == 0 or 'scale' in args.ablation:
-                self.scale[i][-1] = 1.0
-            else:
+            if w.numel() != 0:
                 w_std = w.std(unbiased=False).item()
                 self.scale[i][-1] = w_std
 
             w = self.weight[-1][i]
-            if w.numel() == 0 or 'scale' in args.ablation:
-                self.scale[-1][i] = 1.0
-            else:
+            if w.numel() != 0:
                 w_std = w.std(unbiased=False).item()
                 self.scale[-1][i] = w_std
 
         w = self.weight[-1][-1]
-        if w.numel() == 0 or 'scale' in args.ablation:
-            self.scale[-1][-1] = 1.0
-        else:
+        if w.numel() != 0:
             w_std = w.std(unbiased=False).item()
             self.scale[-1][-1] = w_std
 
@@ -308,8 +313,7 @@ class _DynamicLayer(nn.Module):
         if self.norm_layer:
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
-        if self.cur_task > 0:
-            params += [self.score]
+        params += [self.score]
         return params
 
     def count_params(self, t):
@@ -433,7 +437,7 @@ class _DynamicLayer(nn.Module):
 class DynamicLinear(_DynamicLayer):
 
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
-        # bias=True
+        self.fan_in = 1
         super(DynamicLinear, self).__init__(in_features, out_features, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
         self.view_in = [-1, 1]
@@ -470,7 +474,7 @@ class DynamicConv2D(_DynamicConvNd):
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
-        # bias=True
+        self.fan_in = np.prod(kernel_size)
         super(DynamicConv2D, self).__init__(in_features, out_features, kernel_size, 
                                             stride, padding, dilation, False, _pair(0), groups, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
@@ -505,16 +509,11 @@ class DynamicClassifier(DynamicLinear):
             self.bias.append([])
         self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
 
-        if self.cur_task > 0:
-            bound_std = self.gain / math.sqrt(self.shape_in[-2])
-            self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.shape_in[-2]).normal_(0, bound_std).to(device)))
-            if self.bias is not None:
-                self.bias[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1]).uniform_(0, 0).to(device)))
-        else:
-            bound_std = self.gain / math.sqrt(self.shape_in[-1])
-            self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.shape_in[-1]).normal_(0, bound_std).to(device)))
-            if self.bias is not None:
-                self.bias[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1]).uniform_(0, 0).to(device)))
+        fan_in = max(self.base_in_features, self.shape_in[-2])
+        bound_std = self.gain / math.sqrt(fan_in)
+        self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], fan_in).normal_(0, bound_std).to(device)))
+        if self.bias is not None:
+            self.bias[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1]).uniform_(0, 0).to(device)))
 
         bound_std = self.gain / math.sqrt(self.shape_in[-1])
         self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.shape_in[-1]).normal_(0, bound_std).to(device)))

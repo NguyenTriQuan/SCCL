@@ -125,10 +125,9 @@ class Appr(object):
                 pass
             self.get_name(t)
             torch.save(self.check_point, f'../result_data/trained_model/{self.log_name}.model')
-            if t > 0:
-                self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
-                self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, mask=True)
-                self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+            self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+            self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, mask=True)
+            self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
         else: 
             print('Continue training current task')
@@ -167,16 +166,12 @@ class Appr(object):
         print(' Valid ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, mask_only=False)
         print(' Valid no ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-        if t > 0:
-            valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, mask_only=True)
-            print(' Valid mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, mask_only=True)
+        print(' Valid mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
         valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=True, mask_only=False)
         print(' Valid ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
         valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=False, mask_only=False)
-        print(' Valid no ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-
-        self.model.update_scale()
-        
+        print(' Valid no ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))        
 
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, mask):
@@ -192,10 +187,10 @@ class Appr(object):
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, mask_only)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
-        if mask:
-            self.nepochs = 50
-        else:
-            self.nepochs = self.args.nepochs
+        # if mask:
+        #     self.nepochs = 50
+        # else:
+        #     self.nepochs = self.args.nepochs
 
         lr = self.check_point['lr']
         patience = self.check_point['patience']
@@ -292,7 +287,7 @@ class Appr(object):
                 for i in range(self.cur_task+1):
                     self.model.get_old_params(i)
                     outputs = []
-                    if mask and i > 0:
+                    if mask:
                         outputs += [self.model.forward(images, i, mask=True)]
                     if not mask_only:
                         outputs += [self.model.forward(images, i, mask=False)]
@@ -300,8 +295,8 @@ class Appr(object):
                     outputs_tasks += [outputs]
                     outputs = torch.exp(outputs)
                     joint_entropy = -torch.sum(outputs * torch.log(outputs+0.0001), dim=1)
-                    if i == 0 and mask:
-                        joint_entropy *= self.args.factor
+                    # if i == 0 and mask:
+                    #     joint_entropy *= self.args.factor
                     joint_entropy_tasks.append(joint_entropy)
 
                 outputs_tasks = torch.stack(outputs_tasks, dim=1)
@@ -311,7 +306,7 @@ class Appr(object):
                 outputs = outputs_tasks[range(outputs_tasks.shape[0]), predicted_task]
             else:
                 outputs = []
-                if mask and t > 0:
+                if mask:
                     outputs += [self.model.forward(images, t, mask=True)]
                 if not mask_only:
                     outputs += [self.model.forward(images, t, mask=False)]

@@ -91,13 +91,13 @@ past_ncla = [ncla for t, ncla in taskcla]
 
 if args.approach == 'joint':
     train_loaders = [data[t]['train_loader'] for t, ncla in taskcla]
-    valid_loaders = [data[t]['valid_loader'] for t, ncla in taskcla]
+    # valid_loaders = [data[t]['valid_loader'] for t, ncla in taskcla]
     test_loaders = [data[t]['test_loader'] for t, ncla in taskcla]
 
     train_transforms = [data[t]['train_transform'] for t, ncla in taskcla]
     valid_transforms = [data[t]['valid_transform'] for t, ncla in taskcla]
 
-    appr.train(train_loaders, valid_loaders, train_transforms, valid_transforms)
+    appr.train(train_loaders, test_loaders, train_transforms, valid_transforms)
 
     test_losses, test_accs = appr.eval(test_loaders, valid_transforms)
     for t in range(len(test_accs)):

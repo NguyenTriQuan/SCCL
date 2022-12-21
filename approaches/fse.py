@@ -157,6 +157,8 @@ class Appr(object):
             self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, mask=False)
 
         self.model.freeze(t)
+        if 'scale' not in self.ablation:
+            self.model.update_scale()
         self.check_point = None  
 
         self.model.count_params()

@@ -102,6 +102,7 @@ class _DynamicLayer(nn.Module):
         
         self.cur_task = -1
         self.mask = []
+        self.mask_mem = []
         self.old_weight = torch.empty(0).to(device)
 
         torch.manual_seed(args.seed)
@@ -109,7 +110,6 @@ class _DynamicLayer(nn.Module):
         torch.cuda.manual_seed_all(args.seed)
         self.dummy_weight = torch.Tensor(self.base_out_features * self.base_in_features * self.fan_in).to(device)
         nn.init.normal_(self.dummy_weight, 0, 1)
-        self.dummy_weight.requires_grad = False
 
     def expand(self, add_in=None, add_out=None, ablation='full'):
         self.cur_task += 1
@@ -135,13 +135,14 @@ class _DynamicLayer(nn.Module):
         self.shape_in.append(self.in_features)
         self.shape_out.append(self.out_features)
 
+        self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        bound_std = self.gain / math.sqrt(self.in_features * self.fan_in)
+
         self.weight.append([])
         fan_out = max(self.base_out_features, self.shape_out[-2])
         fan_in = max(self.base_in_features, self.shape_in[-2])
+        
         if isinstance(self, DynamicConv2D):
-            # self.gain = torch.nn.init.calculate_gain('relu')
-            self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-            bound_std = self.gain / math.sqrt(self.in_features * self.fan_in)
             for i in range(self.cur_task):
                 self.weight[i].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[i] // self.groups,
                                                             *self.kernel_size).normal_(0, bound_std).to(device)))
@@ -151,8 +152,6 @@ class _DynamicLayer(nn.Module):
                                                             *self.kernel_size).normal_(0, bound_std).to(device)))
             self.score = nn.Parameter(torch.Tensor(fan_out, fan_in // self.groups, *self.kernel_size).to(device))
         else:
-            self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-            bound_std = self.gain / math.sqrt(self.in_features * self.fan_in)
             for i in range(self.cur_task):
                 self.weight[i].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.num_in[i]).normal_(0, bound_std).to(device)))
                 self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[i], self.num_in[-1]).normal_(0, bound_std).to(device)))
@@ -196,18 +195,26 @@ class _DynamicLayer(nn.Module):
             self.freeze(self.cur_task-1)
 
         self.get_reg_strength()
-        # self.sparsity = min(0.5,
-        #                 args.sparsity * (self.shape_out[-2] + self.shape_in[-2])
-        #                 / (self.shape_out[-2] * self.shape_in[-2] * self.fan_in),
-        #             )
         self.sparsity = args.sparsity
-        # num = self.score.numel()
-        # num_base = self.base_in_features * self.base_out_features * self.fan_in
-        # self.sparsity = min(args.sparsity * num_base, num) / num
         print(self.sparsity)
         mask = GetSubnet.apply(self.score.abs(), self.sparsity)
         self.mask.append(mask.detach().clone().bool())
 
+    def get_mem_params(self):
+        if self.shape_out[-1] * self.shape_in[-1] * self.fan_in < self.dummy_weight.numel():
+            fan_out = max(self.base_out_features, self.shape_out[-1])
+            fan_in = max(self.base_in_features, self.shape_in[-1])
+        else:
+            fan_out = self.shape_out[-1]
+            fan_in = self.shape_in[-1]
+        if isinstance(self, DynamicConv2D):
+            self.score = nn.Parameter(torch.Tensor(fan_out, fan_in // self.groups, *self.kernel_size).to(device))
+        else:
+            self.score = nn.Parameter(torch.Tensor(fan_out, fan_in).to(device))
+        nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
+        mask = GetSubnet.apply(self.score.abs(), self.sparsity)
+        self.mask_mem = mask.detach().clone().bool()
+        self.bias_mem = nn.Parameter(torch.Tensor(fan_out).uniform_(0, 0).to(device)) if self.bias is not None else None
 
     def forward(self, x, t, mask):    
         weight, bias = self.get_params(t, mask)
@@ -234,7 +241,7 @@ class _DynamicLayer(nn.Module):
 
             self.old_weight = torch.cat([self.old_weight, temp], dim=1)
 
-    def get_params(self, t, mask):
+    def get_params(self, t, mask, mem):
         weight = F.dropout(self.old_weight, self.p, self.training)
         if mask:
             fan_out = max(self.base_out_features, self.shape_out[t])
@@ -250,15 +257,25 @@ class _DynamicLayer(nn.Module):
                 dummy_weight_0 = self.dummy_weight[:n_0].view(add_out, (fan_in-add_in))
                 dummy_weight_1 = self.dummy_weight[n_0:n_0+n_1].view(fan_out, add_in)
             weight = torch.cat([torch.cat([weight, dummy_weight_0], dim=0), dummy_weight_1], dim=1)
+
             bound_std = self.gain / math.sqrt(weight.shape[1] * self.fan_in)
             weight = weight * bound_std
             if self.training:
                 mask = GetSubnet.apply(self.score.abs(), self.sparsity)
                 weight = weight * mask / self.sparsity
-                self.mask[t] = mask.detach().clone().bool()
+                if mem:
+                    self.mask_mem = mask.detach().clone().bool()
+                else:
+                    self.mask[t] = mask.detach().clone().bool()
             else:
-                weight = weight * self.mask[t] / self.sparsity
-            bias = self.mask_bias[t] if self.mask_bias is not None else None
+                if mem:
+                    weight = weight * self.mask_mem / self.sparsity
+                else:
+                    weight = weight * self.mask[t] / self.sparsity
+            if mem:
+                bias = self.mask_bias[t] if self.mask_bias is not None else None
+            else:
+                bias = self.bias_mem if self.bias_mem is not None else None
             return weight, bias
             
         bound_std = self.gain / math.sqrt(self.shape_in[t+1] * self.fan_in)
@@ -307,12 +324,14 @@ class _DynamicLayer(nn.Module):
         params = [self.weight[-1][-1]]
         for i in range(self.cur_task):
             params += [self.weight[i][-1], self.weight[-1][i]]
-        if self.bias:
+        if self.bias is not None:
             params += [self.bias[-1], self.mask_bias[-1]]
         if self.norm_layer:
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
         params += [self.score]
+        if self.bias_mem is not None:
+            params += [self.bias_mem]
         return params
 
     def count_params(self, t):
@@ -526,18 +545,32 @@ class DynamicClassifier(DynamicLinear):
         x = F.linear(x, weight, bias)
         return x
 
-    def get_params(self, t, mask):
-        k = 0 if mask else 1
-        weight = self.weight[t][k]
-        bias = self.bias[t][k] if self.bias is not None else None
+    def get_mem_params(self):
+        fan_in = max(self.base_in_features, self.shape_in[-1])
+        bound_std = self.gain / math.sqrt(fan_in)
+        self.weight_mem = nn.Parameter(torch.Tensor(self.shape_out[-1], fan_in).normal_(0, bound_std).to(device))
+        self.bias_mem = nn.Parameter(torch.Tensor(self.shape_out[-1]).uniform_(0, 0).to(device)) if self.bias else None
+
+    def get_params(self, t, mask, mem):
+        if mem:
+            weight = self.weight_mem
+            bias = self.bias_mem if self.bias is not None else None
+        else:
+            k = 0 if mask else 1
+            weight = self.weight[t][k]
+            bias = self.bias[t][k] if self.bias is not None else None
         return weight, bias
 
     def get_optim_params(self):
         params = []
         for i in range(2):
             params += [self.weight[-1][i]]
-            if self.bias:
+            if self.bias is not None:
                 params += [self.bias[-1][i]]
+        if self.cur_task > 0:
+            params += [self.weight_mem]
+            if self.bias is not None:
+                params += [self.bias_mem]
         return params
 
     def count_params(self, t):

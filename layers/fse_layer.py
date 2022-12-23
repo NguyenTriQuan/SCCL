@@ -102,7 +102,9 @@ class _DynamicLayer(nn.Module):
         
         self.cur_task = -1
         self.mask = []
-        self.mask_mem = []
+        self.mask_mem = None
+        self.bias_mem = None
+        self.weight_mem = None
         self.old_weight = torch.empty(0).to(device)
 
         torch.manual_seed(args.seed)
@@ -223,8 +225,8 @@ class _DynamicLayer(nn.Module):
         self.mask_mem = mask.detach().clone().bool()
         self.bias_mem = nn.Parameter(torch.Tensor(fan_out).uniform_(0, 0).to(device)) if self.bias is not None else None
 
-    def forward(self, x, t, mask):    
-        weight, bias = self.get_params(t, mask)
+    def forward(self, x, t, mask, mem):    
+        weight, bias = self.get_params(t, mask, mem)
 
         if weight.numel() == 0:
             return None
@@ -248,9 +250,9 @@ class _DynamicLayer(nn.Module):
 
             self.old_weight = torch.cat([self.old_weight, temp], dim=1)
 
-    def get_params(self, t, mask, mem=False):
+    def get_params(self, t, mask, mem):
         weight = F.dropout(self.old_weight, self.p, self.training)
-        if mask:
+        if mask or mem:
             fan_out = max(self.base_out_features, self.shape_out[t])
             fan_in = max(self.base_in_features, self.shape_in[t])
             add_out = max(self.base_out_features - self.shape_out[t], 0)
@@ -281,7 +283,6 @@ class _DynamicLayer(nn.Module):
                     weight = weight * self.mask[t] / self.sparsity
             if mem:
                 bias = self.bias_mem if self.bias_mem is not None else None
-                bias = self.mask_bias[t] if self.mask_bias is not None else None
             else:
                 bias = self.mask_bias[t] if self.mask_bias is not None else None
             return weight, bias
@@ -338,8 +339,8 @@ class _DynamicLayer(nn.Module):
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
         params += [self.score]
-        # if self.bias_mem is not None:
-        #     params += [self.bias_mem]
+        if self.bias_mem is not None:
+            params += [self.bias_mem]
         return params
 
     def count_params(self, t):
@@ -551,8 +552,8 @@ class DynamicClassifier(DynamicLinear):
 
         self.get_reg_strength()
 
-    def forward(self, x, t, mask):    
-        weight, bias = self.get_params(t, mask)
+    def forward(self, x, t, mask, mem):    
+        weight, bias = self.get_params(t, mask, mem)
         x = F.linear(x, weight, bias)
         return x
 
@@ -562,7 +563,7 @@ class DynamicClassifier(DynamicLinear):
         self.weight_mem = nn.Parameter(torch.Tensor(self.shape_out[-1], fan_in).normal_(0, bound_std).to(device))
         self.bias_mem = nn.Parameter(torch.Tensor(self.shape_out[-1]).uniform_(0, 0).to(device)) if self.bias else None
 
-    def get_params(self, t, mask, mem=False):
+    def get_params(self, t, mask, mem):
         if mem:
             weight = self.weight_mem
             bias = self.bias_mem if self.bias is not None else None
@@ -578,10 +579,11 @@ class DynamicClassifier(DynamicLinear):
             params += [self.weight[-1][i]]
             if self.bias is not None:
                 params += [self.bias[-1][i]]
-        # if self.cur_task > 0:
-        #     params += [self.weight_mem]
-        #     if self.bias is not None:
-        #         params += [self.bias_mem]
+
+        if self.weight_mem is not None:
+            params += [self.weight_mem]
+        if self.bias_mem is not None:
+            params += [self.bias_mem]
         return params
 
     def count_params(self, t):

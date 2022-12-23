@@ -68,7 +68,8 @@ class Appr(object):
         self.ce = torch.nn.CrossEntropyLoss()
 
         self.get_name(self.tasknum-1)
-        self.model.mem = []
+        self.model.mem_images = torch.empty(0)
+        self.model.mem_targets = torch.empty(0, dtype=int)
 
     def get_name(self, t):
         self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}_drop_{}'.format(
@@ -126,7 +127,7 @@ class Appr(object):
             self.get_name(t)
             torch.save(self.check_point, f'../result_data/trained_model/{self.log_name}.model')
             self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
-            self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, mask=True)
+            self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, mask=True, mem=False)
             self.check_point = {'model':self.model, 'squeeze':True, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
 
         else: 
@@ -146,7 +147,7 @@ class Appr(object):
         print('lambda', self.lamb)
         print(self.log_name)
 
-        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=True, mask=False)
+        self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=True, mask=False, mem=False)
         if not self.check_point['squeeze']:
             self.check_point = None
             return 
@@ -154,11 +155,17 @@ class Appr(object):
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
         if 'phase2' not in self.ablation:
-            self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, mask=False)
+            self.train_phase(t, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=False)
 
         self.model.freeze(t)
         if 'scale' not in self.ablation:
             self.model.update_scale()
+        self.update_mem(train_loader)
+        if t > 0:
+            self.model.get_mem_params()
+            mem_loader = DataLoader(TensorDataset(self.model.mem_images, self.model.mem_targets), batch_size=self.batch_size, shuffle=True)
+            self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+            self.train_phase(t+1, mem_loader, mem_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=True)
         self.check_point = None  
 
         self.model.count_params()
@@ -175,22 +182,45 @@ class Appr(object):
         valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=False, mask_only=False)
         print(' Valid no ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))        
 
+    def update_mem(self, data_loader):
+        images = data_loader.dataset.tensors[0]
+        targets = data_loader.dataset.tensors[1]
+        ncla = self.model.DM[-1].num_out[-1]
+        # mem_images = torch.empty(0)
+        # mem_targets = torch.empty(0)
+        task_cla = self.shape_out
+        for n in range(ncla):
+            idx = targets==n
+            cla_images = images[idx]
+            cla_targets = targets[idx]
+            r=np.arange(cla_images.size(0))
+            r=np.array(shuffle(r,random_state=self.seed),dtype=int)
+            self.model.mem_images = torch.cat([self.model.mem_images, cla_images[r[:20]]], dim=0)
+            self.model.mem_targets = torch.cat([self.model.mem_targets, cla_targets[r[:20]] + task_cla[-2]], dim=0)
+        
+        # self.model.mem_images.append(mem_images)
+        # self.model.mem_targets.append(mem_targets)
 
-    def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, mask):
-        if mask:
+
+    def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, mask, mem):
+        if mask or mem:
             mask_only = True
         else:
             mask_only = False
+                    
+        print(f'Train phase: mask: {mask}, mask only: {mask_only}, mem: {mem}')
         self.model.count_params()
         self.model.get_old_params(t)
-        train_loss,train_acc=self.eval(t, train_loader, valid_transform, mask, mask_only)
+        train_loss,train_acc=self.eval(t, train_loader, valid_transform, mask, mask_only, mem)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
 
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, mask_only)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, mask_only, mem)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
         if mask:
             self.nepochs = 50
+        elif mem:
+            self.nepochs = 100
         else:
             self.nepochs = self.args.nepochs
 
@@ -207,18 +237,18 @@ class Appr(object):
         else:
             best_acc = valid_acc
 
-        try:
+        if True:
             for e in range(start_epoch, self.nepochs):
                 clock0=time.time()
-                self.train_epoch(t, train_loader, train_transform, squeeze, lr, mask)
+                self.train_epoch(t, train_loader, train_transform, squeeze, lr, mask, mem)
                 clock1=time.time()
-                train_loss,train_acc=self.eval(t, train_loader, valid_transform, mask, mask_only)
+                train_loss,train_acc=self.eval(t, train_loader, valid_transform, mask, mask_only, mem)
                 clock2=time.time()
                 print('| Epoch {:2d}, time={:5.1f}ms/{:5.1f}ms | Train: loss={:.3f}, acc={:5.2f}% |'.format(
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),train_loss,100*train_acc),end='')
 
-                valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, mask_only)
+                valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, mask_only, mem)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
                 if squeeze:
@@ -227,7 +257,7 @@ class Appr(object):
                     # model_count, layers_count = self.model.count_params()
                     # if self.logger is not None:
                     #     self.logger.log_metric('num params', model_count, epoch=e)
-                elif mask:
+                elif mask or mem:
                     if valid_acc > best_acc:
                         best_acc = valid_acc
                         self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
@@ -261,18 +291,18 @@ class Appr(object):
                 #         'valid acc':valid_acc
                 #     }, epoch=e)
 
-        except KeyboardInterrupt:
-            print('KeyboardInterrupt')
-            self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
-            self.model = self.check_point['model']
+        # except KeyboardInterrupt:
+        #     print('KeyboardInterrupt')
+        #     self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
+        #     self.model = self.check_point['model']
 
         self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
         self.model = self.check_point['model']
         print(train_accs)
         print(valid_accs)
 
-    def train_batch(self, t, images, targets, squeeze, lr, mask):
-        outputs = self.model.forward(images, t, mask)
+    def train_batch(self, t, images, targets, squeeze, lr, mask, mem):
+        outputs = self.model.forward(images, t, mask, mem)
         loss = self.ce(outputs, targets)
         self.optimizer.zero_grad()
         loss.backward() 
@@ -280,9 +310,12 @@ class Appr(object):
         if squeeze:
             self.model.proximal_gradient_descent(lr, self.lamb)
 
-    def eval_batch(self, t, images, targets, mask=True, mask_only = False):
+    def eval_batch(self, t, images, targets, mask=True, mask_only=False, mem=True):
         self.model.eval()
         with torch.no_grad():
+            if mem and self.cur_task > 0:
+                self.model.get_old_params(self.cur_task+1)
+                outputs_mem = self.model.forward(images, self.cur_task+1, mask=True, mem=True)
             if t is None:
                 joint_entropy_tasks = []
                 outputs_tasks = []
@@ -290,15 +323,15 @@ class Appr(object):
                     self.model.get_old_params(i)
                     outputs = []
                     if mask:
-                        outputs += [self.model.forward(images, i, mask=True)]
+                        outputs += [self.model.forward(images, i, mask=True, mem=False)]
                     if not mask_only:
-                        outputs += [self.model.forward(images, i, mask=False)]
+                        outputs += [self.model.forward(images, i, mask=False, mem=False)]
+                    if mem and self.cur_task > 0:
+                        outputs += [outputs_mem[:, self.shape_out[i]:self.shape_out[i+1]]]
                     outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
                     outputs_tasks += [outputs]
                     outputs = torch.exp(outputs)
                     joint_entropy = -torch.sum(outputs * torch.log(outputs+0.0001), dim=1)
-                    # if i == 0 and mask:
-                    #     joint_entropy *= self.args.factor
                     joint_entropy_tasks.append(joint_entropy)
 
                 outputs_tasks = torch.stack(outputs_tasks, dim=1)
@@ -306,35 +339,39 @@ class Appr(object):
                 joint_entropy_tasks = joint_entropy_tasks.transpose(0, 1)
                 predicted_task = torch.argmin(joint_entropy_tasks, axis=1)
                 outputs = outputs_tasks[range(outputs_tasks.shape[0]), predicted_task]
-            else:
+            elif t <= self.cur_task:
+                self.model.get_old_params(t)
                 outputs = []
                 if mask:
-                    outputs += [self.model.forward(images, t, mask=True)]
+                    outputs += [self.model.forward(images, t, mask=True, mem=False)]
                 if not mask_only:
-                    outputs += [self.model.forward(images, t, mask=False)]
-
+                    outputs += [self.model.forward(images, t, mask=False, mem=False)]
+                if mem and self.cur_task > 0:
+                    outputs += [outputs_mem[:, self.shape_out[t]:self.shape_out[t+1]]]
                 outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
+            else:
+                outputs = outputs_mem
         loss=self.ce(outputs,targets)
         values,indices=outputs.max(1)
         hits=(indices==targets).float()
         return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
 
 
-    def train_epoch(self, t, data_loader, train_transform, squeeze, lr, mask):
+    def train_epoch(self, t, data_loader, train_transform, squeeze, lr, mask, mem):
         self.model.train()
         for images, targets in data_loader:
             images=images.to(device)
             targets=targets.to(device)
             if train_transform:
                 images = train_transform(images)
-            self.train_batch(t, images, targets, squeeze, lr, mask)
+            self.train_batch(t, images, targets, squeeze, lr, mask, mem)
         
         if squeeze:
             self.model.squeeze(self.optimizer.state)
             model_count, layers_count = self.model.count_params()
 
 
-    def eval(self, t, data_loader, valid_transform, mask=True, mask_only=False):
+    def eval(self, t, data_loader, valid_transform, mask=True, mask_only=False, mem=True):
         total_loss=0
         total_acc=0
         total_num=0
@@ -345,7 +382,7 @@ class Appr(object):
             if valid_transform:
                 images = valid_transform(images)
                     
-            loss, hits = self.eval_batch(t, images, targets, mask, mask_only)
+            loss, hits = self.eval_batch(t, images, targets, mask, mask_only, mem)
             total_loss += loss
             total_acc += hits
             total_num += len(targets)

@@ -65,10 +65,10 @@ class _DynamicModel(nn.Module):
         self.DM[-1].squeeze(optim_state, mask_in, None)
         self.total_strength += self.DM[-1].strength_out
 
-    def forward(self, input, t, mask=False):
+    def forward(self, input, t, mask=False, mem=False):
         for module in self.layers:
             if isinstance(module, _DynamicLayer):
-                input = module(input, t, mask)                    
+                input = module(input, t, mask, mem)                    
             else:
                 input = module(input)
         return input
@@ -106,6 +106,10 @@ class _DynamicModel(nn.Module):
         # get old parameters for task t
         for m in self.DM[:-1]:
             m.get_old_params(t)
+        
+    def get_mem_params(self):
+        for m in self.DM:
+            m.get_mem_params()
 
     def report(self):
         for m in self.DM:

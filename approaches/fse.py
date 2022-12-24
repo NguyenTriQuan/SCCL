@@ -251,12 +251,12 @@ class Appr(object):
                     # model_count, layers_count = self.model.count_params()
                     # if self.logger is not None:
                     #     self.logger.log_metric('num params', model_count, epoch=e)
-                # elif mask or mem:
-                #     if valid_acc > best_acc:
-                #         best_acc = valid_acc
-                #         self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
-                #         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                #         print(' *', end='')
+                elif mask or mem:
+                    if valid_acc > best_acc:
+                        best_acc = valid_acc
+                        self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
+                        torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                        print(' *', end='')
                 else:
                     if valid_acc > best_acc:
                         best_acc = valid_acc

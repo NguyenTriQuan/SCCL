@@ -37,6 +37,7 @@ class Appr(object):
         self.batch_size = args.batch_size
         self.val_batch_size = args.val_batch_size
         self.lr = args.lr
+        self.lr_score = args.lr_score
         self.lr_rho = args.lr_rho
         self.lr_min = lr/100
         self.lr_factor = args.lr_factor
@@ -101,8 +102,8 @@ class Appr(object):
 
         params = self.model.get_optim_params()
         params = [{'params': params, 'lr':lr}]
-        if self.lr_rho > 0:
-            params += self.model.get_optim_scales(lr*self.lr_rho)
+        scores = [m.score for m in self.model.DM[:-1]]
+        params += [{'params': scores, 'lr':self.lr_score}]
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
                           weight_decay=0.0, momentum=0.9)
@@ -161,26 +162,19 @@ class Appr(object):
         if 'scale' not in self.ablation:
             self.model.update_scale()
         self.update_mem(train_loader)
-        if t > 0:
-            self.model.get_mem_params()
-            mem_loader = DataLoader(TensorDataset(self.model.mem_images, self.model.mem_targets), batch_size=self.batch_size, shuffle=True)
-            self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
-            self.train_phase(t+1, mem_loader, mem_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=True)
+        self.model.get_mem_params()
+        mem_loader = DataLoader(TensorDataset(self.model.mem_images, self.model.mem_targets), batch_size=self.batch_size, shuffle=True)
+        self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+        self.train_phase(t+1, mem_loader, mem_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=True)
         self.check_point = None  
 
         self.model.count_params()
         self.model.get_old_params(t)
 
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, mask_only=False)
-        print(' Valid ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, mask_only=False)
-        print(' Valid no ensemble: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, mask_only=True)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, mask_only=True, mem=False)
         print(' Valid mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-        valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=True, mask_only=False)
-        print(' Valid ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-        valid_loss,valid_acc=self.eval(None, valid_loader, valid_transform, mask=False, mask_only=False)
-        print(' Valid no ensemble no task identity: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))        
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, mask_only=True, mem=True)
+        print(' Valid mem: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))       
 
     def update_mem(self, data_loader):
         images = data_loader.dataset.tensors[0]
@@ -195,8 +189,8 @@ class Appr(object):
             cla_targets = targets[idx]
             r=np.arange(cla_images.size(0))
             r=np.array(shuffle(r,random_state=self.seed),dtype=int)
-            self.model.mem_images = torch.cat([self.model.mem_images, cla_images[r[:20]]], dim=0)
-            self.model.mem_targets = torch.cat([self.model.mem_targets, cla_targets[r[:20]] + task_cla[-2]], dim=0)
+            self.model.mem_images = torch.cat([self.model.mem_images, cla_images[r[:30]]], dim=0)
+            self.model.mem_targets = torch.cat([self.model.mem_targets, cla_targets[r[:30]] + task_cla[-2]], dim=0)
         
         # self.model.mem_images.append(mem_images)
         # self.model.mem_targets.append(mem_targets)
@@ -220,7 +214,7 @@ class Appr(object):
         if mask:
             self.nepochs = 50
         elif mem:
-            self.nepochs = 100
+            self.nepochs = 200
         else:
             self.nepochs = self.args.nepochs
 
@@ -257,12 +251,12 @@ class Appr(object):
                     # model_count, layers_count = self.model.count_params()
                     # if self.logger is not None:
                     #     self.logger.log_metric('num params', model_count, epoch=e)
-                elif mask or mem:
-                    if valid_acc > best_acc:
-                        best_acc = valid_acc
-                        self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
-                        torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
-                        print(' *', end='')
+                # elif mask or mem:
+                #     if valid_acc > best_acc:
+                #         best_acc = valid_acc
+                #         self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
+                #         torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
+                #         print(' *', end='')
                 else:
                     if valid_acc > best_acc:
                         best_acc = valid_acc
@@ -313,7 +307,7 @@ class Appr(object):
     def eval_batch(self, t, images, targets, mask=True, mask_only=False, mem=True):
         self.model.eval()
         with torch.no_grad():
-            if mem and self.cur_task > 0:
+            if mem:
                 self.model.get_old_params(self.cur_task+1)
                 outputs_mem = self.model.forward(images, self.cur_task+1, mask=True, mem=True)
             if t is None:
@@ -326,7 +320,7 @@ class Appr(object):
                         outputs += [self.model.forward(images, i, mask=True, mem=False)]
                     if not mask_only:
                         outputs += [self.model.forward(images, i, mask=False, mem=False)]
-                    if mem and self.cur_task > 0:
+                    if mem:
                         outputs += [outputs_mem[:, self.shape_out[i]:self.shape_out[i+1]]]
                     outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
                     outputs_tasks += [outputs]
@@ -346,7 +340,7 @@ class Appr(object):
                     outputs += [self.model.forward(images, t, mask=True, mem=False)]
                 if not mask_only:
                     outputs += [self.model.forward(images, t, mask=False, mem=False)]
-                if mem and self.cur_task > 0:
+                if mem:
                     outputs += [outputs_mem[:, self.shape_out[t]:self.shape_out[t+1]]]
                 outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
             else:

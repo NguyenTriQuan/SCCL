@@ -338,7 +338,6 @@ class _DynamicLayer(nn.Module):
         if self.norm_layer:
             if self.norm_layer.affine:
                 params += [self.norm_layer.weight[-1], self.norm_layer.bias[-1]]
-        params += [self.score]
         if self.bias_mem is not None:
             params += [self.bias_mem]
         return params

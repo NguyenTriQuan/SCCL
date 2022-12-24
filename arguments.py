@@ -74,6 +74,7 @@ def get_args():
     parser.add_argument('--batch_size', default=256, type=int, required=False, help='(default=%(default)d)')
     parser.add_argument('--val_batch_size', default=256, type=int, required=False, help='(default=%(default)d)')
     parser.add_argument('--lr', default=0.001, type=float, required=False, help='(default=%(default)f)')
+    parser.add_argument('--lr_score', default=0.01, type=float, required=False, help='(default=%(default)f)')
     parser.add_argument('--lr_patience', default=5, type=int, required=False, help='(default=%(default)f)')
     parser.add_argument('--lr_factor', default=3, type=int, required=False, help='(default=%(default)f)')
     parser.add_argument('--lr_rho', default=0, type=float, required=False, help='(default=%(default)f)')

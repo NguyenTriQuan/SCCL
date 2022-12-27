@@ -485,7 +485,7 @@ class Appr(object):
             torch.arange(features.shape[0]).view(-1, 1).to(device),
             0
         )
-        pos_mask = pos_mask * logits_mask
+        # pos_mask = pos_mask * logits_mask
 
         exp_logits = torch.exp(logits) * logits_mask
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
@@ -499,21 +499,13 @@ class Appr(object):
     
     def mem_loss(self, features, labels):
         sim = torch.div(
-            torch.matmul(features, features.T),
+            torch.matmul(features, self.model.features_mean.T),
             self.temperature)
         logits_max, _ = torch.max(sim, dim=1, keepdim=True)
         logits = sim - logits_max.detach()      
-        pos_mask = (labels.view(-1, 1) == labels.view(1, -1)).float().to(device)
+        pos_mask = (labels.view(-1, 1) == torch.arange.view(1, -1)).float().to(device)
 
-        logits_mask = torch.scatter(
-            torch.ones_like(pos_mask),
-            1,
-            torch.arange(features.shape[0]).view(-1, 1).to(device),
-            0
-        )
-        pos_mask = pos_mask * logits_mask
-
-        exp_logits = torch.exp(logits) * logits_mask
+        exp_logits = torch.exp(logits)
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
         mean_log_prob_pos = (pos_mask * log_prob).sum(1) / pos_mask.sum(1)

@@ -190,7 +190,7 @@ class Appr(object):
         else:
             over_param = True
                     
-        print(f'Train phase: mask: {mask}, mask only: {over_param}, mem: {mem}')
+        print(f'Train phase: mask: {mask}, over param: {over_param}, mem: {mem}')
         self.model.count_params()
         self.model.get_old_params(t)
         self.get_classes_statistic(t, train_loader, valid_transform, mask, over_param, mem)

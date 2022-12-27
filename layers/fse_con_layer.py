@@ -111,7 +111,7 @@ class _DynamicLayer(nn.Module):
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
-        self.dummy_weight = torch.Tensor(self.base_out_features * self.base_in_features * self.fan_in).to(device)
+        self.dummy_weight = torch.Tensor(self.base_out_features * self.base_in_features * self.fan_in * 2).to(device)
         nn.init.normal_(self.dummy_weight, 0, 1)
 
     def expand(self, add_in=None, add_out=None, ablation='full'):

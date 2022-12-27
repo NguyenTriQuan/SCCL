@@ -364,11 +364,8 @@ class Appr(object):
             images=images.to(device)
             targets=targets.to(device)
             if train_transform:
-                if self.args.augment:
-                    images = torch.cat([valid_transform(images), train_transform(images)], dim=0)
-                    targets = torch.cat([targets, targets], dim=0)
-                else:
-                    images = train_transform(images)
+                images = torch.cat([valid_transform(images), train_transform(images)], dim=0)
+                targets = torch.cat([targets, targets], dim=0)
             self.train_batch(t, images, targets, squeeze, lr, mask, mem)
         
         if squeeze:

@@ -201,7 +201,7 @@ class Appr(object):
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
         if mask:
-            self.nepochs = 50
+            self.nepochs = 100
         elif mem:
             self.nepochs = 20
         else:

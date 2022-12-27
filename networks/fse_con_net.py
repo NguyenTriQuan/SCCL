@@ -125,7 +125,7 @@ class MLP(_DynamicModel):
         super(MLP, self).__init__()
         self.mul = mul
         self.input_size = input_size
-        N = 400
+        N = 200
         self.layers = nn.ModuleList([
             nn.Flatten(),
             nn.Dropout(0.25),

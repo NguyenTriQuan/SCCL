@@ -172,7 +172,7 @@ class Appr(object):
         # mem_loader = DataLoader(TensorDataset(self.model.mem_images, self.model.mem_targets), batch_size=self.batch_size, shuffle=True)
         # self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         # self.train_phase(t+1, mem_loader, mem_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=True)
-        
+
         self.check_point = None  
         self.model.count_params()
 
@@ -364,8 +364,11 @@ class Appr(object):
             images=images.to(device)
             targets=targets.to(device)
             if train_transform:
-                images = torch.cat([valid_transform(images), train_transform(images)], dim=0)
-                targets = torch.cat([targets, targets], dim=0)
+                if self.args.augment:
+                    images = torch.cat([valid_transform(images), train_transform(images)], dim=0)
+                    targets = torch.cat([targets, targets], dim=0)
+                else:
+                    images = train_transform(images)
             self.train_batch(t, images, targets, squeeze, lr, mask, mem)
         
         if squeeze:

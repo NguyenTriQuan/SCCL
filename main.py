@@ -61,17 +61,17 @@ if args.resume:
     # )
     start_task = appr.resume()
     # Test
-    acc1 = []
-    acc2 = []
-    for u in range(start_task + 1):
-        test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'])
-        print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
-        acc1.append(test_acc)
-        test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=False, mask_only=False)
-        print('>>> Test no ensemble on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
-        acc2.append(test_acc)
-    print('Avg acc={:5.2f}%'.format(100*sum(acc1)/len(acc1)))
-    print('Avg acc no ensemble ={:5.2f}%'.format(100*sum(acc2)/len(acc2)))
+    # acc1 = []
+    # acc2 = []
+    # for u in range(start_task + 1):
+    #     test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'])
+    #     print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
+    #     acc1.append(test_acc)
+    #     test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=False, mask_only=False)
+    #     print('>>> Test no ensemble on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
+    #     acc2.append(test_acc)
+    # print('Avg acc={:5.2f}%'.format(100*sum(acc1)/len(acc1)))
+    # print('Avg acc no ensemble ={:5.2f}%'.format(100*sum(acc2)/len(acc2)))
 # else:
 #     appr.logger = Experiment(
 #         api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",
@@ -116,7 +116,7 @@ for t, ncla in taskcla[start_task:]:
     # if args.experiment == 'mixture':
     #     appr.factor = data[t]['factor']
     #     print('dataset factor', appr.factor)
-    if args.approach == 'dad' or args.approach == 'fse':
+    if args.approach == 'dad' or args.approach == 'fse' or args.approach == 'fse_con':
         # appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
         appr.train(task, data[t]['train_loader'], data[t]['test_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
     else:
@@ -126,29 +126,30 @@ for t, ncla in taskcla[start_task:]:
     print('-' * 100)
     print(f'Task {t} training time: {time.time() - train_start} s')
     # Test
-    if args.approach == 'fse':
+    if args.approach == 'fse' or args.approach == 'fse_con':
         en_til = []
         til = []
         en_cil = []
         cil = []
         for u in range(t + 1):
             print('>>> Test no ensemble on task {:2d} - {:15s}: <<<'.format(u, data[u]['name']))
-            test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=True, mask_only=False, mem=True)
+
+            test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=True, over_param=True, mem=True)
             print('>>> Ensemble CIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
             en_cil.append(test_acc)
 
-            test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=False, mask_only=False, mem=False)
+            test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=False, over_param=True, mem=False)
             print('>>> No ensemble CIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
             cil.append(test_acc)
 
-            test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'], mask=True, mask_only=False, mem=True)
+            test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'], mask=True, over_param=True, mem=True)
             print('>>> Ensemble TIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
             en_til.append(test_acc)
 
             acc[t, u] = test_acc
             lss[t, u] = test_loss
 
-            test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'], mask=False, mask_only=False, mem=False)
+            test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'], mask=False, over_param=True, mem=False)
             print('>>> No ensemble TIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
             til.append(test_acc)
             

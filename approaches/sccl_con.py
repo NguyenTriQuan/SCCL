@@ -345,7 +345,7 @@ class Appr(object):
         hits = (i==targets).float()
         return hits.sum().data.cpu().numpy()
 
-    def train_epoch(self, t, data_loader, train_transform, squeeze=True):
+    def train_epoch(self, t, data_loader, train_transform, valid_transform, squeeze=True):
         self.model.train()
         self.model.get_params(t-1)
         total_loss=0
@@ -354,7 +354,7 @@ class Appr(object):
             images = images.to(device)
             targets = targets.to(device)
             if train_transform:
-                images = torch.cat([images, train_transform(images)], dim=0)
+                images = torch.cat([valid_transform(images), train_transform(images)], dim=0)
                 targets = torch.cat([targets, targets], dim=0)
                 # images = torch.cat([images, images], dim=0)
                 # images = train_transform(images)

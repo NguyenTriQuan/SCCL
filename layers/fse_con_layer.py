@@ -211,17 +211,14 @@ class _DynamicLayer(nn.Module):
         self.mask.append(mask.detach().clone().bool())
 
     def get_mem_params(self):
-        if self.shape_out[-1] * self.shape_in[-1] * self.fan_in < self.dummy_weight.numel():
-            fan_out = max(self.base_out_features, self.shape_out[-1])
-            fan_in = max(self.base_in_features, self.shape_in[-1])
-        else:
-            fan_out = self.shape_out[-1]
-            fan_in = self.shape_in[-1]
+        fan_out = max(self.base_out_features, self.shape_out[-1])
+        fan_in = max(self.base_in_features, self.shape_in[-1])
+
         if isinstance(self, DynamicConv2D):
             self.score = nn.Parameter(torch.Tensor(fan_out, fan_in // self.groups, *self.kernel_size).to(device))
         else:
             self.score = nn.Parameter(torch.Tensor(fan_out, fan_in).to(device))
-        nn.init.kaiming_uniform_(self.score, a=math.sqrt(5))
+        nn.init.kaiming_normal_(self.score, a=math.sqrt(5))
         mask = GetSubnet.apply(self.score.abs(), self.sparsity)
         self.mask_mem = mask.detach().clone().bool()
         self.bias_mem = nn.Parameter(torch.Tensor(fan_out).uniform_(0, 0).to(device)) if self.bias is not None else None
@@ -558,11 +555,11 @@ class DynamicClassifier(DynamicLinear):
         return x
 
     def get_mem_params(self):
-        # fan_in = max(self.base_in_features, self.shape_in[-1])
-        fan_in = self.base_in_features
+        fan_in = max(self.base_in_features, self.shape_in[-1])
+        # fan_in = self.base_in_features
         bound_std = self.gain / math.sqrt(fan_in)
-        self.weight_mem = nn.Parameter(torch.Tensor(self.shape_out[-1], fan_in).normal_(0, bound_std).to(device))
-        self.bias_mem = nn.Parameter(torch.Tensor(self.shape_out[-1]).uniform_(0, 0).to(device)) if self.bias else None
+        self.weight_mem = nn.Parameter(torch.Tensor(self.num_out[-1], fan_in).normal_(0, bound_std).to(device))
+        self.bias_mem = nn.Parameter(torch.Tensor(self.num_out[-1]).uniform_(0, 0).to(device)) if self.bias else None
 
     def get_params(self, t, mask, mem):
         if mem:

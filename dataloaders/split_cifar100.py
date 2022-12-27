@@ -31,20 +31,22 @@ def get(args, pc_valid=0.10):
     train_data = train_data.permute(0, 3, 1, 2)/255.0
     test_data = test_data.permute(0, 3, 1, 2)/255.0
 
-    if args.cil:
+    if args.cil and args.approach == 'joint':
         data[0]={}
         data[0]['name']='cifar100'
         data[0]['ncla']=100
         data[0]['train_loader'] = DataLoader(TensorDataset(train_data, train_targets), batch_size=args.batch_size, shuffle=True)
         data[0]['test_loader'] = DataLoader(TensorDataset(test_data, test_targets), batch_size=args.val_batch_size, shuffle=False)
+        same_on_batch = False
         if args.augment:
             data[0]['train_transform'] = torch.nn.Sequential(
-                K.augmentation.RandomResizedCrop(size=(32, 32), scale=(0.2, 1.0), same_on_batch=False),
-                K.augmentation.RandomHorizontalFlip(),
-                K.augmentation.ColorJitter(0.4, 0.4, 0.4, 0.1, p=0.8, same_on_batch=False),
-                K.augmentation.RandomGrayscale(p=0.2),
+                K.augmentation.RandomResizedCrop(size=(32, 32), scale=(0.2, 1.0), same_on_batch=same_on_batch),
+                K.augmentation.RandomHorizontalFlip(same_on_batch=same_on_batch),
+                K.augmentation.ColorJitter(0.4, 0.4, 0.4, 0.1, p=0.8, same_on_batch=same_on_batch),
+                K.augmentation.RandomGrayscale(p=0.2, same_on_batch=same_on_batch),
                 K.augmentation.Normalize(mean, std),
             )
+
         else:
             data[0]['train_transform'] = torch.nn.Sequential(
                 K.augmentation.Normalize(mean, std),
@@ -93,13 +95,13 @@ def get(args, pc_valid=0.10):
         data[t]['test_loader'] = DataLoader(TensorDataset(images, labels), batch_size=args.val_batch_size, shuffle=False)
 
         n_old += 10
-
+        same_on_batch = False
         if args.augment:
             data[t]['train_transform'] = torch.nn.Sequential(
-                K.augmentation.RandomResizedCrop(size=(32, 32), scale=(0.2, 1.0), same_on_batch=False),
-                K.augmentation.RandomHorizontalFlip(),
-                K.augmentation.ColorJitter(0.4, 0.4, 0.4, 0.1, p=0.8, same_on_batch=False),
-                K.augmentation.RandomGrayscale(p=0.2),
+                K.augmentation.RandomResizedCrop(size=(32, 32), scale=(0.2, 1.0), same_on_batch=same_on_batch),
+                K.augmentation.RandomHorizontalFlip(same_on_batch=same_on_batch),
+                K.augmentation.ColorJitter(0.4, 0.4, 0.4, 0.1, p=0.8, same_on_batch=same_on_batch),
+                K.augmentation.RandomGrayscale(p=0.2, same_on_batch=same_on_batch),
                 K.augmentation.Normalize(mean, std),
             )
         else:

@@ -48,6 +48,10 @@ def ensemble_outputs(outputs):
 
     return log_outputs
 
+def ensemble_features(outputs):
+    outputs = F.normalize(outputs, dim=-2).mean(dim=-1)
+    return F.normalize(outputs, dim=-1)
+
 def _calculate_fan_in_and_fan_out(tensor):
     dimensions = tensor.dim()
     if dimensions < 2:

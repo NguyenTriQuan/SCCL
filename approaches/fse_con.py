@@ -485,7 +485,7 @@ class Appr(object):
             torch.arange(features.shape[0]).view(-1, 1).to(device),
             0
         )
-        # pos_mask = pos_mask * logits_mask
+        pos_mask = pos_mask * logits_mask
 
         exp_logits = torch.exp(logits) * logits_mask
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))

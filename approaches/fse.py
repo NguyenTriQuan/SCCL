@@ -103,7 +103,7 @@ class Appr(object):
         params = self.model.get_optim_params()
         params = [{'params': params, 'lr':lr}]
         scores = [m.score for m in self.model.DM[:-1]]
-        params += [{'params': scores, 'lr':self.lr_score}]
+        params += [{'params': scores, 'lr':lr}]
         if self.optim == 'SGD':
             optimizer = torch.optim.SGD(params, lr=lr,
                           weight_decay=0.0, momentum=0.9)
@@ -190,8 +190,8 @@ class Appr(object):
             cla_targets = targets[idx]
             r=np.arange(cla_images.size(0))
             r=np.array(shuffle(r,random_state=self.seed),dtype=int)
-            self.model.mem_images = torch.cat([self.model.mem_images, cla_images[r[:30]]], dim=0)
-            self.model.mem_targets = torch.cat([self.model.mem_targets, cla_targets[r[:30]] + self.shape_out[-2]], dim=0)
+            self.model.mem_images = torch.cat([self.model.mem_images, cla_images[r[:self.args.nsamples]]], dim=0)
+            self.model.mem_targets = torch.cat([self.model.mem_targets, cla_targets[r[:self.args.nsamples]] + self.shape_out[-2]], dim=0)
         
         # self.model.mem_images.append(mem_images)
         # self.model.mem_targets.append(mem_targets)

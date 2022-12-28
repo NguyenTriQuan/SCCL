@@ -166,17 +166,16 @@ class Appr(object):
         mem_loader = DataLoader(TensorDataset(self.model.mem_images, self.model.mem_targets), batch_size=self.batch_size, shuffle=True)
         self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
         self.train_phase(t+1, mem_loader, mem_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=True)
-        # self.train_phase(t+1, train_loader, valid_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=True)
         self.check_point = None  
 
         self.model.count_params()
         self.model.get_old_params(t)
 
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, mask_only=True, mem=False)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, over_param=False, mem=False)
         print(' Valid mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, mask_only=True, mem=True)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, over_param=False, mem=True)
         print(' Valid mem: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))   
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, mask_only=False, mem=False)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, over_param=True, mem=False)
         print(' Valid ensemble mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))    
 
     def update_mem(self, data_loader):
@@ -185,7 +184,6 @@ class Appr(object):
         ncla = self.model.DM[-1].num_out[-1]
         # mem_images = torch.empty(0)
         # mem_targets = torch.empty(0)
-        task_cla = self.shape_out
         for n in range(ncla):
             idx = targets==n
             cla_images = images[idx]
@@ -193,7 +191,7 @@ class Appr(object):
             r=np.arange(cla_images.size(0))
             r=np.array(shuffle(r,random_state=self.seed),dtype=int)
             self.model.mem_images = torch.cat([self.model.mem_images, cla_images[r[:30]]], dim=0)
-            self.model.mem_targets = torch.cat([self.model.mem_targets, cla_targets[r[:30]] + task_cla[-2]], dim=0)
+            self.model.mem_targets = torch.cat([self.model.mem_targets, cla_targets[r[:30]] + self.shape_out[-2]], dim=0)
         
         # self.model.mem_images.append(mem_images)
         # self.model.mem_targets.append(mem_targets)
@@ -201,23 +199,23 @@ class Appr(object):
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, mask, mem):
         if mask or mem:
-            mask_only = True
+            over_param = False
         else:
-            mask_only = False
+            over_param = True
                     
-        print(f'Train phase: mask: {mask}, mask only: {mask_only}, mem: {mem}')
+        print(f'Train phase: mask: {mask}, over_param: {over_param}, mem: {mem}')
         self.model.count_params()
         self.model.get_old_params(t)
-        train_loss,train_acc=self.eval(t, train_loader, valid_transform, mask, mask_only, mem)
+        train_loss,train_acc=self.eval(t, train_loader, valid_transform, mask, over_param, mem)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
 
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, mask_only, mem)
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, over_param, mem)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
         if mask:
             self.nepochs = 50
         elif mem:
-            self.nepochs = 300
+            self.nepochs = 50
         else:
             self.nepochs = self.args.nepochs
 
@@ -239,13 +237,13 @@ class Appr(object):
                 clock0=time.time()
                 self.train_epoch(t, train_loader, train_transform, squeeze, lr, mask, mem)
                 clock1=time.time()
-                train_loss,train_acc=self.eval(t, train_loader, valid_transform, mask, mask_only, mem)
+                train_loss,train_acc=self.eval(t, train_loader, valid_transform, mask, over_param, mem)
                 clock2=time.time()
                 print('| Epoch {:2d}, time={:5.1f}ms/{:5.1f}ms | Train: loss={:.3f}, acc={:5.2f}% |'.format(
                     e+1,1000*(clock1-clock0),
                     1000*(clock2-clock1),train_loss,100*train_acc),end='')
 
-                valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, mask_only, mem)
+                valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, over_param, mem)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
                 if squeeze:
@@ -299,15 +297,25 @@ class Appr(object):
         print(valid_accs)
 
     def train_batch(self, t, images, targets, squeeze, lr, mask, mem):
-        outputs = self.model.forward(images, t, mask, mem)
-        loss = self.ce(outputs, targets)
+        if mem:
+            loss = 0
+            for i in range(self.cur_task+1):
+                idx = (targets >= self.shape_out[i]) & (targets < self.shape_out[i+1])
+                task_images = images[idx]
+                task_targets = targets[idx]
+                outputs = self.model.forward(task_images, self.cur_task+1, mask, mem)
+                loss += self.ce(outputs, task_targets)
+                loss += self.ce(outputs[:, self.shape_out[i]:self.shape_out[i+1]], task_targets-self.shape_out[i])
+        else:
+            outputs = self.model.forward(images, t, mask, mem)
+            loss = self.ce(outputs, targets)
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
         if squeeze:
             self.model.proximal_gradient_descent(lr, self.lamb)
 
-    def eval_batch(self, t, images, targets, mask=True, mask_only=False, mem=True):
+    def eval_batch(self, t, images, targets, mask=True, over_param=True, mem=True):
         self.model.eval()
         with torch.no_grad():
             if mem:
@@ -321,7 +329,7 @@ class Appr(object):
                     outputs = []
                     if mask:
                         outputs += [self.model.forward(images, i, mask=True, mem=False)]
-                    if not mask_only:
+                    if over_param:
                         outputs += [self.model.forward(images, i, mask=False, mem=False)]
                     if mem:
                         outputs += [outputs_mem[:, self.shape_out[i]:self.shape_out[i+1]]]
@@ -341,7 +349,7 @@ class Appr(object):
                 outputs = []
                 if mask:
                     outputs += [self.model.forward(images, t, mask=True, mem=False)]
-                if not mask_only:
+                if over_param:
                     outputs += [self.model.forward(images, t, mask=False, mem=False)]
                 if mem:
                     outputs += [outputs_mem[:, self.shape_out[t]:self.shape_out[t+1]]]
@@ -368,7 +376,7 @@ class Appr(object):
             model_count, layers_count = self.model.count_params()
 
 
-    def eval(self, t, data_loader, valid_transform, mask=True, mask_only=False, mem=True):
+    def eval(self, t, data_loader, valid_transform, mask=True, over_param=True, mem=True):
         total_loss=0
         total_acc=0
         total_num=0
@@ -379,7 +387,7 @@ class Appr(object):
             if valid_transform:
                 images = valid_transform(images)
                     
-            loss, hits = self.eval_batch(t, images, targets, mask, mask_only, mem)
+            loss, hits = self.eval_batch(t, images, targets, mask, over_param, mem)
             total_loss += loss
             total_acc += hits
             total_num += len(targets)

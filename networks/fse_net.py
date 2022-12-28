@@ -121,7 +121,7 @@ class MLP(_DynamicModel):
         super(MLP, self).__init__()
         self.mul = mul
         self.input_size = input_size
-        N = 400
+        N = 200
         p = 1
         if 'drop_arch' in args.ablation:
             p = 0

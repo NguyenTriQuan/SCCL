@@ -111,7 +111,7 @@ class _DynamicLayer(nn.Module):
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
-        self.dummy_weight = torch.Tensor(self.base_out_features * self.base_in_features * self.fan_in).to(device)
+        self.dummy_weight = torch.Tensor(self.base_out_features * self.base_in_features * self.fan_in * 2).to(device)
         nn.init.normal_(self.dummy_weight, 0, 1)
 
     def expand(self, add_in=None, add_out=None, ablation='full'):
@@ -211,12 +211,9 @@ class _DynamicLayer(nn.Module):
         self.mask.append(mask.detach().clone().bool())
 
     def get_mem_params(self):
-        if self.shape_out[-1] * self.shape_in[-1] * self.fan_in < self.dummy_weight.numel():
-            fan_out = max(self.base_out_features, self.shape_out[-1])
-            fan_in = max(self.base_in_features, self.shape_in[-1])
-        else:
-            fan_out = self.shape_out[-1]
-            fan_in = self.shape_in[-1]
+        fan_out = max(self.base_out_features, self.shape_out[-1])
+        fan_in = max(self.base_in_features, self.shape_in[-1])
+
         if isinstance(self, DynamicConv2D):
             self.score = nn.Parameter(torch.Tensor(fan_out, fan_in // self.groups, *self.kernel_size).to(device))
         else:
@@ -558,8 +555,8 @@ class DynamicClassifier(DynamicLinear):
         return x
 
     def get_mem_params(self):
-        # fan_in = max(self.base_in_features, self.shape_in[-1])
-        fan_in = self.base_in_features
+        fan_in = max(self.base_in_features, self.shape_in[-1])
+        # fan_in = self.base_in_features
         bound_std = self.gain / math.sqrt(fan_in)
         self.weight_mem = nn.Parameter(torch.Tensor(self.shape_out[-1], fan_in).normal_(0, bound_std).to(device))
         self.bias_mem = nn.Parameter(torch.Tensor(self.shape_out[-1]).uniform_(0, 0).to(device)) if self.bias else None

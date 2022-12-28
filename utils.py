@@ -23,10 +23,14 @@ import torch.nn.functional as F
 # feature_extractor = nn.Sequential(*list(resnet_model.children())[:-4])
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def log_likelihood(x, mean, var):
+    # log N(x | mean, var)
+    # x [bs, feat_dim], mean, var [num_cla, feat_dim]
+    out = -((x.unsqueeze(1) - mean.unsqueeze(0)) ** 2) / (2 * var) - var.log() / 2 #- math.log(math.sqrt(2 * math.pi))
+    return out.mean(-1)
+
 def logmeanexp(x, dim=None, keepdim=False):
     """Stable computation of log(mean(exp(x))"""
-
-    
     if dim is None:
         x, dim = x.view(-1), 0
     x_max, _ = torch.max(x, dim, keepdim=True)

@@ -28,12 +28,25 @@ class _DynamicModel(nn.Module):
         self.features_mean = None
         self.features_mean_mask = None
         self.features_mean_mem = None
+
+        self.features_var = None
+        self.features_var_mask = None
+        self.features_var_mem = None
         self.ncla = [0]
+
+        self.alpha = []
+        self.beta = []
+        self.project_layer = []
 
     def get_optim_params(self):
         params = []
         for m in self.DM:
             params += m.get_optim_params()
+        
+        # for i in range(len(self.alpha)):
+        #     params += [self.alpha[i], self.beta[i]]
+        for i in range(len(self.project_layer)):
+            params += [self.project_layer[i].weight, self.project_layer[i].bias]
         return params
 
     def get_optim_scales(self, lr):
@@ -52,6 +65,9 @@ class _DynamicModel(nn.Module):
         self.DM[-1].expand(add_in=None, add_out=None, ablation=ablation)
         self.total_strength += self.DM[-1].strength_out
         self.ncla.append(self.ncla[-1] + new_class)
+        # self.alpha.append(nn.Parameter(torch.Tensor(args.feat_dim).uniform_(1, 1).to(device)))
+        # self.beta.append(nn.Parameter(torch.Tensor(args.feat_dim).uniform_(0, 0).to(device)))
+        self.project_layer.append(nn.Linear(args.feat_dim, args.feat_dim).to(device))
 
     def squeeze(self, optim_state):
         mask_in = None

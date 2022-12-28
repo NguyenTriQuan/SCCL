@@ -167,32 +167,36 @@ class Appr(object):
         self.model.freeze(t)
         if 'scale' not in self.ablation:
             self.model.update_scale()
-        # self.update_mem(train_loader, valid_transform)
-        # self.model.get_mem_params()
-        # mem_loader = DataLoader(TensorDataset(self.model.mem_images, self.model.mem_targets), batch_size=self.batch_size, shuffle=True)
-        # self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
-        # self.train_phase(t+1, mem_loader, mem_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=True)
+        self.update_mem(train_loader, valid_transform)
+        self.model.get_mem_params()
+        mem_loader = DataLoader(TensorDataset(self.model.mem_images, self.model.mem_targets), batch_size=self.batch_size, shuffle=True)
+        self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+        if t > 0:
+            self.train_phase(None, mem_loader, mem_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=True)
 
         self.check_point = None  
         self.model.count_params()
 
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, over_param=False, mem=False)
         print(' Valid mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-        # valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, over_param=False, mem=True)
-        # print(' Valid mem: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))   
+        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, over_param=True, mem=True)
+        print(' Valid mem: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))   
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, over_param=True, mem=False)
         print(' Valid ensemble mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))    
 
 
     def train_phase(self, t, train_loader, valid_loader, train_transform, valid_transform, squeeze, mask, mem):
-        if mask or mem:
+        if mask:
             over_param = False
         else:
             over_param = True
                     
         print(f'Train phase: mask: {mask}, over param: {over_param}, mem: {mem}')
         self.model.count_params()
-        self.model.get_old_params(t)
+        if t is not None:
+            self.model.get_old_params(t)
+        else:
+            self.model.get_old_params(self.cur_task)
         self.get_classes_statistic(t, train_loader, valid_transform, mask, over_param, mem)
         train_loss,train_acc=self.eval(t, train_loader, valid_transform, mask, over_param, mem)
         print('| Train: loss={:.3f}, acc={:5.2f}% |'.format(train_loss,100*train_acc), end='')
@@ -201,9 +205,9 @@ class Appr(object):
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
         if mask:
-            self.nepochs = 100
+            self.nepochs = 50
         elif mem:
-            self.nepochs = 20
+            self.nepochs = 10
         else:
             self.nepochs = self.args.nepochs
 
@@ -235,13 +239,13 @@ class Appr(object):
                 valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, over_param, mem)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
-                if squeeze or mem:
+                if squeeze:
                     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
                     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
                     # model_count, layers_count = self.model.count_params()
                     # if self.logger is not None:
                     #     self.logger.log_metric('num params', model_count, epoch=e)
-                elif mask:
+                elif mask or mem:
                     if valid_acc > best_acc:
                         best_acc = valid_acc
                         self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
@@ -287,12 +291,22 @@ class Appr(object):
         # print(valid_accs)
 
     def train_batch(self, t, images, targets, squeeze, lr, mask, mem):
-        outputs = self.model.forward(images, t, mask, mem)
-        outputs = F.normalize(outputs, dim=1)
-        # if mem:
-        #     loss = self.mem_loss(outputs, targets)
-        # else:
-        loss = self.sup_con_cl_loss(outputs, targets)
+        if mem:
+            features = []
+            for i in range(self.cur_task+1):
+                self.model.get_old_params(i)
+                outputs = self.model.forward(images, i, mask=False, mem=False)
+                # outputs = outputs * self.model.alpha[i].view(1, -1) + self.model.beta[i].view(1, -1)
+                outputs = self.model.project_layer[i](outputs)
+                features.append(outputs)
+            features = torch.cat(features, dim=0)
+            features = F.normalize(features, dim=1)
+            features_mean = F.normalize(self.model.features_mean, dim=1)
+            loss = self.mem_loss(outputs, targets, features_mean)
+        else:
+            outputs = self.model.forward(images, t, mask, mem)
+            outputs = F.normalize(outputs, dim=1)
+            loss = self.sup_con_cl_loss(outputs, targets)
         self.optimizer.zero_grad()
         loss.backward() 
         self.optimizer.step()
@@ -303,9 +317,9 @@ class Appr(object):
     def eval_batch(self, t, images, targets, mask=True, over_param=False, mem=True):
         self.model.eval()
         with torch.no_grad():
-            if mem:
-                self.model.get_old_params(self.cur_task+1)
-                outputs_mem = self.model.forward(images, self.cur_task+1, mask=True, mem=True)
+            # if mem:
+            #     self.model.get_old_params(self.cur_task+1)
+            #     outputs_mem = self.model.forward(images, self.cur_task+1, mask=True, mem=True)
             if t is None:
                 predicts = []
                 for i in range(self.cur_task+1):
@@ -313,51 +327,71 @@ class Appr(object):
                     sim_ensemble = []
                     if mask:
                         outputs = self.model.forward(images, i, mask=True, mem=False)
+                        if mem:
+                            # outputs = outputs * self.model.alpha[i].view(1, -1) + self.model.beta[i].view(1, -1)
+                            outputs = self.model.project_layer[i](outputs)
                         features_mean = self.model.features_mean_mask[self.ncla[i]:self.ncla[i+1]]
+                        # features_var = self.model.features_var_mask[self.ncla[i]:self.ncla[i+1]]
                         outputs = F.normalize(outputs, dim=1)
                         features_mean = F.normalize(features_mean, dim=1)
                         sim_ensemble += [torch.matmul(outputs, features_mean.T)]
+                        # sim_ensemble += [log_likelihood(outputs, features_mean, features_var)]
                     if over_param:
                         outputs = self.model.forward(images, i, mask=False, mem=False)
+                        if mem:
+                            # outputs = outputs * self.model.alpha[i].view(1, -1) + self.model.beta[i].view(1, -1)
+                            outputs = self.model.project_layer[i](outputs)
                         features_mean = self.model.features_mean[self.ncla[i]:self.ncla[i+1]]
+                        # features_var = self.model.features_var[self.ncla[i]:self.ncla[i+1]]
                         outputs = F.normalize(outputs, dim=1)
                         features_mean = F.normalize(features_mean, dim=1)
                         sim_ensemble += [torch.matmul(outputs, features_mean.T)]
+                        # sim_ensemble += [log_likelihood(outputs, features_mean, features_var)]
 
                     predicts += [torch.stack(sim_ensemble, dim=-1)]
                 predicts = torch.cat(predicts, dim=1)
-                if mem:
-                    outputs = F.normalize(outputs_mem, dim=1)
-                    features_mean = F.normalize(self.model.features_mean_mem, dim=1)
-                    sim = torch.matmul(outputs, features_mean.T)
-                    predicts = torch.cat([predicts, sim.unsqueeze(2)], dim=-1)
+                # if mem:
+                #     outputs = F.normalize(outputs_mem, dim=1)
+                #     features_mean = F.normalize(self.model.features_mean_mem, dim=1)
+                #     sim = torch.matmul(outputs, features_mean.T)
+                #     predicts = torch.cat([predicts, sim.unsqueeze(2)], dim=-1)
                 predicts = ensemble_outputs(predicts)
             elif t <= self.cur_task:
                 self.model.get_old_params(t)
                 predicts = []
                 if mask:
                     outputs = self.model.forward(images, t, mask=True, mem=False)
+                    if mem:
+                        # outputs = outputs * self.model.alpha[t].view(1, -1) + self.model.beta[t].view(1, -1)
+                        outputs = self.model.project_layer[t](outputs)
                     features_mean = self.model.features_mean_mask[self.ncla[t]:self.ncla[t+1]]
+                    # features_var = self.model.features_var_mask[self.ncla[t]:self.ncla[t+1]]
                     outputs = F.normalize(outputs, dim=1)
                     features_mean = F.normalize(features_mean, dim=1)
                     predicts += [torch.matmul(outputs, features_mean.T)]
+                    # predicts += [log_likelihood(outputs, features_mean, features_var)]
                 if over_param:
                     outputs = self.model.forward(images, t, mask=False, mem=False)
+                    if mem:
+                        # outputs = outputs * self.model.alpha[t].view(1, -1) + self.model.beta[t].view(1, -1)
+                        outputs = self.model.project_layer[t](outputs)
                     features_mean = self.model.features_mean[self.ncla[t]:self.ncla[t+1]]
+                    # features_var = self.model.features_var[self.ncla[t]:self.ncla[t+1]]
                     outputs = F.normalize(outputs, dim=1)
                     features_mean = F.normalize(features_mean, dim=1)
                     predicts += [torch.matmul(outputs, features_mean.T)]
-                if mem:
-                    outputs = F.normalize(outputs_mem, dim=1)
-                    features_mean = self.model.features_mean_mem[self.ncla[t]:self.ncla[t+1]]
-                    features_mean = F.normalize(features_mean, dim=1)
-                    predicts += [torch.matmul(outputs, features_mean.T)]
+                    # predicts += [log_likelihood(outputs, features_mean, features_var)]
+                # if mem:
+                #     outputs = F.normalize(outputs_mem, dim=1)
+                #     features_mean = self.model.features_mean_mem[self.ncla[t]:self.ncla[t+1]]
+                #     features_mean = F.normalize(features_mean, dim=1)
+                #     predicts += [torch.matmul(outputs, features_mean.T)]
                 predicts = ensemble_outputs(torch.stack(predicts, dim=-1))
                 targets -= self.ncla[t]
-            elif t == self.cur_task + 1:
-                outputs = F.normalize(outputs_mem, dim=1)
-                features_mean = F.normalize(self.model.features_mean_mem, dim=1)
-                predicts = torch.matmul(outputs, features_mean.T)
+            # elif t == self.cur_task + 1:
+            #     outputs = F.normalize(outputs_mem, dim=1)
+            #     features_mean = F.normalize(self.model.features_mean_mem, dim=1)
+            #     predicts = torch.matmul(outputs, features_mean.T)
             
         values,indices=predicts.max(1)
         hits=(indices==targets).float()
@@ -372,11 +406,11 @@ class Appr(object):
             images=images.to(device)
             targets=targets.to(device)
             if train_transform:
-                # if mem:
-                #     images = train_transform(images)
-                # else:
-                images = torch.cat([valid_transform(images), train_transform(images)], dim=0)
-                targets = torch.cat([targets, targets], dim=0)
+                if mem:
+                    images = train_transform(images)
+                else:
+                    images = torch.cat([valid_transform(images), train_transform(images)], dim=0)
+                    targets = torch.cat([targets, targets], dim=0)
             total_loss += self.train_batch(t, images, targets, squeeze, lr, mask, mem)
             total_num += len(targets)
         
@@ -404,6 +438,8 @@ class Appr(object):
         return 0, total_acc/total_num
 
     def get_classes_statistic(self, t, data_loader, valid_transform, mask, over_param, mem):
+        if t is None:
+            return
         self.model.eval()
         features = []
         labels = []
@@ -427,6 +463,7 @@ class Appr(object):
         features = torch.cat(features, dim=0)
         labels = torch.cat(labels, dim=0)
         features_mean = []
+        features_var = []
         if mask or over_param:
             begin = self.ncla[t]
             end = self.ncla[t+1]
@@ -437,23 +474,31 @@ class Appr(object):
             ids = (labels == cla)
             cla_features = features[ids]
             features_mean.append(cla_features.mean(0))
+            features_var.append(cla_features.var(0))
 
         features_mean = torch.stack(features_mean, dim=0).to(device)
+        features_var = torch.stack(features_var, dim=0).to(device)
         if over_param:
             if self.model.features_mean is None:
                 self.model.features_mean = features_mean # [num classes, feature dim]
+                self.model.features_var = features_var
             else:
                 self.model.features_mean = torch.cat([self.model.features_mean[:begin], features_mean], dim=0)
+                self.model.features_var = torch.cat([self.model.features_var[:begin], features_var], dim=0)
         elif mask:
             if self.model.features_mean_mask is None:
                 self.model.features_mean_mask = features_mean # [num classes, feature dim]
+                self.model.features_var_mask = features_var
             else:
                 self.model.features_mean_mask = torch.cat([self.model.features_mean_mask[:begin], features_mean], dim=0)
+                self.model.features_var_mask = torch.cat([self.model.features_var_mask[:begin], features_var], dim=0)
         elif mem:
             if self.model.features_mean_mem is None:
                 self.model.features_mean_mem = features_mean # [num classes, feature dim]
+                self.model.features_var_mem = features_var
             else:
                 self.model.features_mean_mem = torch.cat([self.model.features_mean_mem[:begin], features_mean], dim=0)
+                self.model.features_var_mem = torch.cat([self.model.features_var_mem[:begin], features_var], dim=0)
 
     def update_mem(self, data_loader, valid_transform):
         self.model.eval()
@@ -510,13 +555,12 @@ class Appr(object):
         loss = loss.mean()
         return loss
     
-    def mem_loss(self, features, labels):
-        features_mean = F.normalize(self.model.features_mean, dim=1)
+    def mem_loss(self, features, labels, features_mean):
         sim = torch.div(
             torch.matmul(features, features_mean.T),
             self.temperature)
         logits_max, _ = torch.max(sim, dim=1, keepdim=True)
-        logits = sim - logits_max.detach()      
+        logits = sim - logits_max.detach() 
         pos_mask = (labels.view(-1, 1) == torch.arange(features_mean.shape[0]).view(1, -1).to(device)).float().to(device)
         neg_mask = 1 - pos_mask
         exp_logits = torch.exp(logits) * neg_mask
@@ -527,6 +571,24 @@ class Appr(object):
         loss = - mean_log_prob_pos
         loss = loss.mean()
         return loss
+    
+    # def mem_loss(self, features, labels):
+    #     features_mean = F.normalize(self.model.features_mean, dim=1)
+    #     sim = torch.div(
+    #         torch.matmul(features, features_mean.T),
+    #         self.temperature)
+    #     logits_max, _ = torch.max(sim, dim=1, keepdim=True)
+    #     logits = sim - logits_max.detach()      
+    #     pos_mask = (labels.view(-1, 1) == torch.arange(features_mean.shape[0]).view(1, -1).to(device)).float().to(device)
+    #     neg_mask = 1 - pos_mask
+    #     exp_logits = torch.exp(logits) * neg_mask
+    #     log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+
+    #     mean_log_prob_pos = (pos_mask * log_prob).sum(1) / pos_mask.sum(1)
+    #     # loss
+    #     loss = - mean_log_prob_pos
+    #     loss = loss.mean()
+    #     return loss
 
     def SupConLoss(self, features, labels=None, mask=None):
         

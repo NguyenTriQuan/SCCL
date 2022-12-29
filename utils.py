@@ -23,6 +23,9 @@ import torch.nn.functional as F
 # feature_extractor = nn.Sequential(*list(resnet_model.children())[:-4])
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+def entropy(x):
+    return -torch.sum(x * torch.log(x+0.0001), dim=1)
+
 def log_likelihood(x, mean, var):
     # log N(x | mean, var)
     # x [bs, feat_dim], mean, var [num_cla, feat_dim]
@@ -52,6 +55,30 @@ def ensemble_outputs(outputs):
 
     return log_outputs
 
+def logmeanexp(x, dim=None, keepdim=False):
+    """Stable computation of log(mean(exp(x))"""
+    if dim is None:
+        x, dim = x.view(-1), 0
+    x_max, _ = torch.max(x, dim, keepdim=True)
+    x = x_max + torch.log(torch.mean(torch.exp(x - x_max), dim, keepdim=True))
+    return x if keepdim else x.squeeze(dim)
+
+def weighted_ensemble(outputs, weights):
+    """
+        pre_outputs: with batch_size repeated to batch_size * ensemble_numbers
+        bs:          real batch_size
+    """
+    ## a list of outputs with length [num_member], each with shape [bs, num_cls]
+    # outputs = pre_outputs.split(bs)
+    ## with shape [bs, num_cls, num_member]
+    # outputs = torch.stack(outputs, dim=-1)
+    outputs = F.log_softmax(outputs, dim=-2)
+    ## with shape [bs, num_cls]
+    output_max, _ = torch.max(outputs, dim=-1, keepdim=True)
+    weights = F.softmax(-weights.unsqueeze(1), dim=-1)
+    log_outputs = output_max + torch.log(torch.mean((outputs - output_max).exp() * weights, dim=-1, keepdim=True))
+    return log_outputs.squeeze(-1)
+
 def ensemble_features(outputs):
     outputs = F.normalize(outputs, dim=-2).mean(dim=-1)
     return F.normalize(outputs, dim=-1)
@@ -75,11 +102,11 @@ def _calculate_fan_in_and_fan_out(tensor):
 
     return fan_in, fan_out
 
-def entropy(x, exp=1):
-    y = F.softmax(x, dim=1)
-    y = y.pow(exp)
-    y = y/y.sum(1).view(-1,1).expand_as(y)
-    return (-y*y.log()).sum(1)
+# def entropy(x, exp=1):
+#     y = F.softmax(x, dim=1)
+#     y = y.pow(exp)
+#     y = y/y.sum(1).view(-1,1).expand_as(y)
+#     return (-y*y.log()).sum(1)
 
 def cycle(iterable):
     while True:

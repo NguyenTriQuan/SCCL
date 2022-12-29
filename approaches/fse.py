@@ -212,12 +212,12 @@ class Appr(object):
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, over_param, mem)
         print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
 
-        if mask:
-            self.nepochs = 50
-        elif mem:
-            self.nepochs = 50
-        else:
-            self.nepochs = self.args.nepochs
+        # if mask:
+        #     self.nepochs = 50
+        # elif mem:
+        #     self.nepochs = 50
+        # else:
+        #     self.nepochs = self.args.nepochs
 
         lr = self.check_point['lr']
         patience = self.check_point['patience']
@@ -246,13 +246,13 @@ class Appr(object):
                 valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask, over_param, mem)
                 print(' Valid: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc),end='')
                 # Adapt lr
-                if squeeze:
+                if squeeze or mem:
                     self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
                     torch.save(self.check_point,'../result_data/trained_model/{}.model'.format(self.log_name))
                     # model_count, layers_count = self.model.count_params()
                     # if self.logger is not None:
                     #     self.logger.log_metric('num params', model_count, epoch=e)
-                elif mask or mem:
+                elif mask:
                     if valid_acc > best_acc:
                         best_acc = valid_acc
                         self.check_point = {'model':self.model, 'optimizer':self.optimizer, 'squeeze':squeeze, 'epoch':e, 'lr':lr, 'patience':patience}
@@ -299,13 +299,14 @@ class Appr(object):
     def train_batch(self, t, images, targets, squeeze, lr, mask, mem):
         if mem:
             loss = 0
+            outputs = self.model.forward(images, self.cur_task+1, mask, mem)
             for i in range(self.cur_task+1):
                 idx = (targets >= self.shape_out[i]) & (targets < self.shape_out[i+1])
                 task_images = images[idx]
                 task_targets = targets[idx]
-                outputs = self.model.forward(task_images, self.cur_task+1, mask, mem)
-                loss += self.ce(outputs, task_targets)
-                loss += self.ce(outputs[:, self.shape_out[i]:self.shape_out[i+1]], task_targets-self.shape_out[i])
+                task_outputs = outputs[idx]
+                # loss += self.ce(outputs, task_targets)
+                loss += self.ce(task_outputs[:, self.shape_out[i]:self.shape_out[i+1]], task_targets-self.shape_out[i])
         else:
             outputs = self.model.forward(images, t, mask, mem)
             loss = self.ce(outputs, targets)
@@ -323,41 +324,54 @@ class Appr(object):
                 outputs_mem = self.model.forward(images, self.cur_task+1, mask=True, mem=True)
             if t is None:
                 joint_entropy_tasks = []
-                outputs_tasks = []
+                predicts_tasks = []
                 for i in range(self.cur_task+1):
                     self.model.get_old_params(i)
-                    outputs = []
+                    predicts = []
+                    weight_outputs = []
                     if mask:
-                        outputs += [self.model.forward(images, i, mask=True, mem=False)]
+                        outputs = self.model.forward(images, i, mask=True, mem=False)
+                        predicts += [outputs]
+                        weight_outputs += [entropy(outputs.exp())]
                     if over_param:
-                        outputs += [self.model.forward(images, i, mask=False, mem=False)]
+                        outputs = self.model.forward(images, i, mask=False, mem=False)
+                        predicts += [outputs]
+                        weight_outputs += [entropy(outputs.exp())]
                     if mem:
-                        outputs += [outputs_mem[:, self.shape_out[i]:self.shape_out[i+1]]]
-                    outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
-                    outputs_tasks += [outputs]
-                    outputs = torch.exp(outputs)
-                    joint_entropy = -torch.sum(outputs * torch.log(outputs+0.0001), dim=1)
+                        outputs = outputs_mem[:, self.shape_out[i]:self.shape_out[i+1]]
+                        predicts += [outputs]
+                        weight_outputs += [entropy(outputs.exp())]
+                    predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1))
+                    predicts_tasks += [predicts]
+                    joint_entropy = entropy(predicts.exp())
                     joint_entropy_tasks.append(joint_entropy)
 
-                outputs_tasks = torch.stack(outputs_tasks, dim=1)
+                predicts_tasks = torch.stack(predicts_tasks, dim=1)
                 joint_entropy_tasks = torch.stack(joint_entropy_tasks)
                 joint_entropy_tasks = joint_entropy_tasks.transpose(0, 1)
                 predicted_task = torch.argmin(joint_entropy_tasks, axis=1)
-                outputs = outputs_tasks[range(outputs_tasks.shape[0]), predicted_task]
+                predicts = predicts_tasks[range(predicts_tasks.shape[0]), predicted_task]
             elif t <= self.cur_task:
                 self.model.get_old_params(t)
-                outputs = []
+                predicts = []
+                weight_outputs = []
                 if mask:
-                    outputs += [self.model.forward(images, t, mask=True, mem=False)]
+                    outputs = self.model.forward(images, t, mask=True, mem=False)
+                    predicts += [outputs]
+                    weight_outputs += [entropy(outputs.exp())]
                 if over_param:
-                    outputs += [self.model.forward(images, t, mask=False, mem=False)]
+                    outputs = self.model.forward(images, t, mask=False, mem=False)
+                    predicts += [outputs]
+                    weight_outputs += [entropy(outputs.exp())]
                 if mem:
-                    outputs += [outputs_mem[:, self.shape_out[t]:self.shape_out[t+1]]]
-                outputs = ensemble_outputs(torch.stack(outputs, dim=-1))
+                    outputs = outputs_mem[:, self.shape_out[t]:self.shape_out[t+1]]
+                    predicts += [outputs]
+                    weight_outputs += [entropy(outputs.exp())]
+                predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1))
             else:
-                outputs = outputs_mem
-        loss=self.ce(outputs,targets)
-        values,indices=outputs.max(1)
+                predicts = outputs_mem
+        loss=self.ce(predicts,targets)
+        values,indices=predicts.max(1)
         hits=(indices==targets).float()
         return loss.data.cpu().numpy()*len(targets), hits.sum().data.cpu().numpy()
 

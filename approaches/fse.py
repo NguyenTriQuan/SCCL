@@ -215,7 +215,7 @@ class Appr(object):
         if mask:
             self.nepochs = 50
         elif mem:
-            self.nepochs = 100
+            self.nepochs = 50
         else:
             self.nepochs = self.args.nepochs
 

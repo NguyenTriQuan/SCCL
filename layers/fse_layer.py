@@ -108,6 +108,7 @@ class _DynamicLayer(nn.Module):
         self.weight_mem = None
         self.old_weight = torch.empty(0).to(device)
 
+        self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
@@ -145,7 +146,6 @@ class _DynamicLayer(nn.Module):
         self.shape_in.append(self.in_features)
         self.shape_out.append(self.out_features)
 
-        self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
         bound_std = self.gain / math.sqrt(self.in_features * self.fan_in)
 
         self.weight.append([])

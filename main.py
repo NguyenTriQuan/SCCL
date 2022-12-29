@@ -60,18 +60,35 @@ if args.resume:
     #     previous_experiment=KEY
     # )
     start_task = appr.resume()
+    print('start from task ', start_task)
     # Test
-    # acc1 = []
-    # acc2 = []
-    # for u in range(start_task + 1):
-    #     test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'])
-    #     print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
-    #     acc1.append(test_acc)
-    #     test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=False, mask_only=False)
-    #     print('>>> Test no ensemble on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
-    #     acc2.append(test_acc)
-    # print('Avg acc={:5.2f}%'.format(100*sum(acc1)/len(acc1)))
-    # print('Avg acc no ensemble ={:5.2f}%'.format(100*sum(acc2)/len(acc2)))
+    en_til = []
+    til = []
+    en_cil = []
+    cil = []
+    for u in range(start_task + 1):
+        print('>>> Test no ensemble on task {:2d} - {:15s}: <<<'.format(u, data[u]['name']))
+
+        test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=True, over_param=True, mem=True)
+        print('>>> Ensemble CIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
+        en_cil.append(test_acc)
+
+        test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=False, over_param=True, mem=False)
+        print('>>> No ensemble CIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
+        cil.append(test_acc)
+
+        test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'], mask=True, over_param=True, mem=True)
+        print('>>> Ensemble TIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
+        en_til.append(test_acc)
+
+        test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'], mask=False, over_param=True, mem=False)
+        print('>>> No ensemble TIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
+        til.append(test_acc)
+        
+    print('Avg acc ensemble CIL ={:5.2f}%'.format(100*sum(en_cil)/len(en_cil)))
+    print('Avg acc no ensemble CIL ={:5.2f}%'.format(100*sum(cil)/len(cil)))
+    print('Avg acc ensemble TIL ={:5.2f}%'.format(100*sum(en_til)/len(en_til)))
+    print('Avg acc no ensemble TIL ={:5.2f}%'.format(100*sum(til)/len(til)))
 # else:
 #     appr.logger = Experiment(
 #         api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",

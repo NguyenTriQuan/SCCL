@@ -341,7 +341,7 @@ class Appr(object):
                         outputs = outputs_mem[:, self.shape_out[i]:self.shape_out[i+1]]
                         predicts += [outputs]
                         weight_outputs += [entropy(outputs.exp())]
-                    predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1))
+                    predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1), self.args.temperature)
                     predicts_tasks += [predicts]
                     joint_entropy = entropy(predicts.exp())
                     joint_entropy_tasks.append(joint_entropy)
@@ -367,7 +367,7 @@ class Appr(object):
                     outputs = outputs_mem[:, self.shape_out[t]:self.shape_out[t+1]]
                     predicts += [outputs]
                     weight_outputs += [entropy(outputs.exp())]
-                predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1))
+                predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1), self.args.temperature)
             else:
                 predicts = outputs_mem
         loss=self.ce(predicts,targets)

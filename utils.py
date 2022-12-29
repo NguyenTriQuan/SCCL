@@ -63,7 +63,7 @@ def logmeanexp(x, dim=None, keepdim=False):
     x = x_max + torch.log(torch.mean(torch.exp(x - x_max), dim, keepdim=True))
     return x if keepdim else x.squeeze(dim)
 
-def weighted_ensemble(outputs, weights):
+def weighted_ensemble(outputs, weights, temperature):
     """
         pre_outputs: with batch_size repeated to batch_size * ensemble_numbers
         bs:          real batch_size
@@ -75,7 +75,8 @@ def weighted_ensemble(outputs, weights):
     outputs = F.log_softmax(outputs, dim=-2)
     ## with shape [bs, num_cls]
     output_max, _ = torch.max(outputs, dim=-1, keepdim=True)
-    weights = F.softmax(-weights.unsqueeze(1), dim=-1)
+    weights = F.softmax(-weights / temperature, dim=-1).unsqueeze(1)
+    # print(weights.view(-1))
     log_outputs = output_max + torch.log(torch.mean((outputs - output_max).exp() * weights, dim=-1, keepdim=True))
     return log_outputs.squeeze(-1)
 

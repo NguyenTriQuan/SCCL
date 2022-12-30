@@ -301,7 +301,6 @@ class Appr(object):
             outputs = self.model.forward(images, self.cur_task+1, mask, mem)
             for i in range(self.cur_task+1):
                 idx = (targets >= self.shape_out[i]) & (targets < self.shape_out[i+1])
-                task_images = images[idx]
                 task_targets = targets[idx]
                 task_outputs = outputs[idx]
                 loss += self.ce(outputs, task_targets)

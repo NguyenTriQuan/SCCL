@@ -25,7 +25,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def entropy(x):
     # x = F.softmax(x, dim=1)
-    return -torch.sum(x * torch.log(x+0.0001), dim=1)
+    return -torch.sum(x * torch.log(x), dim=1)
 
 def log_likelihood(x, mean, var):
     # log N(x | mean, var)

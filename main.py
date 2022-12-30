@@ -89,6 +89,7 @@ if args.resume:
     print('Avg acc no ensemble CIL ={:5.2f}%'.format(100*sum(cil)/len(cil)))
     print('Avg acc ensemble TIL ={:5.2f}%'.format(100*sum(en_til)/len(en_til)))
     print('Avg acc no ensemble TIL ={:5.2f}%'.format(100*sum(til)/len(til)))
+    sys.exit()
 # else:
 #     appr.logger = Experiment(
 #         api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",

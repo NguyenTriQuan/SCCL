@@ -76,13 +76,12 @@ class Appr(object):
         self.log_name = '{}_{}_{}_{}_{}_lamb_{}_lr_{}_batch_{}_epoch_{}_optim_{}_fix_{}_norm_{}_drop_{}'.format(
                                         self.experiment, self.approach, self.ablation, self.arch, self.seed,
                                                 '_'.join([str(lamb) for lamb in self.lambs[:t+1]]), 
-                                    self.lr, self.batch_size, self.nepochs, self.optim, self.fix, self.norm_type, self.args.ensemble_drop)
+                                    self.lr, self.batch_size, self.args.nepochs, self.optim, self.fix, self.norm_type, self.args.ensemble_drop)
         
     def resume(self):
-        for t in range(self.tasknum):
+        for t in range(100):
             try:
                 self.get_name(t)
-
                 self.check_point = torch.load(f'../result_data/trained_model/{self.log_name}.model')
                 self.model = self.check_point['model']
                 self.shape_out = self.model.DM[-1].shape_out

@@ -160,20 +160,20 @@ class Appr(object):
         self.model.freeze(t)
         if 'scale' not in self.ablation:
             self.model.update_scale()
-        self.update_mem(train_loader)
-        self.model.get_mem_params()
-        mem_loader = DataLoader(TensorDataset(self.model.mem_images, self.model.mem_targets), batch_size=self.batch_size, shuffle=True)
-        self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
-        self.train_phase(t+1, mem_loader, mem_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=True)
-        self.check_point = None  
+        # self.update_mem(train_loader)
+        # self.model.get_mem_params()
+        # mem_loader = DataLoader(TensorDataset(self.model.mem_images, self.model.mem_targets), batch_size=self.batch_size, shuffle=True)
+        # self.check_point = {'model':self.model, 'squeeze':False, 'optimizer':self._get_optimizer(), 'epoch':-1, 'lr':self.lr, 'patience':self.lr_patience}
+        # self.train_phase(t+1, mem_loader, mem_loader, train_transform, valid_transform, squeeze=False, mask=False, mem=True)
 
+        self.check_point = None  
         self.model.count_params()
         self.model.get_old_params(t)
 
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, over_param=False, mem=False)
         print(' Valid mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))
-        valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, over_param=False, mem=True)
-        print(' Valid mem: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))   
+        # valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=False, over_param=False, mem=True)
+        # print(' Valid mem: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))   
         valid_loss,valid_acc=self.eval(t, valid_loader, valid_transform, mask=True, over_param=True, mem=False)
         print(' Valid ensemble mask: loss={:.3f}, acc={:5.2f}% |'.format(valid_loss,100*valid_acc))    
 
@@ -303,8 +303,12 @@ class Appr(object):
                 idx = (targets >= self.shape_out[i]) & (targets < self.shape_out[i+1])
                 task_targets = targets[idx]
                 task_outputs = outputs[idx]
-                loss += self.ce(outputs, task_targets)
                 loss += self.ce(task_outputs[:, self.shape_out[i]:self.shape_out[i+1]], task_targets-self.shape_out[i])
+            loss += self.ce(outputs, targets)
+        elif mask:
+            # images = torch.rot90(images, 1, (2, 3))
+            outputs = self.model.forward(images, t, mask, mem)
+            loss = self.ce(outputs, targets)
         else:
             outputs = self.model.forward(images, t, mask, mem)
             loss = self.ce(outputs, targets)
@@ -328,20 +332,22 @@ class Appr(object):
                     predicts = []
                     weight_outputs = []
                     if mask:
+                        # images1 = torch.rot90(images, 1, (2, 3))
                         outputs = self.model.forward(images, i, mask=True, mem=False)
                         predicts += [outputs]
-                        weight_outputs += [entropy(outputs)]
+                        weight_outputs += [entropy(outputs.exp())]
                     if over_param:
                         outputs = self.model.forward(images, i, mask=False, mem=False)
                         predicts += [outputs]
-                        weight_outputs += [entropy(outputs)]
+                        weight_outputs += [entropy(outputs.exp())]
                     if mem:
                         outputs = outputs_mem[:, self.shape_out[i]:self.shape_out[i+1]]
                         predicts += [outputs]
-                        weight_outputs += [entropy(outputs)]
+                        weight_outputs += [entropy(outputs.exp())]
                     predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1), self.args.temperature)
+                    # predicts = ensemble_outputs(torch.stack(predicts, dim=-1))
                     predicts_tasks += [predicts]
-                    joint_entropy = entropy(outputs)
+                    joint_entropy = entropy(predicts.exp())
                     joint_entropy_tasks.append(joint_entropy)
 
                 predicts_tasks = torch.stack(predicts_tasks, dim=1)
@@ -354,17 +360,18 @@ class Appr(object):
                 predicts = []
                 weight_outputs = []
                 if mask:
+                    # images1 = torch.rot90(images, 1, (2, 3))
                     outputs = self.model.forward(images, t, mask=True, mem=False)
                     predicts += [outputs]
-                    weight_outputs += [entropy(outputs)]
+                    weight_outputs += [entropy(outputs.exp())]
                 if over_param:
                     outputs = self.model.forward(images, t, mask=False, mem=False)
                     predicts += [outputs]
-                    weight_outputs += [entropy(outputs)]
+                    weight_outputs += [entropy(outputs.exp())]
                 if mem:
                     outputs = outputs_mem[:, self.shape_out[t]:self.shape_out[t+1]]
                     predicts += [outputs]
-                    weight_outputs += [entropy(outputs)]
+                    weight_outputs += [entropy(outputs.exp())]
                 predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1), self.args.temperature)
             else:
                 predicts = outputs_mem

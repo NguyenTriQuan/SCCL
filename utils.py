@@ -24,7 +24,8 @@ import torch.nn.functional as F
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def entropy(x):
-    return -torch.sum(x * torch.log(x+0.0001), dim=1)
+    x = F.softmax(x, dim=1)
+    return -torch.sum(x * torch.log(x), dim=1)
 
 def log_likelihood(x, mean, var):
     # log N(x | mean, var)
@@ -75,6 +76,7 @@ def weighted_ensemble(outputs, weights, temperature):
     outputs = F.log_softmax(outputs, dim=-2)
     ## with shape [bs, num_cls]
     output_max, _ = torch.max(outputs, dim=-1, keepdim=True)
+    # print(weights.view(-1))
     weights = F.softmax(-weights / temperature, dim=-1).unsqueeze(1)
     # print(weights.view(-1))
     # weights = 1

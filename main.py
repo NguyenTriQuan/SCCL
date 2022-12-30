@@ -150,7 +150,7 @@ for t, ncla in taskcla[start_task:]:
         til = []
         en_cil = []
         cil = []
-        mem = mem
+        mem = True
         for u in range(t + 1):
             print('>>> Test no ensemble on task {:2d} - {:15s}: <<<'.format(u, data[u]['name']))
 

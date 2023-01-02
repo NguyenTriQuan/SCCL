@@ -66,7 +66,7 @@ if args.resume:
     til = []
     en_cil = []
     cil = []
-    mem = True
+    mem = False
     for u in range(start_task + 1):
         print('>>> Test no ensemble on task {:2d} - {:15s}: <<<'.format(u, data[u]['name']))
 

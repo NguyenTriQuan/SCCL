@@ -335,19 +335,19 @@ class Appr(object):
                         # images1 = torch.rot90(images, 1, (2, 3))
                         outputs = self.model.forward(images, i, mask=True, mem=False)
                         predicts += [outputs]
-                        weight_outputs += [entropy(outputs.exp())]
+                        weight_outputs += [-entropy(outputs.exp())]
                     if over_param:
                         outputs = self.model.forward(images, i, mask=False, mem=False)
                         predicts += [outputs]
-                        weight_outputs += [entropy(outputs.exp())]
+                        weight_outputs += [-entropy(outputs.exp())]
                     if mem:
                         outputs = outputs_mem[:, self.shape_out[i]:self.shape_out[i+1]]
                         predicts += [outputs]
-                        weight_outputs += [entropy(outputs.exp())]
-                    predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1), self.args.temperature)
-                    # predicts = ensemble_outputs(torch.stack(predicts, dim=-1))
-                    predicts_tasks += [predicts]
-                    joint_entropy = entropy(predicts.exp())
+                        weight_outputs += [-entropy(outputs.exp())]
+                    we_predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1), self.args.temperature)
+                    # e_predicts = ensemble_outputs(torch.stack(predicts, dim=-1))
+                    predicts_tasks += [we_predicts]
+                    joint_entropy = entropy(we_predicts.exp())
                     joint_entropy_tasks.append(joint_entropy)
 
                 predicts_tasks = torch.stack(predicts_tasks, dim=1)
@@ -363,15 +363,15 @@ class Appr(object):
                     # images1 = torch.rot90(images, 1, (2, 3))
                     outputs = self.model.forward(images, t, mask=True, mem=False)
                     predicts += [outputs]
-                    weight_outputs += [entropy(outputs.exp())]
+                    weight_outputs += [-entropy(outputs.exp())]
                 if over_param:
                     outputs = self.model.forward(images, t, mask=False, mem=False)
                     predicts += [outputs]
-                    weight_outputs += [entropy(outputs.exp())]
+                    weight_outputs += [-entropy(outputs.exp())]
                 if mem:
                     outputs = outputs_mem[:, self.shape_out[t]:self.shape_out[t+1]]
                     predicts += [outputs]
-                    weight_outputs += [entropy(outputs.exp())]
+                    weight_outputs += [-entropy(outputs.exp())]
                 predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1), self.args.temperature)
             else:
                 predicts = outputs_mem

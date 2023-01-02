@@ -70,15 +70,14 @@ def weighted_ensemble(outputs, weights, temperature):
         bs:          real batch_size
     """
     ## a list of outputs with length [num_member], each with shape [bs, num_cls]
-    # outputs = pre_outputs.split(bs)
-    ## with shape [bs, num_cls, num_member]
-    # outputs = torch.stack(outputs, dim=-1)
+    ## outputs with shape [bs, num_cls, num_member]
+    ## weights with shape [bs, num_member]
     outputs = F.log_softmax(outputs, dim=-2)
-    ## with shape [bs, num_cls]
     output_max, _ = torch.max(outputs, dim=-1, keepdim=True)
-    # print(weights.view(-1))
-    weights = F.softmax(-weights / temperature, dim=-1).unsqueeze(1)
-    # print(weights.view(-1))
+    weights = weights.unsqueeze(1)
+    weights_max, _ = torch.max(weights, dim=-1, keepdim=True)
+    weights = weights - weights_max
+    weights = F.softmax(weights / temperature, dim=-1)
     # weights = 1
     log_outputs = output_max + torch.log(torch.mean((outputs - output_max).exp() * weights, dim=-1, keepdim=True))
     return log_outputs.squeeze(-1)

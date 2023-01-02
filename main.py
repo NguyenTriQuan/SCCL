@@ -67,7 +67,7 @@ if args.resume:
     en_cil = []
     cil = []
     mem = False
-    for u in range(start_task + 1):
+    for u in range(start_task):
         print('>>> Test no ensemble on task {:2d} - {:15s}: <<<'.format(u, data[u]['name']))
 
         test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=True, over_param=True, mem=mem)

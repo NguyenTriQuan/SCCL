@@ -75,8 +75,8 @@ def weighted_ensemble(outputs, weights, temperature):
     outputs = F.log_softmax(outputs, dim=-2)
     output_max, _ = torch.max(outputs, dim=-1, keepdim=True)
     weights = weights.unsqueeze(1)
-    weights_max, _ = torch.max(weights, dim=-1, keepdim=True)
-    weights = weights - weights_max
+    # weights_max, _ = torch.max(weights, dim=-1, keepdim=True)
+    # weights = weights - weights_max
     weights = F.softmax(weights / temperature, dim=-1)
     # weights = 1
     log_outputs = output_max + torch.log(torch.mean((outputs - output_max).exp() * weights, dim=-1, keepdim=True))

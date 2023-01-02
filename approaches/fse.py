@@ -344,8 +344,8 @@ class Appr(object):
                         outputs = outputs_mem[:, self.shape_out[i]:self.shape_out[i+1]]
                         predicts += [outputs]
                         weight_outputs += [-entropy(outputs.exp())]
-                    we_predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1), self.args.temperature)
-                    # e_predicts = ensemble_outputs(torch.stack(predicts, dim=-1))
+                    # we_predicts = weighted_ensemble(torch.stack(predicts, dim=-1), torch.stack(weight_outputs, dim=-1), self.args.temperature)
+                    we_predicts = ensemble_outputs(torch.stack(predicts, dim=-1))
                     predicts_tasks += [we_predicts]
                     joint_entropy = entropy(we_predicts.exp())
                     joint_entropy_tasks.append(joint_entropy)

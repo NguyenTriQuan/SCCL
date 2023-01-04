@@ -364,20 +364,30 @@ class _DynamicLayer(nn.Module):
     def proximal_gradient_descent(self, lr, lamb):
         eps = 0
         with torch.no_grad():
+            strength = self.weight[-1].numel() + self.fwt_weight[-1].numel()
             # group lasso weights in
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
             std = weight.std(dim=self.dim_in, unbiased=False)
-            aux = 1 - lamb * lr / std
+            aux = 1 - lamb * lr * strength / std
             aux = F.threshold(aux, 0, eps, False)
             self.mask_out = (aux > eps)
             self.weight[-1].data *= aux.view(self.view_in)
             self.fwt_weight[-1].data *= aux.view(self.view_in)
                 
+            self.num_in[-1] = self.weight[-1].shape[1]
+            self.in_features = sum(self.num_in)
+            self.shape_in[-1] = self.in_features
+            # # normalize to the zero mean and unit variance
+            # weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
+            # mean = weight.mean(dim=self.dim_in)
+            # std = weight.std(unbiased=False)
+            # self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std
+            # self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
             # group lasso affine weights
             if self.norm_layer:
                 if self.norm_layer.affine:
                     norm = self.norm_layer.norm()
-                    aux = 1 - lamb * lr / norm
+                    aux = 1 - lamb * lr * strength / norm
                     aux = F.threshold(aux, 0, eps, False)
                     self.mask_out *= (aux > eps)
                     self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux

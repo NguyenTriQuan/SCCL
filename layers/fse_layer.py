@@ -110,7 +110,8 @@ class _DynamicLayer(nn.Module):
         self.weight_mem = None
         self.old_weight = torch.empty(0).to(device)
 
-        self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        # self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        self.gain = torch.nn.init.calculate_gain('relu')
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
@@ -365,11 +366,11 @@ class _DynamicLayer(nn.Module):
             self.weight[-1].data *= aux.view(self.view_in)
             self.fwt_weight[-1].data *= aux.view(self.view_in)
             # normalize to the zero mean and unit variance
-            # weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-            # mean = weight.mean(dim=self.dim_in)
-            # std = weight.std(dim=self.dim_in)
-            # self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std.view(self.view_in)
-            # self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std.view(self.view_in)
+            weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
+            mean = weight.mean(dim=self.dim_in)
+            std = weight.std(dim=self.dim_in)
+            self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std.view(self.view_in)
+            self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std.view(self.view_in)
                 
             # group lasso affine weights
             if self.norm_layer:

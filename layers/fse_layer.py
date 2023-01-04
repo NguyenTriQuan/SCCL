@@ -369,7 +369,7 @@ class _DynamicLayer(nn.Module):
             mean = weight.mean(dim=self.dim_in)
             std = weight.std(dim=self.dim_in)
             self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std.view(self.view_in)
-            self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
+            self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std.view(self.view_in)
                 
             # group lasso affine weights
             if self.norm_layer:

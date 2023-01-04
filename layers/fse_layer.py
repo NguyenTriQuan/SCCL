@@ -352,6 +352,13 @@ class _DynamicLayer(nn.Module):
             self.num_in[-1] = self.weight[-1].shape[1]
             self.in_features = sum(self.num_in)
             self.shape_in[-1] = self.in_features
+
+        # normalize to the zero mean and unit variance
+        weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
+        mean = weight.mean(dim=self.dim_in)
+        std = weight.std(unbiased=False)
+        self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std
+        self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
   
 
     def proximal_gradient_descent(self, lr, lamb):
@@ -365,12 +372,6 @@ class _DynamicLayer(nn.Module):
             self.mask_out = (aux > eps)
             self.weight[-1].data *= aux.view(self.view_in)
             self.fwt_weight[-1].data *= aux.view(self.view_in)
-            # normalize to the zero mean and unit variance
-            weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-            mean = weight.mean(dim=self.dim_in)
-            std = weight.std(unbiased=False)
-            self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std
-            self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
                 
             # group lasso affine weights
             if self.norm_layer:

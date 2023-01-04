@@ -72,19 +72,11 @@ def weighted_ensemble(outputs, weights, temperature):
     ## a list of outputs with length [num_member], each with shape [bs, num_cls]
     ## outputs with shape [bs, num_cls, num_member]
     ## weights with shape [bs, num_member]
+    weights = F.softmax(weights / temperature, dim=-1).unsqueeze(1)
     outputs = F.log_softmax(outputs, dim=-2)
     output_max, _ = torch.max(outputs, dim=-1, keepdim=True)
-    weights = weights.unsqueeze(1)
-    weights_max, _ = torch.max(weights, dim=-1, keepdim=True)
-    weights = weights - weights_max
-    weights = F.softmax(weights / temperature, dim=-1)
-    weights = 1
-    log_outputs = output_max + torch.log(torch.mean((outputs - output_max).exp() * weights, dim=-1, keepdim=True))
+    log_outputs = output_max + torch.log(torch.sum((outputs - output_max).exp() * weights, dim=-1, keepdim=True))
     return log_outputs.squeeze(-1)
-
-def ensemble_features(outputs):
-    outputs = F.normalize(outputs, dim=-2).mean(dim=-1)
-    return F.normalize(outputs, dim=-1)
 
 def _calculate_fan_in_and_fan_out(tensor):
     dimensions = tensor.dim()

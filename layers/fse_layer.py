@@ -359,7 +359,7 @@ class _DynamicLayer(nn.Module):
         with torch.no_grad():
             # group lasso weights in
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-            std = weight.std(dim=self.dim_in)
+            std = weight.std(dim=self.dim_in, unbiased=False)
             aux = 1 - lamb * lr / std
             aux = F.threshold(aux, 0, eps, False)
             self.mask_out = (aux > eps)
@@ -368,9 +368,9 @@ class _DynamicLayer(nn.Module):
             # normalize to the zero mean and unit variance
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
             mean = weight.mean(dim=self.dim_in)
-            std = weight.std(dim=self.dim_in)
-            self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std.view(self.view_in)
-            self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std.view(self.view_in)
+            std = weight.std(unbiased=False)
+            self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std
+            self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
                 
             # group lasso affine weights
             if self.norm_layer:

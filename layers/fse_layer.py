@@ -355,11 +355,11 @@ class _DynamicLayer(nn.Module):
             self.shape_in[-1] = self.in_features
 
         # normalize to the zero mean and unit variance
-        weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-        mean = weight.mean(dim=self.dim_in)
-        std = weight.std(unbiased=False)
-        self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std
-        self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
+        # weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
+        # mean = weight.mean(dim=self.dim_in)
+        # std = weight.std(unbiased=False)
+        # self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std
+        # self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
         self.get_reg_strength()
 
     def get_reg_strength(self):
@@ -380,7 +380,8 @@ class _DynamicLayer(nn.Module):
             # self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in))
 
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-            std = weight.std(dim=self.dim_in, unbiased=False)
+            # std = weight.std(dim=self.dim_in, unbiased=False)
+            std = weight.norm(2, dim=self.dim_in)
             aux = 1 - lamb * lr * strength / std
             aux = F.threshold(aux, 0, eps, False)
             self.mask_out = (aux > eps)

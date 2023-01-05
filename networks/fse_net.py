@@ -45,6 +45,8 @@ class _DynamicModel(nn.Module):
         for m in self.DM[1:-1]:
             m.expand(add_in=None, add_out=None, ablation=ablation)
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
+        for i, m in enumerate(self.DM[:-1]):
+            self.DM[i].strength = self.DM[i].strength_in + self.DM[i+1].strength_out
 
     def squeeze(self, optim_state):
         mask_in = None
@@ -58,6 +60,8 @@ class _DynamicModel(nn.Module):
             mask_in = mask_out
             i += 1
         self.DM[-1].squeeze(optim_state, mask_in, None)
+        for i, m in enumerate(self.DM[:-1]):
+            self.DM[i].strength = self.DM[i].strength_in + self.DM[i+1].strength_out
 
     def forward(self, input, t, mask=False, mem=False):
         for module in self.layers:

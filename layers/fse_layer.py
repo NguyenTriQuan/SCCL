@@ -180,6 +180,7 @@ class _DynamicLayer(nn.Module):
         self.sparsity = args.sparsity
         mask = GetSubnet.apply(self.score.abs(), self.sparsity)
         self.mask.append(mask.detach().clone().bool())
+        self.get_reg_strength()
 
     def get_mem_params(self):
         fan_out = max(self.base_out_features, self.shape_out[-1])
@@ -359,16 +360,19 @@ class _DynamicLayer(nn.Module):
         std = weight.std(unbiased=False)
         self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std
         self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
-  
+        self.get_reg_strength()
+
+    def get_reg_strength(self):
+        self.strength_in = self.weight[-1].numel() + self.fwt_weight[-1].numel()
+        self.strength_out = self.weight[-1].numel() + self.bwt_weight[-1].numel()
 
     def proximal_gradient_descent(self, lr, lamb):
         eps = 0
         with torch.no_grad():
-            strength = self.weight[-1].numel() + self.fwt_weight[-1].numel()
             # group lasso weights in
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
             std = weight.std(dim=self.dim_in, unbiased=False)
-            aux = 1 - lamb * lr * strength / std
+            aux = 1 - lamb * lr * self.strength / std
             aux = F.threshold(aux, 0, eps, False)
             self.mask_out = (aux > eps)
             self.weight[-1].data *= aux.view(self.view_in)
@@ -387,7 +391,7 @@ class _DynamicLayer(nn.Module):
             if self.norm_layer:
                 if self.norm_layer.affine:
                     norm = self.norm_layer.norm()
-                    aux = 1 - lamb * lr * strength / norm
+                    aux = 1 - lamb * lr * self.strength / norm
                     aux = F.threshold(aux, 0, eps, False)
                     self.mask_out *= (aux > eps)
                     self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux
@@ -482,6 +486,7 @@ class DynamicClassifier(DynamicLinear):
         self.weight[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1], self.shape_in[-1]).normal_(0, bound_std).to(device)))
         if self.bias is not None:
             self.bias[-1].append(nn.Parameter(torch.Tensor(self.num_out[-1]).uniform_(0, 0).to(device)))   
+        self.get_reg_strength()
 
     def forward(self, x, t, mask, mem):    
         weight, bias = self.get_params(t, mask, mem)
@@ -527,6 +532,9 @@ class DynamicClassifier(DynamicLinear):
                     count += self.bias[i][j].numel()
         return count
 
+    def get_reg_strength(self):
+        self.strength_in = self.weight[-1][1].numel()
+        self.strength_out = self.weight[-1][1].numel()
 
     def squeeze(self, optim_state, mask_in=None, mask_out=None):
         if mask_in is not None:
@@ -539,6 +547,8 @@ class DynamicClassifier(DynamicLinear):
             self.num_in[-1] = self.weight[-1][-1].shape[1]
             self.in_features = self.num_in[-1]
             self.shape_in[-1] = self.in_features
+
+        self.get_reg_strength()
   
 
 class DynamicNorm(nn.Module):

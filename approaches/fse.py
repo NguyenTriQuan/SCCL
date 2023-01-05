@@ -292,8 +292,8 @@ class Appr(object):
 
         self.check_point = torch.load('../result_data/trained_model/{}.model'.format(self.log_name))
         self.model = self.check_point['model']
-        print(train_accs)
-        print(valid_accs)
+        # print(train_accs)
+        # print(valid_accs)
 
     def train_batch(self, t, images, targets, squeeze, lr, mask, mem):
         if mem:

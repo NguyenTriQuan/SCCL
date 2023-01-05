@@ -370,7 +370,7 @@ class _DynamicLayer(nn.Module):
         eps = 0
         with torch.no_grad():
             # group lasso weights in
-            strength = self.strength / total_strength
+            strength = self.strength
             
             # normalize to the zero mean and unit variance
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)

@@ -316,6 +316,7 @@ class Appr(object):
         loss.backward() 
         self.optimizer.step()
         if squeeze:
+            self.model.squeeze(self.optimizer.state)
             self.model.proximal_gradient_descent(lr, self.lamb)
 
     def eval_batch(self, t, images, targets, mask=True, over_param=True, mem=True):
@@ -392,7 +393,7 @@ class Appr(object):
             self.train_batch(t, images, targets, squeeze, lr, mask, mem)
         
         if squeeze:
-            self.model.squeeze(self.optimizer.state)
+            # self.model.squeeze(self.optimizer.state)
             model_count, layers_count = self.model.count_params()
 
 

@@ -358,8 +358,8 @@ class _DynamicLayer(nn.Module):
         weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
         mean = weight.mean(dim=self.dim_in)
         std = weight.std(unbiased=False)
-        self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in))
-        self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in))
+        self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std
+        self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
         self.get_reg_strength()
 
     def get_reg_strength(self):

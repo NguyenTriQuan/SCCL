@@ -366,13 +366,14 @@ class _DynamicLayer(nn.Module):
         self.strength_in = self.weight[-1].numel() + self.fwt_weight[-1].numel()
         self.strength_out = self.weight[-1].numel() + self.bwt_weight[-1].numel()
 
-    def proximal_gradient_descent(self, lr, lamb):
+    def proximal_gradient_descent(self, lr, lamb, total_strength):
         eps = 0
         with torch.no_grad():
             # group lasso weights in
+            strength = self.strength / total_strength
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
             std = weight.std(dim=self.dim_in, unbiased=False)
-            aux = 1 - lamb * lr * self.strength / std
+            aux = 1 - lamb * lr * strength / std
             aux = F.threshold(aux, 0, eps, False)
             self.mask_out = (aux > eps)
             self.weight[-1].data *= aux.view(self.view_in)
@@ -391,7 +392,7 @@ class _DynamicLayer(nn.Module):
             if self.norm_layer:
                 if self.norm_layer.affine:
                     norm = self.norm_layer.norm()
-                    aux = 1 - lamb * lr * self.strength / norm
+                    aux = 1 - lamb * lr * strength / norm
                     aux = F.threshold(aux, 0, eps, False)
                     self.mask_out *= (aux > eps)
                     self.norm_layer.weight[-1].data[self.norm_layer.shape[-2]:] *= aux

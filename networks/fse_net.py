@@ -40,15 +40,17 @@ class _DynamicModel(nn.Module):
         return params
 
     def expand(self, new_class, ablation='full'):
-
+        self.total_strength = 1
         self.DM[0].expand(add_in=0, add_out=None, ablation=ablation)
         for m in self.DM[1:-1]:
             m.expand(add_in=None, add_out=None, ablation=ablation)
         self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
         for i, m in enumerate(self.DM[:-1]):
             self.DM[i].strength = self.DM[i].strength_in + self.DM[i+1].strength_out
+            self.total_strength += self.DM[i].strength
 
     def squeeze(self, optim_state):
+        self.total_strength = 1
         mask_in = None
         mask_out = self.DM[0].mask_out
         self.DM[0].squeeze(optim_state, mask_in, mask_out)
@@ -62,6 +64,7 @@ class _DynamicModel(nn.Module):
         self.DM[-1].squeeze(optim_state, mask_in, None)
         for i, m in enumerate(self.DM[:-1]):
             self.DM[i].strength = self.DM[i].strength_in + self.DM[i+1].strength_out
+            self.total_strength += self.DM[i].strength
 
     def forward(self, input, t, mask=False, mem=False):
         for module in self.layers:
@@ -90,7 +93,7 @@ class _DynamicModel(nn.Module):
 
     def proximal_gradient_descent(self, lr, lamb):
         for m in self.DM[:-1]:
-            m.proximal_gradient_descent(lr, lamb)
+            m.proximal_gradient_descent(lr, lamb, self.total_strength)
 
     def freeze(self, t):
         for m in self.DM[:-1]:

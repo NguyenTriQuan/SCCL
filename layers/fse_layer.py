@@ -373,11 +373,11 @@ class _DynamicLayer(nn.Module):
             strength = self.strength
             
             # normalize to the zero mean and unit variance
-            weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-            mean = weight.mean(dim=self.dim_in)
-            std = weight.std(unbiased=False)
-            self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in))
-            self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in))
+            # weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
+            # mean = weight.mean(dim=self.dim_in)
+            # std = weight.std(unbiased=False)
+            # self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in))
+            # self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in))
 
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
             std = weight.std(dim=self.dim_in, unbiased=False)
@@ -387,12 +387,12 @@ class _DynamicLayer(nn.Module):
             self.weight[-1].data *= aux.view(self.view_in)
             self.fwt_weight[-1].data *= aux.view(self.view_in)
                 
-            # normalize to the zero mean and unit variance
-            weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-            mean = weight.mean(dim=self.dim_in)
-            std = weight.std(unbiased=False)
-            self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in))
-            self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in))
+            # # normalize to the zero mean and unit variance
+            # weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
+            # mean = weight.mean(dim=self.dim_in)
+            # std = weight.std(unbiased=False)
+            # self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in))
+            # self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in))
             # group lasso affine weights
             if self.norm_layer:
                 if self.norm_layer.affine:

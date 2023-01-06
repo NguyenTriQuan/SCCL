@@ -363,14 +363,14 @@ class _DynamicLayer(nn.Module):
         self.get_reg_strength()
 
     def get_reg_strength(self):
-        self.strength_in = self.weight[-1].numel() + self.fwt_weight[-1].numel()
-        self.strength_out = self.weight[-1].numel() + self.bwt_weight[-1].numel()
+        self.strength_in = (self.weight[-1].numel() + self.fwt_weight[-1].numel()) / self.num_out[-1]
+        self.strength_out = (self.weight[-1].numel() + self.bwt_weight[-1].numel()) / self.num_in[-1]
 
     def proximal_gradient_descent(self, lr, lamb, total_strength):
         eps = 0
         with torch.no_grad():
             # group lasso weights in
-            strength = self.num_out[-1]
+            strength = self.strength
             
             # normalize to the zero mean and unit variance
             # weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)

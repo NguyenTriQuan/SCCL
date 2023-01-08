@@ -356,10 +356,9 @@ class _DynamicLayer(nn.Module):
 
         # normalize to the zero mean and unit variance
         weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-        mean = weight.mean(dim=self.dim_in)
-        std = weight.std(unbiased=False)
-        self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in)) / std
-        self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
+        std = weight.std(dim=self.dim_in, unbiased=False).sum()
+        self.weight[-1].data = self.num_out[-1] * self.weight[-1].data / std
+        self.fwt_weight[-1].data = self.num_out[-1] * self.fwt_weight[-1].data / std
         self.get_reg_strength()
 
     def get_reg_strength(self):
@@ -369,16 +368,14 @@ class _DynamicLayer(nn.Module):
     def proximal_gradient_descent(self, lr, lamb, total_strength):
         eps = 0
         with torch.no_grad():
-            # group lasso weights in
             strength = self.num_out[-1]
-            
-            # normalize to the zero mean and unit variance
-            # weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-            # mean = weight.mean(dim=self.dim_in)
-            # std = weight.std(unbiased=False)
-            # self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in))
-            # self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in))
+            # normalize to zero mean
+            weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
+            mean = weight.mean(dim=self.dim_in)
+            self.weight[-1].data = self.weight[-1].data - mean.view(self.view_in)
+            self.fwt_weight[-1].data = self.fwt_weight[-1].data - mean.view(self.view_in)
 
+            # regularize std
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
             std = weight.std(dim=self.dim_in, unbiased=False)
             aux = 1 - lamb * lr * strength / std
@@ -387,12 +384,6 @@ class _DynamicLayer(nn.Module):
             self.weight[-1].data *= aux.view(self.view_in)
             self.fwt_weight[-1].data *= aux.view(self.view_in)
                 
-            # # normalize to the zero mean and unit variance
-            # weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-            # mean = weight.mean(dim=self.dim_in)
-            # std = weight.std(unbiased=False)
-            # self.weight[-1].data = (self.weight[-1].data - mean.view(self.view_in))
-            # self.fwt_weight[-1].data = (self.fwt_weight[-1].data - mean.view(self.view_in))
             # group lasso affine weights
             if self.norm_layer:
                 if self.norm_layer.affine:

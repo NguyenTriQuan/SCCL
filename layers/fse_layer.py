@@ -319,7 +319,9 @@ class _DynamicLayer(nn.Module):
         return norm
 
     def squeeze(self, optim_state, mask_in=None, mask_out=None):
-        if mask_out is not None:
+        prune_out = mask_out is not None and mask_out.sum() != self.num_out[-1]
+        prune_in = mask_in is not None and mask_in.sum() != self.num_in[-1]
+        if prune_out:
             apply_mask_out(self.weight[-1], mask_out, optim_state)
             apply_mask_out(self.fwt_weight[-1], mask_out, optim_state)
 
@@ -344,7 +346,7 @@ class _DynamicLayer(nn.Module):
                 self.norm_layer.num_features = self.out_features
                 self.norm_layer.shape[-1] = self.out_features
         
-        if mask_in is not None:
+        if prune_in:
             if self.s != 1:
                 mask_in = mask_in.view(-1,1,1).expand(mask_in.size(0), self.s, self.s).contiguous().view(-1)
             apply_mask_in(self.weight[-1], mask_in, optim_state)
@@ -355,11 +357,12 @@ class _DynamicLayer(nn.Module):
             self.shape_in[-1] = self.in_features
 
         # normalize to the zero mean and unit variance
-        weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-        std = weight.std(dim=self.dim_in, unbiased=False).sum()
-        self.weight[-1].data = self.num_out[-1] * self.weight[-1].data / std
-        self.fwt_weight[-1].data = self.num_out[-1] * self.fwt_weight[-1].data / std
-        self.get_reg_strength()
+        if prune_out or prune_in:
+            weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
+            std = weight.std(dim=self.dim_in, unbiased=False).sum()
+            self.weight[-1].data = self.num_out[-1] * self.weight[-1].data / std
+            self.fwt_weight[-1].data = self.num_out[-1] * self.fwt_weight[-1].data / std
+            self.get_reg_strength()
 
     def get_reg_strength(self):
         self.strength_in = (self.weight[-1].numel() + self.fwt_weight[-1].numel()) / self.num_out[-1]
@@ -368,7 +371,7 @@ class _DynamicLayer(nn.Module):
     def proximal_gradient_descent(self, lr, lamb, total_strength):
         eps = 0
         with torch.no_grad():
-            strength = self.num_out[-1]
+            strength = self.strength_in
             # normalize to zero mean
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
             mean = weight.mean(dim=self.dim_in)

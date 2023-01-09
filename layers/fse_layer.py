@@ -357,9 +357,10 @@ class _DynamicLayer(nn.Module):
         # normalize to the zero mean and unit variance
         # if prune_out or prune_in:
         weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
+        mean = weight.mean(dim=self.dim_in)
         std = weight.std(dim=self.dim_in, unbiased=False).sum()
-        self.weight[-1].data = self.num_out[-1] * self.weight[-1].data / std
-        self.fwt_weight[-1].data = self.num_out[-1] * self.fwt_weight[-1].data / std
+        self.weight[-1].data = self.num_out[-1] * (self.weight[-1].data - mean.view(self.view_in)) / std
+        self.fwt_weight[-1].data = self.num_out[-1] * (self.fwt_weight[-1].data - mean.view(self.view_in)) / std
         self.get_reg_strength()
 
     def get_reg_strength(self):

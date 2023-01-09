@@ -371,7 +371,7 @@ class _DynamicLayer(nn.Module):
     def proximal_gradient_descent(self, lr, lamb, total_strength):
         eps = 0
         with torch.no_grad():
-            strength = self.strength_in
+            strength = self.num_out[-1]
             # normalize to zero mean
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
             mean = weight.mean(dim=self.dim_in)

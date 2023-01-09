@@ -316,8 +316,8 @@ class Appr(object):
         loss.backward() 
         self.optimizer.step()
         if squeeze:
-            self.model.squeeze(self.optimizer.state)
             self.model.proximal_gradient_descent(lr, self.lamb)
+        self.model.squeeze(self.optimizer.state)
 
     def eval_batch(self, t, images, targets, mask=True, over_param=True, mem=True):
         self.model.eval()

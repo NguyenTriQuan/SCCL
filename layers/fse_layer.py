@@ -110,8 +110,6 @@ class _DynamicLayer(nn.Module):
         self.weight_mem = None
         self.old_weight = torch.empty(0).to(device)
 
-        # self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
-        self.gain = torch.nn.init.calculate_gain('relu')
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
@@ -357,12 +355,12 @@ class _DynamicLayer(nn.Module):
             self.shape_in[-1] = self.in_features
 
         # normalize to the zero mean and unit variance
-        if prune_out or prune_in:
-            weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
-            std = weight.std(dim=self.dim_in, unbiased=False).sum()
-            self.weight[-1].data = self.num_out[-1] * self.weight[-1].data / std
-            self.fwt_weight[-1].data = self.num_out[-1] * self.fwt_weight[-1].data / std
-            self.get_reg_strength()
+        # if prune_out or prune_in:
+        weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
+        std = weight.std(dim=self.dim_in, unbiased=False).sum()
+        self.weight[-1].data = self.num_out[-1] * self.weight[-1].data / std
+        self.fwt_weight[-1].data = self.num_out[-1] * self.fwt_weight[-1].data / std
+        self.get_reg_strength()
 
     def get_reg_strength(self):
         self.strength_in = (self.weight[-1].numel() + self.fwt_weight[-1].numel()) / self.num_out[-1]
@@ -411,6 +409,9 @@ class DynamicLinear(_DynamicLayer):
             self.dim_out = [0]
         else:
             self.dim_out = [0, 2, 3]
+        
+        self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        # self.gain = torch.nn.init.calculate_gain('relu')
             
         
 class _DynamicConvNd(_DynamicLayer):
@@ -447,6 +448,9 @@ class DynamicConv2D(_DynamicConvNd):
         self.dim_in = [1, 2, 3]
         self.dim_out = [0, 2, 3]
 
+        # self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
+        self.gain = torch.nn.init.calculate_gain('relu')
+
 class DynamicClassifier(DynamicLinear):
 
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
@@ -474,7 +478,6 @@ class DynamicClassifier(DynamicLinear):
         self.weight.append([])
         if self.bias is not None:
             self.bias.append([])
-        self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
 
         fan_in = max(self.base_in_features, self.shape_in[-2])
         bound_std = self.gain / math.sqrt(fan_in)

@@ -197,7 +197,7 @@ class Appr(object):
         loss.backward() 
         self.model.project_gradient()
         self.optimizer.step()
-        self.model.normalize()
+        # self.model.normalize()
         return loss.detach().cpu().item()
 
     def eval_batch(self, t, images, targets):

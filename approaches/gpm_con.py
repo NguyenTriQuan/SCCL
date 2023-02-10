@@ -300,7 +300,7 @@ class Appr(object):
         if valid_transform:
             images = valid_transform(images)
         outputs = self.model(inputs)
-        for i, m in enumerate(self.model.DM):
+        for i, m in enumerate(self.model.DM[:-1]):
             self.model.DM[i].act = self.model.DM[i].act[: batch_list[i]]
         self.model.get_feature(threshold)
         self.model.track_input(False)

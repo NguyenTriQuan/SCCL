@@ -1,5 +1,3 @@
-from asyncio import current_task
-from unittest import makeSuite
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -370,7 +368,7 @@ class _DynamicLayer(nn.Module):
     def proximal_gradient_descent(self, lr, lamb, total_strength):
         eps = 0
         with torch.no_grad():
-            strength = self.strength_in
+            strength = self.num_out[-1]
             # normalize to zero mean
             weight = torch.cat([self.fwt_weight[-1], self.weight[-1]], dim=1)
             mean = weight.mean(dim=self.dim_in)
@@ -400,7 +398,6 @@ class _DynamicLayer(nn.Module):
 class DynamicLinear(_DynamicLayer):
 
     def __init__(self, in_features, out_features, next_layers=[], bias=True, norm_type=None, s=1, first_layer=False, last_layer=False, dropout=0.0):
-        self.ks = 1
         super(DynamicLinear, self).__init__(in_features, out_features, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
         self.view_in = [-1, 1]
@@ -410,7 +407,7 @@ class DynamicLinear(_DynamicLayer):
             self.dim_out = [0]
         else:
             self.dim_out = [0, 2, 3]
-        
+        self.ks = 1
         self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
         # self.gain = torch.nn.init.calculate_gain('relu')
             
@@ -440,7 +437,6 @@ class DynamicConv2D(_DynamicConvNd):
         stride = _pair(stride)
         padding = _pair(padding)
         dilation = _pair(dilation)
-        self.ks = np.prod(kernel_size)
         super(DynamicConv2D, self).__init__(in_features, out_features, kernel_size, 
                                             stride, padding, dilation, False, _pair(0), groups, next_layers, bias, norm_type, s, first_layer, last_layer, dropout)
 
@@ -448,6 +444,7 @@ class DynamicConv2D(_DynamicConvNd):
         self.view_out = [1, -1, 1, 1]
         self.dim_in = [1, 2, 3]
         self.dim_out = [0, 2, 3]
+        self.ks = np.prod(self.kernel_size)
 
         # self.gain = torch.nn.init.calculate_gain('leaky_relu', math.sqrt(5))
         self.gain = torch.nn.init.calculate_gain('relu')

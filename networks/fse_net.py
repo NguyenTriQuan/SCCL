@@ -1,6 +1,3 @@
-# from tkinter.tix import Tree
-# from turtle import forward
-# from regex import D
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,7 +6,6 @@ from torch.distributions import Bernoulli, LogNormal
 import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
-# from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 from layers.fse_layer import DynamicLinear, DynamicConv2D, _DynamicLayer, DynamicClassifier
 
 from utils import *
@@ -323,13 +319,8 @@ class Alexnet(_DynamicModel):
         for i, m in enumerate(self.DM[:-1]):
             m.next_layers = [self.DM[i+1]]
 
-'''ResNet in PyTorch.
 
-Reference:
-[1] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun
-    Deep Residual Learning for Image Recognition. arXiv:1512.03385
-'''
-def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1):
+def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1, norm_type=None):
     """3x3 convolution with padding"""
     return DynamicConv2D(
         in_planes,
@@ -340,212 +331,228 @@ def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, d
         groups=groups,
         bias=False,
         dilation=dilation,
+        activation=args.activation,
+        norm_type=norm_type
     )
 
-def conv1x1(in_planes: int, out_planes: int, stride: int = 1):
+
+def conv1x1(in_planes: int, out_planes: int, stride: int = 1, norm_type=None):
     """1x1 convolution"""
-    return DynamicConv2D(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
-
-class BasicBlock(_DynamicModel):
-    expansion = 1
-
-    def __init__(self, in_planes, planes, stride=1, norm_type=None):
-        super(BasicBlock, self).__init__()
-        self.layers = nn.ModuleList([
-            DynamicConv2D(in_planes, planes, kernel_size=3, 
-                                stride=stride, padding=1, bias=False, norm_type=norm_type),
-            nn.ReLU(),
-            DynamicConv2D(planes, planes, kernel_size=3,
-                               stride=1, padding=1, bias=False, norm_type=norm_type)
-        ])
-
-        # if stride != 1 or in_planes != self.expansion*planes:
-        #     self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
-        #                     kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
-        # else:
-        #     self.shortcut = None
-        self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
-                        kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
-
-        self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
-        for i, m in enumerate(self.DM[:-1]):
-            m.next_layers = [self.DM[i+1]]
+    return DynamicConv2D(in_planes, out_planes, kernel_size=1, stride=stride, bias=False, activation=args.activation, norm_type=norm_type)
 
 
-    def forward(self, x, t):
-        out = x.clone()
-        for module in self.layers:
-            if isinstance(module, _DynamicLayer):
-                out = module(out, t)
-                if out is None:
-                    out = 0
-                    break
-            else:
-                out = module(out)
+class BasicBlock(nn.Module):
+    expansion: int = 1
 
-        if self.shortcut:
-            out += self.shortcut(x, t)
-        else:
-            out += x
+    def __init__(
+        self,
+        inplanes: int,
+        planes: int,
+        stride: int = 1,
+        downsample = None,
+        groups: int = 1,
+        base_width: int = 64,
+        dilation: int = 1,
+        norm_type = None,
+    ) -> None:
+        super().__init__()
+        if groups != 1 or base_width != 64:
+            raise ValueError("BasicBlock only supports groups=1 and base_width=64")
+        if dilation > 1:
+            raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
+        # Both self.conv1 and self.downsample layers downsample the input when stride != 1
+        self.conv1 = conv3x3(inplanes, planes, stride, norm_type=norm_type)
+        self.conv2 = conv3x3(planes, planes, norm_type=norm_type)
+        self.downsample = downsample
+        self.stride = stride
 
-        return F.relu(out)
+    def forward(self, x):
+        identity = x
+        out = self.conv1(x)
+        out = self.conv2(out)
 
-class Bottleneck(_DynamicModel):
-    expansion = 4
-
-    def __init__(self, in_planes, planes, stride=1, norm_type=None):
-        super(Bottleneck, self).__init__()
-
-        self.layers = nn.ModuleList([
-            DynamicConv2D(in_planes, planes, kernel_size=1, bias=False, norm_type=norm_type),
-            nn.ReLU(),
-            DynamicConv2D(planes, planes, kernel_size=3,
-                               stride=stride, padding=1, bias=False, norm_type=norm_type),
-            nn.ReLU(),
-            DynamicConv2D(planes, self.expansion * planes, 
-                                kernel_size=1, bias=False, norm_type=norm_type)
-        ])
-
-        # if stride != 1 or in_planes != self.expansion*planes:
-        #     self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
-        #                   kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
-        # else:
-        #     self.shortcut = None
-        self.shortcut = DynamicConv2D(in_planes, self.expansion*planes,
-                        kernel_size=1, stride=stride, bias=False, norm_type=norm_type)
-
-        self.DM = [m for m in self.layers if isinstance(m, _DynamicLayer)]
-        for i, m in enumerate(self.DM[:-1]):
-            m.next_layers = [self.DM[i+1]]
-
-
-    def forward(self, x, t):
-        out = x.clone()
-        for module in self.layers:
-            if isinstance(module, _DynamicLayer):
-                out = module(out, t)
-                if out is None:
-                    out = 0
-                    break
-            else:
-                out = module(out)
-
-        if self.shortcut:
-            out += self.shortcut(x, t)
-        else:
-            out += x
-
-        return F.relu(out)
-
-class ResNet(_DynamicModel):
-    def __init__(self, block, num_blocks, norm_type, input_size, nf=32):
-        super(ResNet, self).__init__()
-        n_channels, in_size, _ = input_size
-        s_mid = 1
-        # if in_size == 84:
-        #     s_mid = 2
-
-        self.in_planes = nf
-
-        self.conv1 = DynamicConv2D(n_channels, nf*1, kernel_size=3,
-                               stride=1, padding=1, bias=False, norm_type=norm_type, first_layer=True)
-        self.blocks = self._make_layer(block, nf*1, num_blocks[0], stride=1, norm_type=norm_type)
-        self.blocks += self._make_layer(block, nf*2, num_blocks[1], stride=2, norm_type=norm_type)
-        self.blocks += self._make_layer(block, nf*4, num_blocks[2], stride=2, norm_type=norm_type)
-        self.blocks += self._make_layer(block, nf*8, num_blocks[3], stride=2, norm_type=norm_type)
-        self.linear = DynamicLinear(nf*8*block.expansion*s_mid*s_mid, 0, last_layer=True, s=s_mid)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
-        m = self.conv1
-        for block in self.blocks:
-            m.next_layers = [block.layers[0]]
-            if block.shortcut:
-                m.next_layers.append(block.shortcut)
-            m = block.layers[-1]
-        m.next_layers = [self.linear]
-
-
-    def _make_layer(self, block, planes, num_blocks, stride, norm_type):
-        strides = [stride] + [1]*(num_blocks-1)
-        blocks = []
-        for stride in strides:
-            blocks.append(block(self.in_planes, planes, stride, norm_type))
-            self.in_planes = planes * block.expansion
-        return nn.ModuleList(blocks)
-
-    def forward(self, x, t):
-        out = F.relu(self.conv1(x, t))
-        out = self.maxpool(out)
-        for block in self.blocks:
-            out = block(out, t)
-
-        out = self.avgpool(out)
-        # out = F.avg_pool2d(out, 4)
-        out = torch.flatten(out, 1)
-        out = self.linear(out, t)
+        if args.res:
+            if self.downsample is not None:
+                identity = self.downsample(x)
+            out += identity
         return out
 
-    def squeeze(self, optim_state):
-        if self.conv1.mask is None:
-            return
 
-        for i, block in enumerate(self.blocks):
-            share_mask = block.shortcut.mask + block.layers[-1].mask
-            block.shortcut.mask = share_mask
-            block.layers[-1].mask = share_mask
-        self.total_strength = 1
-        for m in self.DM[:-1]:
-            m.squeeze(optim_state)
-            self.total_strength += m.strength
+class Bottleneck(nn.Module):
+    # Bottleneck in torchvision places the stride for downsampling at 3x3 convolution(self.conv2)
+    # while original implementation places the stride at the first 1x1 convolution(self.conv1)
+    # according to "Deep residual learning for image recognition"https://arxiv.org/abs/1512.03385.
+    # This variant is also known as ResNet V1.5 and improves accuracy according to
+    # https://ngc.nvidia.com/catalog/model-scripts/nvidia:resnet_50_v1_5_for_pytorch.
 
-    # def expand(self, new_class, ablation='full'):
-    #     for m in self.DM[:-1]:
-    #         m.expand(add_in=None, add_out=None, ablation=ablation)
-    #     self.DM[-1].expand(add_in=None, add_out=new_class, ablation=ablation)
+    expansion: int = 4
 
-    #     self.total_strength = 1
-    #     for m in self.DM[:-1]:
-    #         m.get_reg_strength()
-    #         self.total_strength += m.strength
+    def __init__(
+        self,
+        inplanes: int,
+        planes: int,
+        stride: int = 1,
+        downsample = None,
+        groups: int = 1,
+        base_width: int = 64,
+        dilation: int = 1,
+        norm_type = None,
+    ) -> None:
+        super().__init__()
+        width = int(planes * (base_width / 64.0)) * groups
+        # Both self.conv2 and self.downsample layers downsample the input when stride != 1
+        self.conv1 = conv1x1(inplanes, width, norm_type=norm_type)
+        self.conv2 = conv3x3(width, width, stride, groups, dilation, norm_type=norm_type)
+        self.conv3 = conv1x1(width, planes * self.expansion, norm_type=norm_type)
+        self.downsample = downsample
+        self.stride = stride
 
-    #     share_strength_in = self.conv1.strength_in
-    #     share_strength_out = self.conv1.strength_out
-    #     share_strength = self.conv1.strength
-    #     share_layers = []
-    #     for i, block in enumerate(self.blocks):
-    #         if block.shortcut:
-    #             for layer in share_layers:
-    #                 layer.strength_in = share_strength_in
-    #                 layer.strength_out = share_strength_out
-    #                 layer.strength = share_strength
-    #             share_strength = block.shortcut.strength
-    #             share_strength_in = block.shortcut.strength_in
-    #             share_strength_out = block.shortcut.strength_out
-    #             share_layers = []
-                            
-    #         share_layers.append(block.layers[-1])
-    #         share_strength = max(block.layers[-1].strength, share_strength)
-    #         share_strength_in = max(block.layers[-1].strength_in, share_strength_in)
-    #         share_strength_out = max(block.layers[-1].strength_out, share_strength_out)
-    #     for layer in share_layers:
-    #         layer.strength_in = share_strength_in
-    #         layer.strength_out = share_strength_out
-    #         layer.strength = share_strength
-    #     share_layers = []
+    def forward(self, x):
+        identity = x
+        out = self.conv1(x)
+        out = self.conv2(out)
+        out = self.conv3(out)
 
-def ResNet18(input_size, norm_type=None):
-    return ResNet(BasicBlock, [2, 2, 2, 2], norm_type, input_size)
+        if args.res:
+            if self.downsample is not None:
+                identity = self.downsample(x)
+            out += identity
 
-def ResNet34(input_size, norm_type=None):
-    return ResNet(BasicBlock, [3, 4, 6, 3], norm_type, input_size)
+        return out
 
-def ResNet50(input_size, norm_type=None):
-    return ResNet(Bottleneck, [3, 4, 6, 3], norm_type, input_size)
 
-def ResNet101(input_size, norm_type=None):
-    return ResNet(Bottleneck, [3, 4, 23, 3], norm_type, input_size)
+class ResNet(nn.Module):
+    def __init__(
+        self,
+        block,
+        layers,
+        norm_type,
+        input_size,
+        output_size,
+        zero_init_residual: bool = False,
+        groups: int = 1,
+        width_per_group: int = 64,
+        replace_stride_with_dilation = None,
+    ) -> None:
+        super().__init__()
+        
+        self._norm_layer = norm_type
 
-def ResNet152(input_size, norm_type=None):
-    return ResNet(Bottleneck, [3, 8, 36, 3], norm_type, input_size)
+        self.inplanes = 64
+        self.dilation = 1
+        if replace_stride_with_dilation is None:
+            # each element in the tuple indicates if we should replace
+            # the 2x2 stride with a dilated convolution instead
+            replace_stride_with_dilation = [False, False, False]
+        if len(replace_stride_with_dilation) != 3:
+            raise ValueError(
+                "replace_stride_with_dilation should be None "
+                f"or a 3-element tuple, got {replace_stride_with_dilation}"
+            )
+        self.groups = groups
+        self.base_width = width_per_group
+        self.conv1 = DynamicConv2D(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False, norm_type=norm_type, activation='identity')
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = DynamicLinear(512 * block.expansion, output_size, bias=True, activation=args.activation)
+        self.WN = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
+
+        for i, m in enumerate(self.WN[:-1]):
+            self.WN[i].next_ks = self.WN[i+1].ks
+            print(self.WN[i].next_ks)
+        
+        self.initialize()
+        # Zero-initialize the last BN in each residual branch,
+        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
+        # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
+        # if zero_init_residual:
+        #     for m in self.modules():
+        #         if isinstance(m, Bottleneck) and m.bn3.weight is not None:
+        #             nn.init.constant_(m.bn3.weight, 0)  # type: ignore[arg-type]
+        #         elif isinstance(m, BasicBlock) and m.bn2.weight is not None:
+        #             nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
+
+    def _make_layer(
+        self,
+        block,
+        planes: int,
+        blocks: int,
+        stride: int = 1,
+        dilate: bool = False,
+    ) -> nn.Sequential:
+        norm_type = self._norm_layer
+        downsample = None
+        previous_dilation = self.dilation
+        if dilate:
+            self.dilation *= stride
+            stride = 1
+        if args.res:
+            if stride != 1 or self.inplanes != planes * block.expansion:
+                downsample = nn.Sequential(
+                    conv1x1(self.inplanes, planes * block.expansion, stride, norm_type=norm_type),
+                )            
+
+        layers = []
+        layers.append(
+            block(
+                self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_type
+            )
+        )
+        self.inplanes = planes * block.expansion
+        for _ in range(1, blocks):
+            layers.append(
+                block(
+                    self.inplanes,
+                    planes,
+                    groups=self.groups,
+                    base_width=self.base_width,
+                    dilation=self.dilation,
+                    norm_type=norm_type,
+                )
+            )
+
+        return nn.Sequential(*layers)
+
+    def normalize(self):
+        for m in self.WN:
+            m.normalize()
+    
+    def initialize(self):
+        print('initialize')
+        for m in self.WN:
+            m.initialize()
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+
+        return x
+
+def ResNet18(input_size, output_size, norm_type=None):
+    return ResNet(BasicBlock, [2, 2, 2, 2], norm_type, input_size, output_size)
+
+def ResNet34(input_size, output_size, norm_type=None):
+    return ResNet(BasicBlock, [3, 4, 6, 3], norm_type, input_size, output_size)
+
+def ResNet50(input_size, output_size, norm_type=None):
+    return ResNet(Bottleneck, [3, 4, 6, 3], norm_type, input_size, output_size)
+
+def ResNet101(input_size, output_size, norm_type=None):
+    return ResNet(Bottleneck, [3, 4, 23, 3], norm_type, input_size, output_size)
+
+def ResNet152(input_size, output_size, norm_type=None):
+    return ResNet(Bottleneck, [3, 8, 36, 3], norm_type, input_size, output_size)
 

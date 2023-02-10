@@ -197,7 +197,7 @@ class Appr(object):
         loss.backward() 
         self.model.project_gradient()
         self.optimizer.step()
-        # self.model.normalize()
+        self.model.normalize()
         return loss.detach().cpu().item()
 
     def eval_batch(self, t, images, targets):
@@ -285,8 +285,8 @@ class Appr(object):
 
     def updateGPM(self, data_loader, valid_transform, threshold): 
         # Collect activations by forward pass
-        self.val_batch_size = 125
-        batch_list=[2*12,100,100,125,125]
+        # self.val_batch_size = 125
+        # batch_list=[2*12,100,100,125,125]
         inputs = []
         N = 0
         for i, (images, targets) in enumerate(data_loader):

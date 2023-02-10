@@ -133,7 +133,7 @@ class _DynamicLayer(nn.Module):
             mean = self.weight.mean(dim=self.norm_dim).detach().view(self.norm_view)
             var = self.weight.var(dim=self.norm_dim, unbiased=False).detach().sum() * self.next_ks
             std = var ** 0.5
-            self.weight.data = self.gain * (self.weight.data - mean) / std 
+            self.weight.data = self.gain * (self.weight.data) / std 
         
 
 class DynamicLinear(_DynamicLayer):

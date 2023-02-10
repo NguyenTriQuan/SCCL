@@ -108,7 +108,7 @@ class Appr(object):
         self.model = self.model.to(device)
         self.ncla = self.model.ncla
         self.cur_task = len(self.ncla)-2
-        self.threshold = np.array([0.99] * 5) + t*np.array([0.003] * 5)
+        self.threshold = np.array([0.99] * 6) + t*np.array([0.003] * 6)
         print(self.log_name)
 
         self.mean = train_loader.dataset.tensors[0].mean(dim=(0, 2, 3))
@@ -300,8 +300,8 @@ class Appr(object):
         if valid_transform:
             images = valid_transform(images)
         outputs = self.model(inputs)
-        for i, m in enumerate(self.model.DM):
-            self.model.DM[i].act = self.model.DM[i].act[: batch_list[i]]
+        # for i, m in enumerate(self.model.DM):
+        #     self.model.DM[i].act = self.model.DM[i].act[: batch_list[i]]
         self.model.get_feature(threshold)
         self.model.track_input(False)
         print('-'*40)

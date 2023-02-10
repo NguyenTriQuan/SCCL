@@ -285,7 +285,7 @@ class Appr(object):
 
     def updateGPM(self, data_loader, valid_transform, threshold): 
         # Collect activations by forward pass
-        self.val_batch_size = 100
+        # self.val_batch_size = 100
         inputs = []
         N = 0
         for i, (images, targets) in enumerate(data_loader):

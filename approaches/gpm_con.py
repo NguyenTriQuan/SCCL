@@ -197,7 +197,7 @@ class Appr(object):
         loss.backward() 
         self.model.project_gradient()
         self.optimizer.step()
-        self.model.normalize()
+        # self.model.normalize()
         return loss.detach().cpu().item()
 
     def eval_batch(self, t, images, targets):
@@ -300,7 +300,7 @@ class Appr(object):
         if valid_transform:
             images = valid_transform(images)
         outputs = self.model(inputs)
-        for i, m in enumerate(self.model.DM[:-1]):
+        for i, m in enumerate(self.model.DMS):
             self.model.DM[i].act = self.model.DM[i].act[: batch_list[i]]
         self.model.get_feature(threshold)
         self.model.track_input(False)

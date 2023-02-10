@@ -34,12 +34,6 @@ class _DynamicModel(nn.Module):
         self.features_var_mem = None
         self.ncla = [0]
 
-    def get_optim_scales(self, lr):
-        params = []
-        for m in self.DM[:-1]:
-            params += m.get_optim_scales(lr)
-        return params
-
     def forward(self, input):
         for module in self.layers:
             input = module(input)
@@ -53,15 +47,15 @@ class _DynamicModel(nn.Module):
         print('GPM count:', gpm_count)
 
     def project_gradient(self):
-        for m in self.DM[0:-1]:
+        for m in self.DM:
             m.project_gradient()
 
     def get_feature(self, thresholds):
-        for i, m in enumerate(self.DM[0:-1]):
+        for i, m in enumerate(self.DM):
             m.get_feature(thresholds[i])
 
     def track_input(self, tracking):
-        for m in self.DM[:-1]:
+        for m in self.DM:
             m.act = None
             m.track_input = tracking
 

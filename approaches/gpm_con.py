@@ -285,7 +285,8 @@ class Appr(object):
 
     def updateGPM(self, data_loader, valid_transform, threshold): 
         # Collect activations by forward pass
-        # self.val_batch_size = 100
+        self.val_batch_size = 125
+        batch_list=[2*12,100,100,125,125]
         inputs = []
         N = 0
         for i, (images, targets) in enumerate(data_loader):
@@ -299,7 +300,8 @@ class Appr(object):
         if valid_transform:
             images = valid_transform(images)
         outputs = self.model(inputs)
-
+        for i, m in enumerate(self.model.DM):
+            self.model.DM[i].act = self.model.DM[i].act[: batch_list[i]]
         self.model.get_feature(threshold)
         self.model.track_input(False)
         print('-'*40)

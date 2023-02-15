@@ -113,7 +113,7 @@ def get_args():
     parser.add_argument('--augment', default=False, action='store_true', help='(default=%(default)s)')
     parser.add_argument('--prune_method', type=str, default='pgd', help='(default=%(default)s)')
     parser.add_argument('--dropout_method', type=str, default='pcdrop', help='(default=%(default)s)')
-    parser.add_argument('--sparsity', default=1000, type=float, required=False, help='(default=%(default)s)')
+    parser.add_argument('--sparsity', default=0.9, type=float, required=False, help='(default=%(default)s)')
     parser.add_argument('--factor', default=10, type=float, required=False, help='(default=%(default)s)')
     parser.add_argument('--feat_dim', default=128, type=int, required=False, help='(default=%(default)s)')
     parser.add_argument('--nsamples', default=50, type=int, required=False, help='(default=%(default)s)')

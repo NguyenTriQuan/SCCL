@@ -10,7 +10,7 @@ import numpy as np
 from torch.nn.modules.utils import _single, _pair, _triple
 from torch import Tensor, dropout
 # from layers.sccl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
-from layers.gpm_con_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
+from layers.npb_cl_layer import DynamicLinear, DynamicConv2D, _DynamicLayer
 
 from utils import *
 import sys
@@ -20,6 +20,45 @@ def compute_conv_output_size(Lin,kernel_size,stride=1,padding=0,dilation=1):
     return int(np.floor((Lin+2*padding-dilation*(kernel_size-1)-1)/float(stride)+1))
     
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def get_intermediate_inputs(net, input_):
+    
+    def get_children(model: torch.nn.Module):
+        # get children form model!
+        children = list(model.children())
+        flatt_children = []
+        if children == []:
+            # if model has no children; model is last child! :O
+            return model
+        else:
+            # look for children from children... to the last child!
+            for child in children:
+                    if isinstance(child, nn.BatchNorm2d) or \
+                        isinstance(child, nn.ReLU) or \
+                        isinstance(child, nn.AdaptiveAvgPool2d):
+                        continue
+                    try:
+                        flatt_children.extend(get_children(child))
+                    except TypeError:
+                        flatt_children.append(get_children(child))
+            return flatt_children
+
+    flatt_children = get_children(net)
+
+    visualization = []
+
+    def hook_fn(m, i, o):
+        visualization.append(i)
+
+    for layer in flatt_children:
+        layer.register_forward_hook(hook_fn)
+        
+    # for param in net.parameters():
+    #     param.data.copy_(torch.ones_like(param))
+
+    out = net(input_)  
+    
+    return visualization
 
 class _DynamicModel(nn.Module):
     """docstring for ClassName"""
@@ -34,34 +73,149 @@ class _DynamicModel(nn.Module):
         self.features_var_mem = None
         self.ncla = [0]
 
-    def forward(self, input):
+    def forward(self, input, t):
         for module in self.layers:
-            input = module(input)
+            if isinstance(module, _DynamicLayer):
+                input = module(input, t)
+            else:
+                input = module(input)
+        input = self.last[t](input)
         return input
-
-    def count_GPM(self):
-        gpm_count = 0
-        for m in self.DM:
-            if m.projection_matrix is not None:
-                gpm_count += m.feature.numel()
-        print('GPM count:', gpm_count)
-
-    def project_gradient(self):
-        for m in self.DM:
-            m.project_gradient()
-
-    def get_feature(self, thresholds):
-        for i, m in enumerate(self.DM):
-            m.get_feature(thresholds[i])
-
-    def track_input(self, tracking):
-        for m in self.DM:
-            m.act = None
-            m.track_input = tracking
 
     def normalize(self):
         for m in self.DM:
             m.normalize()
+
+    def ERK_sparsify(self, sparsity=0.9):
+        print(f'initialize by ERK, sparsity {sparsity}')
+        density = 1 - sparsity
+        erk_power_scale = 1
+
+        total_params = 0
+        for m in self.DM:
+            total_params += m.weight.numel()
+        is_epsilon_valid = False
+
+        dense_layers = set()
+        while not is_epsilon_valid:
+            divisor = 0
+            rhs = 0
+            for i, m in enumerate(self.DM):
+                m.raw_probability = 0
+                n_param = np.prod(m.weight.shape)
+                n_zeros = n_param * (1 - density)
+                n_ones = n_param * density
+
+                if m in dense_layers:
+                    rhs -= n_zeros
+                else:
+                    rhs += n_ones
+                    m.raw_probability = (np.sum(m.weight.shape) / np.prod(m.weight.shape)) ** erk_power_scale
+                    divisor += m.raw_probability * n_param
+            epsilon = rhs / divisor
+            max_prob = np.max([m.raw_probability for m in self.DM])
+            max_prob_one = max_prob * epsilon
+            if max_prob_one > 1:
+                is_epsilon_valid = False
+                for m in self.DM:
+                    if m.raw_probability == max_prob:
+                        # print(f"Sparsity of var:{mask_name} had to be set to 0.")
+                        dense_layers.add(m)
+            else:
+                is_epsilon_valid = True
+
+        total_nonzero = 0.0
+        # With the valid epsilon, we can set sparsities of the remaning layers.
+        for i, m in enumerate(self.DM):
+            n_param = np.prod(m.weight.shape)
+            if m in dense_layers:
+                m.sparsity = 0
+            else:
+                probability_one = epsilon * m.raw_probability
+                m.sparsity = 1 - probability_one
+            print(
+                f"layer: {i}, shape: {m.weight.shape}, sparsity: {m.sparsity}"
+            )
+            total_nonzero += (1-m.sparsity) * m.weight.numel()
+        print(f"Overall sparsity {1-total_nonzero / total_params}")
+        #     mask.data.copy_((torch.rand(mask.shape) < density_dict[name]).float().data.cuda())
+
+        #     total_nonzero += density_dict[name] * mask.numel()
+        # print(f"Overall sparsity {total_nonzero / total_params}")
+
+    def prune(self, input_shape, sparsity, alpha, beta, node_constraint=False, 
+                max_param_per_kernel=None, min_param_to_node=None, is_store_mask=False, file_name=None):
+        layer_id = 0
+
+        c, h, w = input_shape
+
+        input_ = torch.ones((1,c,h,w)).double()
+        self.cpu()
+        self.double()
+        print(input_.shape)
+        prev = input_
+
+        self.ERK_sparsify(sparsity)
+        for i, m in enumerate(self.DM):
+            if isinstance(m, DynamicConv2D):
+                print(f'Considering layer {i}')
+                if i == 0: # Input layer
+                    m.optimize_layerwise(prev[0], alpha=alpha, beta=beta, 
+                                        max_param_per_kernel=None)
+                else:
+                    if m.res:
+                        m.optimize_layerwise(prev[0], alpha=self.alpha, 
+                                    node_constraint=node_constraint)
+                    else:
+                        m.optimize_layerwise(prev[0], alpha=alpha, beta=beta, 
+                                    max_param_per_kernel=max_param_per_kernel,
+                                    min_param_to_node=min_param_to_node, 
+                                    node_constraint=node_constraint)
+                # actual_sparsity = 1 - mask.sum().item() / mask.numel()
+                # print(f'Desired sparsity is {sparsity_dict[name]} and optimizer finds sparsity is {actual_sparsity}')
+
+                # if 'shortcut' in name:
+                #     if self.max_param_per_kernel > 5:
+                #         self.max_param_per_kernel -= 2
+                        
+            else:    # Linear layer
+                print(f'Considering layer {i}')
+                m.optimize_layerwise(prev[0], alpha=alpha, beta=0)
+
+            print(m.weight.sum())
+            output = torch.ones((1,c,h,w)).double()
+            n = 0
+            for layer in self.layers:
+                if isinstance(layer, _DynamicLayer):
+                    output = layer(output)
+                    if n == i:
+                        prev = output.detach().clone()
+                        break
+                    n += 1
+                else:
+                    output = layer(output)
+            
+            print(prev.shape)
+        
+
+        # cloned_net = fine_tune_mask(cloned_net, input_shape)
+        # count_ineff_param(cloned_net, input_shape)
+
+        # cloned_net.float()
+
+        # # Copy mask
+        # cloned_net.to(self.device)
+        # for (n, m), (name, mask) in zip(net.named_buffers(), cloned_net.named_buffers()):
+        #     m.copy_(mask)
+
+        # if is_store_mask:
+        #     if file_name is not None:
+        #         try:
+        #             store_mask(net, file_name)
+        #         except:
+        #             raise RuntimeError('There is something wrong with store mask function!')
+        #     else:
+        #         print('No store mask file name')
             
 class MLP(_DynamicModel):
 
@@ -84,7 +238,7 @@ class MLP(_DynamicModel):
 
 class VGG8(_DynamicModel):
 
-    def __init__(self, input_size, mul=1, norm_type=None, ncla=0):
+    def __init__(self, input_size, taskcla, mul=1, norm_type=None, ncla=0):
         super(VGG8, self).__init__()
 
         nchannels, size, _ = input_size
@@ -125,9 +279,10 @@ class VGG8(_DynamicModel):
             DynamicLinear(128*s*s, 256, norm_type=norm_type, s=s),
             nn.ReLU(),
             # nn.Dropout(0.5),
-            DynamicLinear(256, args.feat_dim, bias=False)
             ])
-        self.classifier = nn.Linear(args.feat_dim, ncla, bias=True)
+        self.last = []
+        for t,n in taskcla:
+            self.last.append(torch.nn.Linear(256,n))
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
 
 class VGG(_DynamicModel):
@@ -152,10 +307,8 @@ class VGG(_DynamicModel):
         self.layers += nn.ModuleList([
             nn.Flatten(),
             DynamicLinear(int(512*s*s*mul), int(4096*mul), s=s),
-            # nn.Dropout(self.p),
             nn.ReLU(True),
             DynamicLinear(int(4096*mul), int(4096*mul)),
-            # nn.Dropout(self.p),
             nn.ReLU(True),
             DynamicLinear(int(4096*mul), 0, last_layer=True),
         ])
@@ -209,47 +362,6 @@ def VGG19(input_size, norm_type):
     """VGG 19-layer model (configuration "E")"""
     return VGG(input_size, cfg['D'], norm_type=norm_type)
 
-
-class Alexnet(_DynamicModel):
-
-    def __init__(self, input_size, mul=1, norm_type=None):
-        super(Alexnet,self).__init__()
-
-        ncha, size, _ = input_size
-        self.mul = mul
-        self.layers = nn.ModuleList([
-            DynamicConv2D(ncha,64,kernel_size=size//8, first_layer=True, norm_type=norm_type),
-            # nn.Dropout(0.2),
-            nn.MaxPool2d(2),
-
-            DynamicConv2D(64,128,kernel_size=size//10, norm_type=norm_type),
-            # nn.Dropout(0.2),
-            nn.MaxPool2d(2),
-
-            DynamicConv2D(128,256,kernel_size=2, norm_type=norm_type),
-            # nn.Dropout(0.5),
-            nn.MaxPool2d(2),
-            ])
-
-        s = size
-        for m in self.layers:
-            if isinstance(m, DynamicConv2D):
-                s = compute_conv_output_size(s, m.kernel_size[0], m.stride[0], m.padding[0], m.dilation[0])
-            elif isinstance(m, nn.MaxPool2d):
-                s = compute_conv_output_size(s, m.kernel_size, m.stride, m.padding, m.dilation)
-
-        self.layers += nn.ModuleList([
-            nn.Flatten(),
-            DynamicLinear(256*s*s, 2048, s=s, norm_type=norm_type),
-            # nn.Dropout(0.5),
-            DynamicLinear(2048, 2048, norm_type=norm_type),
-            # nn.Dropout(0.5),
-            DynamicLinear(2048, args.feat_dim, last_layer=True, activation='identity', norm_type=None)
-        ])
-        self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
-        for i, m in enumerate(self.DM[:-1]):
-            self.DM[i].next_ks = self.DM[i+1].ks
-            print(self.DM[i].next_ks)
 
 '''ResNet in PyTorch.
 

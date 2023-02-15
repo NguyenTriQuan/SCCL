@@ -61,36 +61,6 @@ if args.resume:
     # )
     start_task = appr.resume()
     print('start from task ', start_task)
-    # Test
-    en_til = []
-    til = []
-    en_cil = []
-    cil = []
-    mem = False
-    for u in range(start_task):
-        print('>>> Test no ensemble on task {:2d} - {:15s}: <<<'.format(u, data[u]['name']))
-
-        # test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=True, over_param=True, mem=mem)
-        # print('>>> Ensemble CIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
-        # en_cil.append(test_acc)
-
-        # test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=False, over_param=True, mem=False)
-        # print('>>> No ensemble CIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
-        # cil.append(test_acc)
-
-        # test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'], mask=True, over_param=True, mem=mem)
-        # print('>>> Ensemble TIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
-        # en_til.append(test_acc)
-
-        test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'], mask=False, over_param=True, mem=False)
-        print('>>> No ensemble TIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
-        til.append(test_acc)
-        
-    # print('Avg acc ensemble CIL ={:5.2f}%'.format(100*sum(en_cil)/len(en_cil)))
-    # print('Avg acc no ensemble CIL ={:5.2f}%'.format(100*sum(cil)/len(cil)))
-    # print('Avg acc ensemble TIL ={:5.2f}%'.format(100*sum(en_til)/len(en_til)))
-    print('Avg acc no ensemble TIL ={:5.2f}%'.format(100*sum(til)/len(til)))
-    sys.exit()
 # else:
 #     appr.logger = Experiment(
 #         api_key="YSY2PKZaRYWMWkA9XvW0SnJzF",
@@ -132,68 +102,21 @@ for t, ncla in taskcla[start_task:]:
     task = t
     train_start = time.time()
     # Train
-    # if args.experiment == 'mixture':
-    #     appr.factor = data[t]['factor']
-    #     print('dataset factor', appr.factor)
-    if args.approach in ['dad', 'fse', 'fse_con', 'gpm_con']:
-        # appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
-        appr.train(task, data[t]['train_loader'], data[t]['test_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
-    else:
-        # appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'])
-        appr.train(task, data[t]['train_loader'], data[t]['test_loader'], data[t]['train_transform'], data[t]['valid_transform'])
+    # appr.train(task, data[t]['train_loader'], data[t]['valid_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
+    appr.train(task, data[t]['train_loader'], data[t]['test_loader'], data[t]['train_transform'], data[t]['valid_transform'], ncla=ncla)
 
     print('-' * 100)
     print(f'Task {t} training time: {time.time() - train_start} s')
     # Test
-    if args.approach == 'fse' or args.approach == 'fse_con':
-        en_til = []
-        til = []
-        en_cil = []
-        cil = []
-        mem = True
-        for u in range(t + 1):
-            print('>>> Test no ensemble on task {:2d} - {:15s}: <<<'.format(u, data[u]['name']))
-
-            # test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=True, over_param=True, mem=mem)
-            # print('>>> Ensemble CIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
-            # en_cil.append(test_acc)
-
-            # test_loss, test_acc = appr.eval(None, data[u]['test_loader'], data[u]['valid_transform'], mask=False, over_param=True, mem=False)
-            # print('>>> No ensemble CIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
-            # cil.append(test_acc)
-
-            # test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'], mask=True, over_param=True, mem=mem)
-            # print('>>> Ensemble TIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
-            # en_til.append(test_acc)
-
-            # acc[t, u] = test_acc
-            # lss[t, u] = test_loss
-
-            test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'], mask=False, over_param=True, mem=False)
-            print('>>> No ensemble TIL: loss={:.3f}, acc={:5.2f}% <<<'.format(test_loss, 100 * test_acc))
-            til.append(test_acc)
-            
-        # print('Avg acc ensemble CIL ={:5.2f}%'.format(100*sum(en_cil)/len(en_cil)))
-        # print('Avg acc no ensemble CIL ={:5.2f}%'.format(100*sum(cil)/len(cil)))
-        # print('Avg acc ensemble TIL ={:5.2f}%'.format(100*sum(en_til)/len(en_til)))
-        print('Avg acc no ensemble TIL ={:5.2f}%'.format(100*sum(til)/len(til)))
-    else:
-        for u in range(t + 1):
-            test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'])
-            print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
-            acc[t, u] = test_acc
-            lss[t, u] = test_loss
-        print('Avg acc={:5.2f}%'.format(100*sum(acc[t])/(t+1)))
+    for u in range(t + 1):
+        test_loss, test_acc = appr.eval(u, data[u]['test_loader'], data[u]['valid_transform'])
+        print('>>> Test on task {:2d} - {:15s}: loss={:.3f}, acc={:5.2f}% <<<'.format(u, data[u]['name'], test_loss, 100 * test_acc))
+        acc[t, u] = test_acc
+        lss[t, u] = test_loss
+    print('Avg acc={:5.2f}%'.format(100*sum(acc[t])/(t+1)))
     # Save
     print('Save at ' + f'../result_data/{appr.log_name}.txt')
     np.savetxt(f'../result_data/{appr.log_name}.txt', acc, '%.4f')
-
-    # if 'sccl' in args.approach:
-    #     lip_2, lip_max, lip_max_2, lip_2_max = naive_lip(appr.model, inputsize, task+1, n_iter=200)
-    # else:
-    #     lip_2, lip_max, lip_max_2, lip_2_max = naive_lip(appr.model, inputsize, task, n_iter=200)
-
-    # print(f'Lipschitz norm: L2/L2: {lip_2}, max/max: {lip_max}, max/L2: {lip_max_2}, L2/max: {lip_2_max} ')
 
 
 # Done

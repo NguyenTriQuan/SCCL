@@ -108,7 +108,7 @@ class Appr(object):
         self.model = self.model.to(device)
         self.ncla = self.model.ncla
         self.cur_task = len(self.ncla)-2
-        self.threshold = np.array([0.99] * 6) + t*np.array([0.003] * 6)
+        self.threshold = np.array([0.97] * 6) + t*np.array([0.003] * 6)
         print(self.log_name)
 
         self.mean = train_loader.dataset.tensors[0].mean(dim=(0, 2, 3))
@@ -224,8 +224,6 @@ class Appr(object):
             targets=targets.to(device)
             if train_transform:
                 images = torch.cat([valid_transform(images), train_transform(images)], dim=0)
-                # images = (images - self.mean.view(1, -1, 1, 1)) / self.std
-                # images = torch.cat([images, images], dim=0)
                 targets = torch.cat([targets, targets], dim=0)
             total_loss += self.train_batch(t, images, targets)
             total_num += len(targets)
@@ -241,7 +239,6 @@ class Appr(object):
             targets=targets.to(device)
             if valid_transform:
                 images = valid_transform(images)
-                # images = (images - self.mean.view(1, -1, 1, 1)) / self.std
                     
             hits = self.eval_batch(t, images, targets)
             total_acc += hits
@@ -285,8 +282,8 @@ class Appr(object):
 
     def updateGPM(self, data_loader, valid_transform, threshold): 
         # Collect activations by forward pass
-        # self.val_batch_size = 125
-        # batch_list=[2*12,100,100,125,125]
+        self.val_batch_size = 125
+        batch_list=[2*12,100,100,125,125,125]
         inputs = []
         N = 0
         for i, (images, targets) in enumerate(data_loader):
@@ -300,8 +297,8 @@ class Appr(object):
         if valid_transform:
             images = valid_transform(images)
         outputs = self.model(inputs)
-        # for i, m in enumerate(self.model.DM):
-        #     self.model.DM[i].act = self.model.DM[i].act[: batch_list[i]]
+        for i, m in enumerate(self.model.DM):
+            self.model.DM[i].act = self.model.DM[i].act[: batch_list[i]]
         self.model.get_feature(threshold)
         self.model.track_input(False)
         print('-'*40)

@@ -108,7 +108,7 @@ class Appr(object):
         self.model = self.model.to(device)
         self.ncla = self.model.ncla
         self.cur_task = len(self.ncla)-2
-        self.threshold = np.array([0.98] * 6) + t*np.array([0.002] * 6)
+        self.threshold = np.array([0.991] * 6) + t*np.array([0.001] * 6)
         print(self.log_name)
 
         self.mean = train_loader.dataset.tensors[0].mean(dim=(0, 2, 3))
@@ -197,7 +197,7 @@ class Appr(object):
         loss.backward() 
         self.model.project_gradient()
         self.optimizer.step()
-        # self.model.normalize()
+        self.model.normalize()
         return loss.detach().cpu().item()
 
     def eval_batch(self, t, images, targets):

@@ -88,7 +88,7 @@ class _DynamicLayer(nn.Module):
             # criteria (Eq-5)
             sval_ratio = S**2
             sval_ratio = sval_ratio/sval_ratio.sum()
-            r = (torch.cumsum(sval_ratio, dim=0) < threshold).sum().item() #+1 
+            r = (torch.cumsum(sval_ratio, dim=0) <= threshold).sum().item() #+1 
             self.feature = U[:, :r]
         else:
             U1, S1, Vh1 = torch.linalg.svd(mat, full_matrices=False)
@@ -102,7 +102,7 @@ class _DynamicLayer(nn.Module):
             accumulated_sval = (sval_total-sval_hat)/sval_total
             r = 0
             for ii in range (sval_ratio.shape[0]):
-                if accumulated_sval < threshold:
+                if accumulated_sval <= threshold:
                     accumulated_sval += sval_ratio[ii]
                     r += 1
                 else:
@@ -130,7 +130,7 @@ class _DynamicLayer(nn.Module):
     
     def normalize(self):
         with torch.no_grad():
-            mean = self.weight.mean(dim=self.norm_dim).detach().view(self.norm_view)
+            # mean = self.weight.mean(dim=self.norm_dim).detach().view(self.norm_view)
             var = self.weight.var(dim=self.norm_dim, unbiased=False).detach().sum() * self.next_ks
             std = var ** 0.5
             self.weight.data = self.gain * (self.weight.data) / std 

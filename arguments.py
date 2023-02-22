@@ -118,7 +118,7 @@ def get_args():
     parser.add_argument('--feat_dim', default=128, type=int, required=False, help='(default=%(default)s)')
     parser.add_argument('--nsamples', default=50, type=int, required=False, help='(default=%(default)s)')
     parser.add_argument('--temperature', default=0.1, type=float, required=False, help='(default=%(default)s)')
-    parser.add_argument('--negative_slope', default=math.sqrt(5), type=float, required=False, help='(default=%(default)s)')
+    parser.add_argument('--negative_slope', default=0, type=float, required=False, help='(default=%(default)s)')
     
     
 

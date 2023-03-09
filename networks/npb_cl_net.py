@@ -64,13 +64,6 @@ class _DynamicModel(nn.Module):
     """docstring for ClassName"""
     def __init__(self):
         super(_DynamicModel, self).__init__()
-        self.features_mean = None
-        self.features_mean_mask = None
-        self.features_mean_mem = None
-
-        self.features_var = None
-        self.features_var_mask = None
-        self.features_var_mem = None
         self.ncla = [0]
 
     def forward(self, input, t):
@@ -149,7 +142,7 @@ class _DynamicModel(nn.Module):
 
         c, h, w = input_shape
 
-        input_ = torch.ones((1,c,h,w)).double()
+        input_ = torch.ones((2,c,h,w)).double()
         self.cpu()
         self.double()
         print(input_.shape)
@@ -157,6 +150,21 @@ class _DynamicModel(nn.Module):
 
         self.ERK_sparsify(sparsity)
         for i, m in enumerate(self.DM):
+
+            output = torch.ones((2,c,h,w)).double()
+            n = 0
+            for layer in self.layers:
+                if isinstance(layer, _DynamicLayer):
+                    if n == i:
+                        prev = output.detach().clone()
+                        break
+                    output = layer(output)
+                    n += 1
+                else:
+                    output = layer(output)
+            
+            print(prev.shape, prev.sum().item()/prev.numel())
+
             if isinstance(m, DynamicConv2D):
                 print(f'Considering layer {i}')
                 if i == 0: # Input layer
@@ -182,20 +190,7 @@ class _DynamicModel(nn.Module):
                 print(f'Considering layer {i}')
                 m.optimize_layerwise(prev[0], alpha=alpha, beta=0)
 
-            print(m.weight.sum())
-            output = torch.ones((1,c,h,w)).double()
-            n = 0
-            for layer in self.layers:
-                if isinstance(layer, _DynamicLayer):
-                    output = layer(output)
-                    if n == i:
-                        prev = output.detach().clone()
-                        break
-                    n += 1
-                else:
-                    output = layer(output)
-            
-            print(prev.shape)
+            print(m.weight.sum().item())
         
 
         # cloned_net = fine_tune_mask(cloned_net, input_shape)
@@ -219,52 +214,58 @@ class _DynamicModel(nn.Module):
             
 class MLP(_DynamicModel):
 
-    def __init__(self, input_size, mul=1, norm_type=None, ncla=0):
+    def __init__(self, input_size, taskcla, mul=1, norm_type=None, ncla=0, bias=True):
         super(MLP, self).__init__()
         self.mul = mul
         self.input_size = input_size
         N = 200
         self.layers = nn.ModuleList([
             nn.Flatten(),
-            nn.Dropout(0.25),
-            DynamicLinear(np.prod(input_size), N, bias=False, norm_type=norm_type),
+            DynamicLinear(np.prod(input_size), N, bias=bias, norm_type=norm_type),
             nn.ReLU(),
-            DynamicLinear(N, N, bias=False, norm_type=norm_type),
+            DynamicLinear(N, N, bias=bias, norm_type=norm_type),
             nn.ReLU(),
-            DynamicLinear(N, args.feat_dim, bias=False),
             ])
-        self.classifier = nn.Linear(args.feat_dim, ncla, bias=True)
+        self.last = []
+        for t,n in taskcla:
+            self.last.append(torch.nn.Linear(N,n))
         self.DM = [m for m in self.modules() if isinstance(m, _DynamicLayer)]
 
 class VGG8(_DynamicModel):
 
-    def __init__(self, input_size, taskcla, mul=1, norm_type=None, ncla=0):
+    def __init__(self, input_size, taskcla, mul=1, norm_type=None, ncla=0, bias=True):
         super(VGG8, self).__init__()
 
         nchannels, size, _ = input_size
         self.mul = mul
         self.input_size = input_size
         self.layers = nn.ModuleList([
-            DynamicConv2D(nchannels, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=False),
+            DynamicConv2D(nchannels, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
-            DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=False, dropout=0.25),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            # nn.Dropout(0.25),
-
-            DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=False),
-            nn.ReLU(),
-            DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=False, dropout=0.25),
+            DynamicConv2D(32, 32, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
             nn.ReLU(),
             nn.MaxPool2d(2),
             # nn.Dropout(0.25),
 
-            DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=False),
+            DynamicConv2D(32, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
             nn.ReLU(),
-            DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=False, dropout=0.5),
+            DynamicConv2D(64, 64, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.25),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            # nn.Dropout(0.25),
+
+            DynamicConv2D(64, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
+            nn.ReLU(),
+            DynamicConv2D(128, 128, kernel_size=3, padding=1, norm_type=norm_type, bias=bias, dropout=0.5),
             nn.ReLU(),
             nn.MaxPool2d(2),
             # nn.Dropout(0.5),
+
+            DynamicConv2D(128, 256, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
+            nn.ReLU(),
+            DynamicConv2D(256, 256, kernel_size=3, padding=1, norm_type=norm_type, bias=bias),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
             ])
 
         s = size
@@ -276,7 +277,7 @@ class VGG8(_DynamicModel):
 
         self.layers += nn.ModuleList([
             nn.Flatten(),
-            DynamicLinear(128*s*s, 256, norm_type=norm_type, s=s),
+            DynamicLinear(256*s*s, 256, norm_type=norm_type, s=s),
             nn.ReLU(),
             # nn.Dropout(0.5),
             ])

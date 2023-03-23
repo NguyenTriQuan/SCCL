@@ -27,7 +27,7 @@ print('Arguments =')
 for arg in vars(args):
     print('\t' + arg + ':', getattr(args, arg))
 print('=' * 100)
-
+print('hi')
 # Seed
 np.random.seed(args.seed)
 random.seed(args.seed)

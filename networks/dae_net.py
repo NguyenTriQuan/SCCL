@@ -18,7 +18,6 @@ def compute_conv_output_size(Lin,kernel_size,stride=1,padding=0,dilation=1):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class _DynamicModel(nn.Module):
-    """docstring for ClassName"""
     def __init__(self):
         super(_DynamicModel, self).__init__()
         self.permute = []
